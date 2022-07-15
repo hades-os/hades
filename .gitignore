@@ -1,7 +1,3 @@
+/.cache/
 /.vscode/
 /build/
-/.cache/
-/debug/
-/build/
-/out/
-/.cache/

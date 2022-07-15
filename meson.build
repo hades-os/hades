@@ -1,38 +1,38 @@
-project('Trajan', 'cpp', version: '0.0.1')
-
+project('trajan', 'cpp', version: '0.0.1')
 main_sources = files(
-    'source/sys/x86/apic.cpp',
-    'source/sys/acpi.cpp',
-	'source/sys/pci.cpp',
-	'source/sys/smp.cpp',
-	'source/sys/irq.cpp',
-	'source/sys/sched.cpp',
-	'source/sys/runtime.cpp',
-    'source/entry.cpp',
-    'source/mm/ctx.cpp',
-	'source/mm/mm.cpp',
-    'source/mm/pmm.cpp',
-    'source/mm/vmm.cpp',
-	'source/fs/vfs.cpp',
-	'source/fs/rootfs.cpp',
-	'source/fs/devfs.cpp',
-	'source/driver/ahci.cpp',
-	'source/driver/part.cpp'
+    'source/cxx/sys/x86/apic.cpp',
+    'source/cxx/sys/acpi.cpp',
+	'source/cxx/sys/pci.cpp',
+	'source/cxx/sys/smp.cpp',
+	'source/cxx/sys/irq.cpp',
+	'source/cxx/sys/sched.cpp',
+	'source/cxx/sys/runtime.cpp',
+    'source/cxx/entry.cpp',
+    'source/cxx/mm/ctx.cpp',
+	'source/cxx/mm/mm.cpp',
+    'source/cxx/mm/pmm.cpp',
+    'source/cxx/mm/vmm.cpp',
+	'source/cxx/fs/vfs.cpp',
+	'source/cxx/fs/rootfs.cpp',
+	'source/cxx/fs/devfs.cpp',
+	'source/cxx/driver/ahci.cpp',
+	'source/cxx/driver/part.cpp'
 )
-
-cpp_includes = include_directories('include')
-
+main_includes = include_directories('include')
 nasm_sources = files(
-    'source/util/asm/boot.asm',
-    'source/util/asm/irq.asm',
-    'source/util/asm/lock.asm'
+    'source/asm/boot.asm',
+    'source/asm/irq.asm',
+    'source/asm/lock.asm'
 )
 
 nasm = find_program('nasm')
 nasm_gen = generator(nasm, output: '@BASENAME@.o', arguments: ['-f', 'elf64', '-g', '-F', 'dwarf', '@INPUT@', '-o', '@OUTPUT@'])
 nasm_objects = nasm_gen.process(nasm_sources)
 
-ld_script = meson.current_source_dir() + '/misc/linker.ld'
+source_dir = join_paths(meson.source_root(), 'source')
+build_dir = meson.build_root()
+
+ld_script = join_paths(source_dir, 'misc', 'linker.ld')
 
 flags_cpp = [
     '-std=gnu++20',
@@ -68,4 +68,18 @@ flags_ld = [
 	'-no-pie'
 ]
 
-executable('trajan.elf', main_sources, nasm_objects, include_directories: cpp_includes, link_depends: ld_script, install: true, cpp_args: flags_cpp, link_args: flags_ld)
+# PROJECT_NAME=$1
+# IMG_NAME=$2
+# KERNEL_FILE=$3
+
+make_elf = executable('trajan.elf', main_sources, nasm_objects, include_directories: main_includes, link_depends: ld_script, install: true, cpp_args: flags_cpp, link_args: flags_ld, build_by_default: false)
+make_trajan = custom_target(
+	'trajan',
+	depends: make_elf,
+	input: make_elf,
+	output: '_',
+	command: ['scripts/exec_scripts.sh', 
+		meson.project_name(), 
+		make_elf],
+	build_by_default: true
+)
