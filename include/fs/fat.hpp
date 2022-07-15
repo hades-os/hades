@@ -1,6 +1,7 @@
 #ifndef FAT_HPP
 #define FAT_HPP
 
+#include <frg/vector.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <frg/allocation.hpp>
@@ -30,6 +31,7 @@ namespace vfs {
                 union {
                     struct [[gnu::packed]] fat32 {
                         // FAT32
+                        uint32_t secPerFAT;
                         uint8_t flags;
                         uint16_t version;
                         uint32_t rootClus;
@@ -100,13 +102,22 @@ namespace vfs {
 
             super *superblock = nullptr;
             frg::hash_map<vfs::path, size_t, vfs::path_hasher, memory::mm::heap_allocator> sector_map;
+            frg::vector<size_t, memory::mm::heap_allocator> free_list;
             
             uint32_t fat_begin;
             uint32_t clus_begin;
 
             uint8_t type;
+
+            filesystem *devfs;
+
+            ssize_t last_free;
+
+            uint32_t rw_entry(size_t cluster, bool rw = false, size_t val = 0);
+            void *rw_clusters(size_t begin, void *buf, bool rw = false, ssize_t len = -1);
+            bool is_eof(uint32_t entry);
         public:
-            fatfs() : sector_map(vfs::path_hasher()) {}
+            fatfs() : sector_map(vfs::path_hasher()), free_list() {}
 
             void init_fs(node *root, node *source) override;
             
