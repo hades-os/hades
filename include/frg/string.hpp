@@ -252,6 +252,7 @@ public:
 	Char *data() {
 		return _buffer;
 	}
+	
 	const Char *data() const {
 		return _buffer;
 	}

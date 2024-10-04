@@ -78,6 +78,16 @@ namespace io {
         );
         return (V) (((uint64_t ) high << 32) | low);
     }
+
+    inline uint64_t tsc() {
+        uint64_t rax, rdx;
+        asm volatile(
+            "rdtsc"
+            : "=a"(rax), "=d"(rdx)
+        );
+
+        return (rdx << 32) | rax;
+    }
 };
 
 #endif

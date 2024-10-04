@@ -1,5 +1,6 @@
 [bits 64]
 
+section .note.GNU-stack noalloc noexec nowrite progbits
 section .stivale2hdr
 	dq _start
 	dq stack_top
@@ -27,7 +28,7 @@ section .rodata
 	align 16
 	gdt_start:
 		.null_descriptor:
-			dw 0x0000
+			dw 0xFFFF
 			dw 0x0000
 			db 0x00
 			db 00000000b
@@ -35,34 +36,33 @@ section .rodata
 			db 0x00
 			
 		.kernel_code_64:
-			dw 0x0000
+			dw 0xFFFF
 			dw 0x0000
 			db 0x00
 			db 10011010b
-			db 00100000b
+			db 10100000b
 			db 0x00
 
 		.kernel_data:
-			dw 0x0000
+			dw 0xFFFF
 			dw 0x0000
 			db 0x00
 			db 10010010b
-			db 00000000b
-			db 0x00
-
-		.user_data_64:
-			dw 0x0000
-			dw 0x0000
-			db 0x00
-			db 11110010b
-			db 00000000b
+			db 11000000b
 			db 0x00
 		.user_code_64:
-			dw 0x0000
+			dw 0xFFFF
 			dw 0x0000
 			db 0x00
 			db 11111010b
-			db 00100000b
+			db 10100000b
+			db 0x00
+		.user_data_64:
+			dw 0xFFFF
+			dw 0x0000
+			db 0x00
+			db 11110010b
+			db 11000000b
 			db 0x00
 		.tss_64:
 			dq 0x0
@@ -80,15 +80,14 @@ section .text
 	[global _start]
 	_start:
 		cli
-
 		lgdt [gdt_ptr]
 
 		mov rbp, rsp
 
-		push 0
+		push 0x10
 		push rbp
 		pushfq
-		push 0x08
+		push 0x8
 		push startup64
 
 		iretq
@@ -100,7 +99,7 @@ section .text
 
 		mov rbp, rsp
 
-		push 0
+		push 0x10
 		push rbp
 		pushfq
 		push 0x08

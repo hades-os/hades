@@ -20,17 +20,17 @@ vfs::ssize_t vfs::rootfs::write(node *file, void *buf, ssize_t len, ssize_t offs
         storage.buf = krealloc(storage.buf, len + offset);
     }
 
-    memcpy(storage.buf + offset, buf, len);
+    memcpy((char *) storage.buf + offset, buf, len);
     return len;
 }
 
 vfs::ssize_t vfs::rootfs::read(node *file, void *buf, ssize_t len, ssize_t offset) {
     auto storage = file_storage[file->get_path()];
     if (storage.length > len + offset) {
-        memcpy(buf, storage.buf + offset, len);
+        memcpy(buf, (char *) storage.buf + offset, len);
         return len;
     } else if (storage.length > offset && storage.length < len + offset) {
-        memcpy(buf, storage.buf + offset, storage.length - offset);
+        memcpy(buf, (char *) storage.buf + offset, storage.length - offset);
         return storage.length - offset;
     } else {
         return 0;

@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <fs/vfs.hpp>
-#include <fs/devfs.hpp>
+#include <fs/dev.hpp>
 
 namespace part {
     constexpr uint64_t EFI_MAGIC = 0x5452415020494645;

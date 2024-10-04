@@ -1,6 +1,7 @@
 #ifndef FAT_HPP
 #define FAT_HPP
 
+#include "frg/tuple.hpp"
 #include <frg/vector.hpp>
 #include <cstddef>
 #include <cstdint>
@@ -22,7 +23,7 @@ namespace vfs {
                 uint16_t n_root;
                 uint16_t n_sectors;
                 uint8_t media;
-                uint32_t secPerFAT;
+                uint16_t secPerFAT;
                 uint16_t secPerTrack;
                 uint16_t heads;
                 uint32_t hidden;
@@ -30,13 +31,12 @@ namespace vfs {
 
                 union {
                     struct [[gnu::packed]] fat32 {
-                        // FAT32
                         uint32_t secPerFAT;
-                        uint8_t flags;
+                        uint16_t flags;
                         uint16_t version;
                         uint32_t rootClus;
-                        uint8_t fsInfo;
-                        uint8_t bBootSec;
+                        uint16_t fsInfo;
+                        uint16_t bBootSec;
                         char rsvd[12];
                         uint8_t drive;
                         uint8_t NTflags;
@@ -74,8 +74,8 @@ namespace vfs {
                 uint32_t tSig;
             };
 
-            struct [[gnu::packed]] oDent {
-                char sname[11];
+            struct [[gnu::packed]] fatEntry {
+                char name[11];
                 uint8_t attr;
                 uint8_t NTrsvd;
                 uint8_t mkTimeTs;
@@ -104,8 +104,7 @@ namespace vfs {
             frg::hash_map<vfs::path, size_t, vfs::path_hasher, memory::mm::heap_allocator> sector_map;
             frg::vector<size_t, memory::mm::heap_allocator> free_list;
             
-            uint32_t fat_begin;
-            uint32_t clus_begin;
+            uint8_t *fat;
 
             uint8_t type;
 
@@ -114,10 +113,13 @@ namespace vfs {
             ssize_t last_free;
 
             uint32_t rw_entry(size_t cluster, bool rw = false, size_t val = 0);
-            void *rw_clusters(size_t begin, void *buf, bool rw = false, ssize_t len = -1);
+
+
+            typedef frg::tuple<void *, size_t, frg::vector<size_t, memory::mm::heap_allocator>> rw_result;
+            rw_result rw_clusters(size_t begin, void *buf, ssize_t offset = 0, ssize_t len = 0, bool rw = false);
             bool is_eof(uint32_t entry);
         public:
-            fatfs() : sector_map(vfs::path_hasher()), free_list() {}
+            fatfs() : sector_map(vfs::path_hasher()) {}
 
             void init_fs(node *root, node *source) override;
             

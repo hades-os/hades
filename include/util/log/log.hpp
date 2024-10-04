@@ -129,29 +129,33 @@ namespace util {
 };
 
 // global kernel log
-inline util::stream klog{};
+inline util::stream kern{};
 
 namespace {
-    inline util::lock lock{};
+    inline util::lock log_lock{};
 };
 
-template<typename... Args>
-[[noreturn]]
-void panic(const Args& ...args) {
-    lock.acquire();
-    irq::off();
-    ((klog << "[P] ") << ... << args) << util::endl;
-    
-    auto info = io::rdmsr<smp::processor *>(smp::fsBase);;
+inline void send_panic_ipis() {
+    auto info = smp::get_locals();
     for (auto cpu : smp::cpus) {
         if (info->lid == cpu->lid) {
             continue;
         }
         
-        apic::lapic::ipi(cpu->lid, 254);
+        apic::lapic::ipi(cpu->lid, 251);
     }
+}
 
-    lock.release();
+template<typename... Args>
+[[noreturn]]
+void panic(const Args& ...args) {
+    irq::off();
+    send_panic_ipis();
+
+    log_lock.acquire();
+    ((kern << "[P] ") << ... << args) << util::endl;
+
+    log_lock.release();
 
     while (true) {
         asm volatile("pause");
@@ -160,9 +164,9 @@ void panic(const Args& ...args) {
 
 template<typename... Args>
 void kmsg(const Args& ...args) {
-    lock.acquire();
-    ((klog << "[K] " )<< ... << args) << util::endl;
-    lock.release();
+    log_lock.acquire();
+    ((kern << "[K] " )<< ... << args) << util::endl;
+    log_lock.release();
 }
 
 #endif

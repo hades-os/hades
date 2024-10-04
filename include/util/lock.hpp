@@ -1,24 +1,45 @@
 #ifndef LOCK_HPP
 #define LOCK_HPP
 
+#include <sys/irq.hpp>
 #include <cstdint>
-
-extern "C" {
-    void atomic_lock(uint64_t *lock);
-    void atomic_unlock(uint64_t *lock);
-}
 
 namespace util {
     class lock {
         private:
-            uint64_t _lock;
+            volatile bool _lock;
+            bool interrupts;
+            bool get_interrupts() {
+                uint64_t rflags = 0;
+                asm volatile ("pushfq; \
+                               pop %0 "
+                               : "=r"(rflags)
+                );
+
+                return (rflags >> 9) & 1;
+            }
         public:
             void acquire() {
-                atomic_lock(&this->_lock);
+                while(__atomic_test_and_set(&this->_lock, __ATOMIC_ACQUIRE));
+            }
+            
+            void irq_acquire() {
+                interrupts = get_interrupts();
+                irq::off();
+                while(__atomic_test_and_set(&this->_lock, __ATOMIC_ACQUIRE));
             }
 
             void release() {
-                atomic_unlock(&this->_lock);
+                __atomic_clear(&this->_lock, __ATOMIC_RELEASE);
+            }
+
+            void irq_release() {
+                __atomic_clear(&this->_lock, __ATOMIC_RELEASE);
+                if (interrupts) {
+                    irq::on();
+                } else {
+                    irq::off();
+                }
             }
 
             void await() {

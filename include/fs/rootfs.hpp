@@ -12,7 +12,7 @@ namespace vfs {
         private:
             struct storage {
                 void *buf;
-                size_t length;
+                ssize_t length;
             };
 
             pathmap<storage> file_storage;

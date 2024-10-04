@@ -11,34 +11,19 @@
 #define VMM_PRESENT (1 << 0)
 #define VMM_WRITE (1 << 1)
 #define VMM_USER (1 << 2)
-#define VMM_DIRTY (1 << 5)
 #define VMM_LARGE (1 << 7)
-#define VMM_PALLOC (1 << 9)
-#define VMM_SHARED (1 << 10)
 
-#define VMM_IS_USER(x) (((uint64_t) x) < MEM_BASE)
+#define VMM_FIXED (1 << 8)
+#define VMM_MANAGED (1 << 9)
+#define VMM_SHARED (1 << 10)
+#define VMM_FILE (1 << 11)
+
+#define VMM_EXECUTE (1UL << 63)
 
 #define VMM_ENTRIES_PER_TABLE 512
 #define VMM_ADDR_MASK ~0x8000000000000FFF
 
 #define VMM_4GIB   (4294967296)
-
-#define PG_WRITE   (1 << 3)
-#define PG_NONE    (1 << 4)
-#define PG_READ    (1 << 5)
-#define PG_EXEC    (1 << 6)
-
-#define PG_LARGE   (1 << 12)
-
-#define PG_SHARED  (1 << 7)
-#define PG_PRIVATE (1 << 8)
-
-#define PG_ANON    (1 << 0)
-#define PG_FIXED   (1 << 11)
-
-#define PG_OVERRIDE (1 << 14)
-
-#define PG_KERN (PG_LARGE | PG_WRITE | PG_RAW | PG_OVERRIDE)
 
 namespace memory {
     namespace vmm {
@@ -129,7 +114,7 @@ namespace memory {
                 inline int64_t *refs = nullptr;
                 inline uint64_t refs_len = 0;
                 inline vmm_ctx *boot_ctx = nullptr;
-                inline util::lock lock{};
+                inline util::lock vmm_lock{};
             };
 
             namespace x86 {
@@ -141,9 +126,6 @@ namespace memory {
 
                 void *_perms(void *virt, uint64_t flags, void *ptr);
                 void *_perms2(void *virt, uint64_t flags, void *ptr);
-
-                bool _valid(uint64_t flags, void *virt, void *phys);
-                int64_t _filter(uint64_t flags);
 
                 void _ref(void *ptr);
                 void _ref(void *ptr, uint64_t len);
@@ -165,6 +147,9 @@ namespace memory {
             void change(void *ptr);
             void *boot();
             void *cr3(void *ptr);
+
+            uint64_t read_cr3();
+            void write_cr3(uint64_t map);
 
             void *map(void *virt, uint64_t len, uint64_t flags, void *ptr);
             void *map(void *virt, uint64_t len, uint64_t flags, void *ptr, vmm::vmm_ctx::mapping::callback_obj callbacks);

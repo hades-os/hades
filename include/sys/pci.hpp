@@ -33,24 +33,23 @@ namespace pci {
     class device {
         private:
             uint8_t
-                    bus,
-                    slot,
-                    clazz,
-                    subclass,
-                    prog_if,
-                    func;
+                bus,
+                slot,
+                clazz,
+                subclass,
+                prog_if,
+                func;
 
             uint16_t
-                    devize,
-                    vendor_id;
-            int64_t parent;
+                devize,
+                vendor_id;
             bool is_multifunc;
 
         public:
             device(uint8_t bus, uint8_t slot, uint8_t func, uint8_t clazz, uint8_t subclass,
                                 uint8_t prog_if,
                                 uint16_t device, uint16_t vendor_id,
-                                bool is_multifunc, int64_t parent) {
+                                bool is_multifunc) {
                 this->bus      = bus;
                 this->slot     = slot;
                 this->func     = func;
@@ -61,7 +60,6 @@ namespace pci {
                 this->devize = device;
                 this->vendor_id = vendor_id;
                 this->is_multifunc = is_multifunc;
-                this->parent = parent;
             }
 
             uint8_t get_bus(),
@@ -75,17 +73,16 @@ namespace pci {
                     get_vendor(),
                     get_device();
 
-            int64_t get_parent();
-
             uint8_t  readb(uint32_t offset);
             void     writeb(uint32_t offset, uint8_t value);
             uint16_t readw(uint32_t offset);
             void     writew(uint32_t offset, uint16_t value);
             uint32_t readd(uint32_t offset);
             void     writed(uint32_t offset, uint32_t value);
-            int      read_bar(size_t index, pci::bar& bar);
+            int      read_bar(size_t index, pci::bar& bar_out);
             int      register_msi(uint8_t vector, uint8_t lapic_id);
             void     enable_busmastering();
+            void     enable_mmio();
     };
 
     union [[gnu::packed]] msi_address {
@@ -116,9 +113,9 @@ namespace pci {
         inline frg::vector<device, memory::mm::heap_allocator> devices;
     };
 
-    extern void init();
-    extern device *get_device(uint8_t clazz, uint8_t subclazz, uint8_t prog_if);
-    extern const char *to_string(uint8_t clazz, uint8_t subclass, uint8_t prog_if);
+    void init();
+    device *get_device(uint8_t clazz, uint8_t subclazz, uint8_t prog_if);
+    const char *to_string(uint8_t clazz, uint8_t subclass, uint8_t prog_if);
 };
 
 #endif

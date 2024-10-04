@@ -1,6 +1,7 @@
 #ifndef FRG_RANDOM_HPP
 #define FRG_RANDOM_HPP
 
+#include <stdint.h>
 #include <frg/macros.hpp>
 
 namespace frg FRG_VISIBILITY {

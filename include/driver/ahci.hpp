@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <frg/vector.hpp>
-#include <fs/devfs.hpp>
+#include <fs/dev.hpp>
 #include <sys/pci.hpp>
 #include <util/lock.hpp>
 
@@ -50,19 +50,18 @@ namespace ahci {
 
     constexpr size_t ATAPI_COMMAND_IDENTIFY = 0xA1;
 
-    constexpr size_t MAX_DEVICES = 32;
+    constexpr size_t MAX_SLOTS = 32;
 
     namespace fis {
         struct [[gnu::packed]] reg_h2d {
             uint8_t fis_type;
 
             uint8_t pmport       : 4;
-            uint8_t rsv          : 3;     
-
+            uint8_t rsv          : 3;
             uint8_t cmd_ctl      : 1;
 
             uint8_t command;
-            uint8_t feature_lo;
+            uint8_t feature;
 
             uint8_t lba0;
             uint8_t lba1;
@@ -193,8 +192,8 @@ namespace ahci {
     };
 
     struct [[gnu::packed]] port {
-        uint32_t clba;
-        uint32_t clba_upper;
+        uint32_t commands_addr;
+        uint32_t commands_addr_upper;
         uint32_t fis_addr;
         uint32_t fis_upper;
 
@@ -239,7 +238,18 @@ namespace ahci {
         port ports[];
     };
 
-    struct [[gnu::packed]] command {
+    struct [[gnu::packed]] prdt_entry {
+        uint32_t base;
+        uint32_t base_hi;
+        uint32_t reserved;
+
+        uint32_t bytes     : 22;
+        uint32_t reserved1 : 9;
+        uint32_t interrupt : 1;
+    };
+
+
+    struct [[gnu::packed]] command_header {
         uint32_t cmd_fis_len  : 5;
         uint32_t atapi        : 1;
         uint32_t write        : 1;
@@ -251,52 +261,52 @@ namespace ahci {
         uint32_t pmp          : 4;
         uint32_t prdt_cnt     : 16;
 
-        volatile uint32_t prdtbc;
+        uint32_t prdtbc;
 
-        uint32_t ctba;
-        uint32_t ctba_upper;
-        uint32_t resv1[4];
+        uint32_t command_entry;
+        uint32_t command_entry_hi;
+        uint8_t resv1[16];
     };
 
-    struct [[gnu::packed]] prdtl {
-        uint32_t dba;
-        uint32_t dbau;
-        uint32_t reserved;
-        uint32_t dbc       : 22;
-        uint32_t reserved1 : 9;
-        uint32_t interrupt : 1;
-    };
-
-    struct [[gnu::packed]] command_table {
+    struct [[gnu::packed]] command_entry {
         uint8_t cfis[64];
         uint8_t acmd[16];
         uint8_t reserved[48];
-        prdtl prdt_entry[1];
+        prdt_entry prdts[];
     };
 
-    struct controller {
-        util::lock lock;
-        pci::device *dev;
-        abar *bar;
+    struct command_slot {
+        int idx;
+        command_entry *entry;
     };
 
     using ssize_t = signed long long int;
     constexpr size_t major = 0xA;
     constexpr char alphabet[] = "abcdefghijklmnopqrstuvwxyz";
 
+    constexpr size_t get_fis_size(size_t n_fis) {
+        return sizeof(command_entry) + sizeof(prdt_entry) * n_fis;
+    }
+
+    constexpr size_t get_prdt_bytes(size_t count) {
+        return (((count + 1) & ~1) - 1) & 0x3FFFFF;
+    }
+
     struct device : vfs::devfs::device {
         private:
             ssize_t read_write(void *buf, uint16_t count, size_t offset, bool rw);
+            util::lock lock;
         public:
             size_t sectors;
             size_t sector_size;
             bool exists;
+            volatile abar *bar;
             int64_t id;
             bool lba48;
             volatile ahci::port *port;
 
-            void setup(volatile ahci::port *port);
-            void init(volatile ahci::port *port);
+            void setup();
+            void identify_sata();
             ssize_t read(void *buf, ssize_t count, ssize_t offset) override;
             ssize_t write(void *buf, ssize_t count, ssize_t offset) override; 
             ssize_t ioctl(size_t req, void *buf) override;

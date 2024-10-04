@@ -4,6 +4,9 @@
 #include <util/string.hpp>
 #include <util/log/log.hpp>
 
+#define member(structType, elementType, structPtr, memberName) \
+  ((elementType*)(((char*)(structPtr)) + offsetof(structType, memberName)))
+
 const char *table_list[] = {
     "APIC",
     "BERT",
@@ -36,69 +39,67 @@ namespace acpi {
         frg::vector<nmi *, memory::mm::heap_allocator> nmis{};
     };
 
-    namespace {
-        acpi::sdt *tables[22];
+    acpi::sdt *tables[22];
 
-        acpi::xsdt *_xsdt = nullptr;
-        acpi::rsdt *_rsdt = nullptr;
+    acpi::xsdt *_xsdt = nullptr;
+    acpi::rsdt *_rsdt = nullptr;
 
-        acpi::rsdp *_rsdp = nullptr;
+    acpi::rsdp *_rsdp = nullptr;
 
-        uint8_t use_xsdt = 0;
+    uint8_t use_xsdt = 0;
 
-        uint8_t _rsdp_check() {
-            uint8_t sum = 0;
-            if (acpi::_rsdp->version == 0) {
-                for (size_t i = 0; i < sizeof(acpi::rsdp) - 16; i++) {
-                    sum += ((uint8_t *) acpi::_rsdp)[i];
-                }
-            } else {
-                for (size_t i = 0; i < sizeof(acpi::rsdp); i++) {
-                    sum += ((uint8_t *) acpi::_rsdp)[i];
+    uint8_t _rsdp_check() {
+        uint8_t sum = 0;
+        if (acpi::_rsdp->version == 0) {
+            for (size_t i = 0; i < sizeof(acpi::rsdp) - 16; i++) {
+                sum += ((uint8_t *) acpi::_rsdp)[i];
+            }
+        } else {
+            for (size_t i = 0; i < sizeof(acpi::rsdp); i++) {
+                sum += ((uint8_t *) acpi::_rsdp)[i];
+            }
+        }
+        return sum;
+    }
+
+    uint8_t _rsdt_check() {
+        uint8_t sum = 0;
+        for (size_t i = 0; i < acpi::_rsdt->_sdt.length; i++) {
+            sum += ((uint8_t *) acpi::_rsdt)[i];
+        }
+        return sum;
+    }
+
+    uint8_t _xsdt_check() {
+        return 0;
+        uint8_t sum = 0;
+        for (size_t i = 0; i < acpi::_xsdt->_sdt.length; i++) {
+            sum += ((uint8_t *) acpi::_xsdt)[i];
+        }
+        return sum;
+    }
+
+    void _locate(const char *sig) {
+        acpi::sdt *ptr;
+
+        if (acpi::use_xsdt) {
+            for (size_t i = 0; i < (acpi::_xsdt->_sdt.length - sizeof(acpi::sdt)) / 8; i++) {
+                uint64_t *nptrs = member(acpi::xsdt, uint64_t, acpi::_xsdt, ptrs);;
+                ptr = (acpi::sdt *) nptrs[i];
+                ptr = (acpi::sdt *) ((char *) ptr + memory::common::virtualBase);
+                if (!strncmp(ptr->signature, sig, 4)) {
+                    kmsg("[ACPI] Found table ", sig);
+                    acpi::tables[i] = ptr;
                 }
             }
-            return sum;
-        }
-
-        uint8_t _rsdt_check() {
-            uint8_t sum = 0;
-            for (size_t i = 0; i < acpi::_rsdt->_sdt.length; i++) {
-                sum += ((uint8_t *) acpi::_rsdt)[i];
-            }
-            return sum;
-        }
-
-        uint8_t _xsdt_check() {
-            return 0;
-            uint8_t sum = 0;
-            for (size_t i = 0; i < acpi::_xsdt->_sdt.length; i++) {
-                sum += ((uint8_t *) acpi::_xsdt)[i];
-            }
-            return sum;
-        }
-
-        void _locate(const char *sig) {
-            acpi::sdt *ptr;
-
-            if (acpi::use_xsdt) {
-                for (size_t i = 0; i < (acpi::_xsdt->_sdt.length - sizeof(acpi::sdt)) / 8; i++) {
-                    uint64_t *nptrs = acpi::_xsdt->ptrs;
-                    ptr = (acpi::sdt *) nptrs[i];
-                    ptr = (acpi::sdt *) ((void *) ptr + memory::common::virtualBase);
-                    if (!strncmp(ptr->signature, sig, 4)) {
-                        kmsg("[ACPI] Found table ", sig);
-                        acpi::tables[i] = ptr;
-                    }
-                }
-            } else {
-                for (size_t i = 0; i < (acpi::_rsdt->_sdt.length - sizeof(acpi::sdt)) / 4; i++) {
-                    uint32_t *nptrs = acpi::_rsdt->ptrs;
-                    ptr = (acpi::sdt *) nptrs[i];
-                    ptr = (acpi::sdt *) ((void *) ptr + memory::common::virtualBase);
-                    if (!strncmp(ptr->signature, sig, 4)) {
-                        kmsg("[ACPI] Found table ", sig);
-                        acpi::tables[i] = ptr;
-                    }
+        } else {
+            for (size_t i = 0; i < (acpi::_rsdt->_sdt.length - sizeof(acpi::sdt)) / 4; i++) {
+                uint32_t *nptrs = member(acpi::rsdt, uint32_t, acpi::_rsdt, ptrs);
+                ptr = (acpi::sdt *) nptrs[i];
+                ptr = (acpi::sdt *) ((char *) ptr + memory::common::virtualBase);
+                if (!strncmp(ptr->signature, sig, 4)) {
+                    kmsg("[ACPI] Found table ", sig);
+                    acpi::tables[i] = ptr;
                 }
             }
         }
