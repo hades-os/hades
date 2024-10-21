@@ -3,6 +3,7 @@
 #include <sys/acpi.hpp>
 #include <util/string.hpp>
 #include <util/log/log.hpp>
+#include <util/log/panic.hpp>
 
 #define member(structType, elementType, structPtr, memberName) \
   ((elementType*)(((char*)(structPtr)) + offsetof(structType, memberName)))

@@ -1,8 +1,12 @@
+#include "mm/common.hpp"
+#include <cstddef>
+#include <cstdint>
 #include <frg/allocation.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
 #include <mm/vmm.hpp>
 #include <util/log/log.hpp>
+#include <util/log/panic.hpp>
 
 bool memory::vmm::vmm_ctx::hole_aggregator::aggregate(hole *node) {
     size_t size = node->len;
@@ -188,7 +192,7 @@ uint8_t memory::vmm::vmm_ctx::mapped(void *addr, uint64_t len) {
 
     if (addr < current->addr) {
         while (current) {
-            if (addr >= current->addr && addr < (char *) current->addr + current->len) {
+            if (addr >= current->addr && addr <= (char *) current->addr + current->len) {
                 return 1;
             }
 
@@ -196,7 +200,7 @@ uint8_t memory::vmm::vmm_ctx::mapped(void *addr, uint64_t len) {
         }
     } else {
         while (current) {
-            if (addr >= current->addr && ((char *) addr + len) < (char *) current->addr + current->len) {
+            if (addr >= current->addr && ((char *) addr + len) <= ((char *) current->addr + current->len)) {
                 return 1;
             }
 
@@ -215,6 +219,7 @@ void *memory::vmm::vmm_ctx::unmanaged_mapping(void *addr, uint64_t len, uint64_t
     void *dst = this->create_hole(addr, len);
     mapping *node = frg::construct<mapping>(memory::mm::heap, dst, len, (void *) this, flags & VMM_LARGE);
     node->is_unmanaged = true;
+    node->perms = flags;
     this->mappings.insert(node);
     return dst;
 }
@@ -237,6 +242,7 @@ void *memory::vmm::vmm_ctx::create_mapping(void *addr, uint64_t len, uint64_t fl
     }
 
     mapping *node = frg::construct<mapping>(memory::mm::heap, dst, len, (void *) this, flags & VMM_LARGE);
+    node->perms = flags;
     this->mappings.insert(node);
     return dst;
 }
@@ -259,39 +265,87 @@ void *memory::vmm::vmm_ctx::create_mapping(void *addr, uint64_t len, uint64_t fl
     }
 
     mapping *node = frg::construct<mapping>(memory::mm::heap, dst, len, (void *) this, flags & VMM_LARGE, callbacks);
+    node->perms = flags;
     this->mappings.insert(node);
     return dst;
 }
 
-void *memory::vmm::vmm_ctx::delete_mapping(void *addr, uint64_t len) {
-    mapping *current = this->mappings.get_root();
-    if (!current) {
+void *memory::vmm::vmm_ctx::split_mapping(void *addr, uint64_t len) {
+    if (!this->mapped(addr, len)) {
         return nullptr;
     }
 
-    if (addr < current->addr) {
-        while (current) {
-            if (addr == current->addr) {
-                goto fnd;
-            }
+    auto mapping = get_mapping(addr);
+    auto other = frg::construct<vmm_ctx::mapping>(mm::heap, (void *) ((char *) mapping->addr + mapping->len), mapping->len - len, this, mapping->perms & VMM_LARGE);
+    if (mapping->fault_map) {
+        other->fault_map = true;
+        other->callbacks = mapping->callbacks;
+    }
+    other->perms = mapping->perms;
+    mapping->len -= len;
 
-            current = this->mappings.predecessor(current);
-        }
-    } else {
-        while (current) {
-            if (addr == current->addr) {
-                goto fnd;
-            }
+    this->mappings.insert(other);
 
-            current = this->mappings.successor(current);
+    return other;
+}
+
+void memory::vmm::vmm_ctx::copy_mappings(memory::vmm::vmm_ctx *other) {
+    mapping *current = other->mappings.first();
+    while (current) {
+        mapping *node = frg::construct<mapping>(mm::heap, current->addr, current->len, this, current->perms & VMM_LARGE);
+        if (current->fault_map) {
+            node->fault_map = true;
+            node->callbacks = current->callbacks;
         }
+        
+        this->create_hole(current->addr, current->len);
+        node->perms = current->perms;
+        this->mappings.insert(node);
+
+        if (current->huge_page) {
+            for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size_2MB) {
+                void *phys = x86::_get2(inner, other);
+                x86::_map2(phys, inner, current->perms, this);
+            }
+        } else {
+            for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size) {
+                void *phys = x86::_get(inner, other);
+                x86::_map(phys, inner, current->perms, this);
+            }
+        }
+ 
+        current = other->mappings.successor(current);
+    }
+}
+
+memory::vmm::vmm_ctx::mapping *memory::vmm::vmm_ctx::get_mapping(void *addr) {
+    mapping *current = this->mappings.first();
+    while (current) {
+        if (current->addr <= addr && addr <= (char *) current->addr + current->len) {
+            return current;
+        }
+
+        current = this->mappings.successor(current);
+    }
+
+    return nullptr;
+}
+
+void *memory::vmm::vmm_ctx::delete_mapping(void *addr, uint64_t len) {
+    mapping *current = this->mappings.first();
+    while (current) {
+        if (current->addr <= addr && addr <= (char *) current->addr + current->len) {
+            goto fnd;
+        }
+
+        current = this->mappings.successor(current);
     }
 
     return nullptr;
 
     fnd:;
     this->delete_hole(addr, len);
-    for (void *cur_addr = addr; cur_addr < (char *) addr + len && current; cur_addr = (char *) cur_addr + memory::common::page_size) {
+    for (void *cur_addr = addr; cur_addr <= (char *) addr + len && current; cur_addr = (char *) cur_addr + memory::common::page_size) {
         if (cur_addr >= current->addr && ((char *) current->addr + current->len) <= ((char *) addr + len)) {
             if (current->is_unmanaged) {
                 goto skip_inside;
@@ -299,21 +353,21 @@ void *memory::vmm::vmm_ctx::delete_mapping(void *addr, uint64_t len) {
 
             if (current->huge_page) {
                 if (current->fault_map) {
-                    for (void *inner = current->addr; inner < ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size_2MB) {
+                    for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size_2MB) {
                         current->callbacks.unmap(inner, true, current->map);
                     }
                 } else {
-                    for (void *inner = current->addr; inner < ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size_2MB) {
+                    for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size_2MB) {
                         x86::_unmap2(inner, (void *) this);
                     }
                 }
             } else {
                 if (current->fault_map) {
-                    for (void *inner = current->addr; inner < ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size) {
+                    for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size) {
                         current->callbacks.unmap(inner, false, current->map);
                     }
                 } else {
-                    for (void *inner = current->addr; inner < ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size) {
+                    for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size) {
                         x86::_unmap(inner, (void *) this);
                     }
                 }
@@ -323,6 +377,7 @@ void *memory::vmm::vmm_ctx::delete_mapping(void *addr, uint64_t len) {
             mapping *prev = current;
             current = this->mappings.successor(prev);
             this->mappings.remove(prev);
+            frg::destruct(mm::heap, prev);
 
             continue;
         }
@@ -334,31 +389,59 @@ void *memory::vmm::vmm_ctx::delete_mapping(void *addr, uint64_t len) {
 
             if (current->huge_page) {
                 if (current->fault_map) {
-                    for (void *inner = current->addr; inner < ((char *) addr + len); inner = (char *) inner + memory::common::page_size_2MB) {
-                        current->callbacks.unmap(inner, true, current->map);      
+                    for (void *inner = current->addr; inner <= ((char *) addr + len); inner = (char *) inner + memory::common::page_size_2MB) {
+                        current->callbacks.unmap(inner, true, current->map);
                     }
                 } else {
-                    for (void *inner = current->addr; inner < ((char *) addr + len); inner = (char *) inner + memory::common::page_size_2MB) {
+                    for (void *inner = current->addr; inner <= ((char *) addr + len); inner = (char *) inner + memory::common::page_size_2MB) {
                         x86::_unmap2(inner, (void *) this);
                     }
                 }
             } else {
                 if (current->fault_map) {
-                    for (void *inner = current->addr; inner < ((char *) addr + len); inner = (char *) inner + memory::common::page_size) {
-                        current->callbacks.unmap(inner, false, current->map);      
+                    for (void *inner = current->addr; inner <= ((char *) addr + len); inner = (char *) inner + memory::common::page_size) {
+                        current->callbacks.unmap(inner, false, current->map);
                     }
                 } else {
-                    for (void *inner = current->addr; inner < ((char *) addr + len); inner = (char *) inner + memory::common::page_size) {
+                    for (void *inner = current->addr; inner <= ((char *) addr + len); inner = (char *) inner + memory::common::page_size) {
                         x86::_unmap(inner, (void *) this);
                     }
                 }
             }
 
             skip_outside:;
-            current->addr = (char *) addr + len;
+            current->addr = cur_addr;
+            current->len = ((char *) current->addr + current->len) - ((char *) addr + len);
             break;
         }
     }
 
     return addr;
+}
+
+void memory::vmm::vmm_ctx::delete_mapping(memory::vmm::vmm_ctx::mapping *node) {
+    this->delete_hole(node->addr, node->len);
+    if (node->huge_page) {
+        if (node->fault_map) {
+            for (void *inner = node->addr; inner <= ((char *) node->addr + node->len); inner = (char *) inner + memory::common::page_size_2MB) {
+                node->callbacks.unmap(inner, true, node->map);
+            }
+        } else {
+            for (void *inner = node->addr; inner <= ((char *) node->addr + node->len); inner = (char *) inner + memory::common::page_size_2MB) {
+                x86::_unmap2(inner, (void *) this);
+            }
+        }
+    } else {
+        if (node->fault_map) {
+            for (void *inner = node->addr; inner <= ((char *) node->addr + node->len); inner = (char *) inner + memory::common::page_size) {
+                node->callbacks.unmap(inner, false, node->map);
+            }
+        } else {
+            for (void *inner = node->addr; inner <= ((char *) node->addr + node->len); inner = (char *) inner + memory::common::page_size) {
+                x86::_unmap(inner, (void *) this);
+            }
+        }
+    }
+
+    this->mappings.remove(node);
 }

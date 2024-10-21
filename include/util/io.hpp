@@ -88,6 +88,10 @@ namespace io {
 
         return (rdx << 32) | rax;
     }
+
+    inline void swapgs() {
+        asm volatile ("swapgs" ::: "memory");
+    }
 };
 
 #endif

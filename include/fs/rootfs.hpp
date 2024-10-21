@@ -19,7 +19,7 @@ namespace vfs {
         public:
             rootfs() : file_storage(path_hasher()) {}
 
-            node *lookup(const pathlist& filepath, vfs::path path, int64_t flags) override;
+            node *lookup(const pathlist& filepath, frg::string_view path, int64_t flags) override;
             
             ssize_t read(node *file, void *buf, ssize_t len, ssize_t offset) override;
             ssize_t write(node *file, void *buf, ssize_t len, ssize_t offset) override;

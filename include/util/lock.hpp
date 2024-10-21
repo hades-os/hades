@@ -47,7 +47,7 @@ namespace util {
                 release();
             }
 
-            lock() : _lock(0) { }
+            lock() : _lock(0), interrupts(false) { }
 
             lock(const lock &other) = delete;
 

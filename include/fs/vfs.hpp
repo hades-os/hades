@@ -33,7 +33,17 @@ namespace vfs {
     template<typename T>
     using pathmap = frg::hash_map<path, T, path_hasher, memory::mm::heap_allocator>;
 
-    inline pathlist split(frg::string_view path) {
+    inline vfs::path find_name(vfs::path path) {
+        auto view = frg::string_view(path);
+        auto pos = view.find_last('/');
+        if (pos == -1) {
+            return view;
+        }
+
+        return view.sub_string(pos + 1);
+    }
+
+    inline pathlist split_path(frg::string_view path) {
         pathlist components;
         auto view = path;
 
@@ -46,33 +56,12 @@ namespace vfs {
 
             view = view.sub_string(pos + 1);
         }
-        components.push_back(view.data() + view.find_last('/') + 1);
 
+        components.push_back(view.data() + view.find_last('/') + 1);
         return components;
     }
-    
-    inline vfs::path unsplit(const vfs::pathlist& list) {
-        if (list.size() == 1 && list[0] == "/") {
-            return list[0];
-        }
 
-        if (list.size() == 1) {
-            auto view = frg::string<memory::mm::heap_allocator>{"/"};
-            return view + frg::string_view{list[0]};
-        }
-        
-        vfs::path path{"/"};
-        path += list[0];
-        for (size_t i = 1; i < list.size() - 1; i++) {
-            path += "/";
-            path += list[i];
-        }
-
-        path += list[list.size()];
-        return path;
-    }
-
-    inline void joinPaths(vfs::path& path, vfs::path part) {
+    inline void append_paths(vfs::path& path, vfs::path part) {
         path += "/";
         path += part;
     }
@@ -102,8 +91,15 @@ namespace vfs {
             EXCL,
             NONBLOCK,
             SYNC,
-            DYNAMIC,
             NOFD
+        };
+    };
+
+    struct mode {
+        enum {
+            RDONLY,
+            WRONLY,
+            RDWR
         };
     };
 
@@ -138,34 +134,6 @@ namespace vfs {
 
     class node {
         public:
-            class counter {
-                private:
-                    size_t _counter = 0;
-                    util::lock _lock{};
-                public:
-                    counter(size_t count) : _counter(count), _lock() { };
-                    counter() { };
-
-                    void operator ++(int) {
-                        _lock.acquire();
-                        _counter++;
-                        _lock.release();
-                    }
-
-                    void operator --(int) {
-                        _lock.acquire();
-                        _counter--;
-                        _lock.release();
-                    }
-
-                    operator size_t() {
-                        _lock.acquire();
-                        size_t ret = _counter;
-                        _lock.release();
-                        return ret;
-                    }
-            };
-
             struct type {
                 enum {
                     FILE = 1,
@@ -321,7 +289,7 @@ namespace vfs {
                 return meta;
             }
 
-            counter ref_count;
+            size_t ref_count;
         private:
             filesystem *fs;
             statinfo *meta;
@@ -345,18 +313,10 @@ namespace vfs {
             node *source;
             nodelist nodes;
             path relpath;
-
-            struct cache_block {
-                void *buf;
-                ssize_t len;
-            };
-
-            pathmap<cache_block *> blocknames;
         public:
-            filesystem() : blocknames(path_hasher()), nodenames(path_hasher()) {
+            filesystem() : nodenames(path_hasher()) {}
 
-            }
-
+            // TODO: fix destructor
             virtual ~filesystem() {
                 if (root->get_parent()) {
                     root->get_parent()->rm_child(root->get_path());
@@ -387,11 +347,15 @@ namespace vfs {
                 this->abspath = root->get_path();
             }
 
-            virtual node *lookup(const pathlist& filepath, vfs::path path, int64_t flags) {
+            virtual node *lookup(const pathlist& filepath, frg::string_view path, int64_t flags) {
                 return nullptr;
             }
 
             virtual ssize_t read(node *file, void *buf, ssize_t len, ssize_t offset) {
+                return -error::NOSYS;
+            }
+
+            virtual ssize_t mmap(node *file, void *addr, ssize_t len, ssize_t offset) {
                 return -error::NOSYS;
             }
 
@@ -432,54 +396,81 @@ namespace vfs {
             }
     };
 
-    class manager {
-        private:
-            node *root;
-            pathmap<filesystem *> mounts;
-            struct fd {
-                vfs::node *node;
-                ssize_t pos;
-                ssize_t flags;
-                ssize_t mode;
-            };
+    // TODO: sockets
+    struct pipe;
+    struct descriptor {
+        util::lock lock;
 
-            frg::hash_map<ssize_t, fd *, frg::hash<ssize_t>, memory::mm::heap_allocator> fd_table;
+        vfs::node *node;
+        vfs::pipe *pipe;
 
-            node *resolve(vfs::path path);
-            node *get_parent(vfs::path path);
-            filesystem *resolve_fs(vfs::path path);
-        public:
-            manager() : root(nullptr), mounts(path_hasher()), fd_table(frg::hash<ssize_t>{}) { }
+        size_t ref;
 
-            ssize_t mount(path srcpath, path dstpath, ssize_t fstype, optlist *opts, int64_t flags);
-            ssize_t umount(node *dst);
+        ssize_t pos;
+        ssize_t flags;
+        ssize_t mode;
 
-            ssize_t open(path filepath, int64_t flags);
-            ssize_t lseek(ssize_t fd, size_t off, size_t whence);
-            ssize_t close(ssize_t fd);
-            ssize_t read(ssize_t fd, void *buf, ssize_t len);
-            ssize_t write(ssize_t fd, void *buf, ssize_t len);
-            ssize_t ioctl(ssize_t fd, size_t req, void *buf);
-            ssize_t lstat(path filepath, node::statinfo *buf);
-            ssize_t create(path filepath, int64_t type, int64_t flags);
-            ssize_t mkdir(path dirpath, int64_t flags);
-            ssize_t rename(path oldpath, path newpath, int64_t flags);
-            ssize_t link(path from, path to, bool is_symlink);
-            ssize_t unlink(path filepath);
-            ssize_t rmdir(path dirpath);
-            pathlist lsdir(path dirpath);
-
-            // fs use only
-            ssize_t in_use(path filepath);
+        node::statinfo *info;
     };
 
-    inline manager *mgr = nullptr;
-    inline void init() {
-        mgr = frg::construct<manager>(memory::mm::heap);
-        mgr->mount("/", "/", fslist::ROOTFS, nullptr, mflags::NOSRC);
-        kmsg("[VFS] Initialized");
-    }
+    struct pipe {
+        descriptor *read;
+        descriptor *write;
+        void *buf;
+    };
 
+    struct fd;
+    struct fd_table;
+
+    struct fd {
+        util::lock lock;
+        descriptor *desc;
+        fd_table *table;
+        int fd_number;
+        int flags;
+    };
+    
+    struct fd_table {
+        util::lock lock;
+        frg::hash_map<int, fd *, frg::hash<int>, memory::mm::heap_allocator> fd_list;
+        size_t last_fd;
+
+        fd_table(): fd_list(frg::hash<int>()) {}
+    };
+
+    node *resolve(frg::string_view path);
+    node *get_parent(frg::string_view path);
+    filesystem *resolve_fs(frg::string_view path);
+
+    ssize_t mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t fstype, optlist *opts, int64_t flags);
+    ssize_t umount(node *dst);
+
+    vfs::fd *open(frg::string_view filepath, fd_table *table, int64_t flags, int64_t mode);
+    ssize_t lseek(vfs::fd *fd, size_t off, size_t whence);
+    ssize_t close(vfs::fd *fd);
+    ssize_t read(vfs::fd *fd, void *buf, ssize_t len);
+    ssize_t map(vfs::fd *fd, void *addr, ssize_t off, ssize_t len);
+    ssize_t write(vfs::fd *fd, void *buf, ssize_t len);
+    ssize_t ioctl(vfs::fd *fd, size_t req, void *buf);
+    ssize_t lstat(frg::string_view filepath, node::statinfo *buf);
+    ssize_t create(frg::string_view filepath, fd_table *table, int64_t type, int64_t flags, int64_t mode);
+    ssize_t mkdir(frg::string_view dirpath, int64_t flags, int64_t mode);
+    ssize_t rename(frg::string_view oldpath, frg::string_view newpath, int64_t flags);
+    ssize_t link(frg::string_view from, frg::string_view to, bool is_symlink);
+    ssize_t unlink(frg::string_view filepath);
+    ssize_t rmdir(frg::string_view dirpath);
+    pathlist lsdir(frg::string_view dirpath);
+
+    // fs use only
+    ssize_t in_use(frg::string_view filepath);
+    ssize_t insert_node(frg::string_view filepath, int64_t type);
+
+    // sched use
+    fd_table *make_table();
+    fd_table *copy_table(fd_table *table);
+    void delete_table(fd_table *table);
+
+    void init();
 };
 
 #endif

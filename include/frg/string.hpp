@@ -50,6 +50,13 @@ public:
 				return false;
 		return true;
 	}
+
+	bool operator== (const char c) const {
+		if(_length != 1)
+			return false;
+		return _pointer[0] == c;
+	}
+
 	bool operator!= (basic_string_view other) const {
 		return !(*this == other);
 	}
@@ -69,6 +76,17 @@ public:
 
 		return size_t(-1);
 	}
+
+	size_t count(Char c) const {
+		size_t count = 0;
+		for (size_t i = 0; i < _length; i++) {
+			if (_pointer[i] == c) {
+				count++;
+			}
+		}
+
+		return count;
+	}    
 
 	basic_string_view sub_string(size_t from, size_t size) {
 		FRG_ASSERT(from + size <= _length);

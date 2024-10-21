@@ -5,6 +5,7 @@
 #include <mm/mm.hpp>
 #include <sys/runtime.hpp>
 #include <util/log/log.hpp>
+#include <util/log/panic.hpp>
 #include <new>
 
 extern "C" {

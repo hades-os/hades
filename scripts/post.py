@@ -8,12 +8,14 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("name", help = "Project name")
 parser.add_argument("-s", "--source", help = "The source meson folder for the project.", required = True)
+parser.add_argument("-r", "--sys", help = "The sysroot folder.", required = True)
 parser.add_argument("-b", "--build", help = "The meson build folder.", required = True)
 parser.add_argument("-k", "--kernel", help = "Kernel ELF file path.", required = True)
 args = parser.parse_args()
 
 source_dir = Path(args.source).resolve()
 build_dir = Path(args.build).resolve()
+sysroot_dir = Path(args.sys).resolve()
 mount_dir = Path("/mnt/loop", f"{args.name}").resolve()
 
 kernel_path = Path(args.kernel).resolve()
@@ -76,6 +78,7 @@ def do_efi():
     loader_file = Path(source_dir, "misc", "limine.efi").resolve()
 
     subprocess.run(["cp", str(loader_file), str(Path(efi_dir, "BOOTX64.EFI").resolve())])
+    subprocess.run(["cp", "-r", f"{str(sysroot_dir)}/", f"{str(mount_dir)}/"])
 
 def do_limine_install(device):
     subprocess.run(["sudo", "umount", str(mount_dir)])

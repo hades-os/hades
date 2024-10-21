@@ -109,10 +109,6 @@ namespace pci {
         uint32_t raw;
     };
     
-    namespace {
-        inline frg::vector<device, memory::mm::heap_allocator> devices;
-    };
-
     void init();
     device *get_device(uint8_t clazz, uint8_t subclazz, uint8_t prog_if);
     const char *to_string(uint8_t clazz, uint8_t subclass, uint8_t prog_if);

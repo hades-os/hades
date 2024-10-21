@@ -6,7 +6,7 @@
 #include <mm/pmm.hpp>
 #include <util/string.hpp>
 
-vfs::node *vfs::rootfs::lookup(const pathlist& filepath, vfs::path path, int64_t flags) {
+vfs::node *vfs::rootfs::lookup(const pathlist& filepath, frg::string_view path, int64_t flags) {
     if (nodenames.contains(path)) {
         return nodenames[path];
     } else {

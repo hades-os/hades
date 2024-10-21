@@ -8,6 +8,7 @@
 #include <mm/pmm.hpp>
 #include <util/lock.hpp>
 #include <util/string.hpp>
+#include <util/log/panic.hpp>
 
 namespace memory::mm::allocator {
     struct header {
@@ -130,6 +131,8 @@ namespace memory::mm::allocator {
     }
 
     void *malloc(size_t req_size) {
+        mm_lock.irq_acquire();
+        
         if (blocks.get_root() == nullptr) {
             init();
         }
@@ -173,10 +176,14 @@ namespace memory::mm::allocator {
         hdr->block_size = space;
         hdr->pad = align_pad;
 
+        mm_lock.irq_release();
+
         return (void *)((char *) hdr + sizeof(header));
     }
 
     void free(void *ptr) {
+        mm_lock.irq_acquire();
+
         if (blocks.get_root() == nullptr) {
             panic("[MM] Use before init");
         }
@@ -185,6 +192,7 @@ namespace memory::mm::allocator {
         allocator::node *free_space;
 
         if (ptr == nullptr) {
+            mm_lock.irq_release();
             return;
         }
 
@@ -194,6 +202,8 @@ namespace memory::mm::allocator {
         free_space->block_size = hdr->block_size + hdr->pad;
 
         blocks.insert(free_space);
+
+        mm_lock.irq_release();
     }
 
     void *calloc(size_t nr_items, size_t size) {

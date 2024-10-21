@@ -510,6 +510,8 @@ static inline pci::device create_device(uint8_t bus, uint8_t slot, uint8_t func)
     );
 }
 
+frg::vector<pci::device, memory::mm::heap_allocator> devices;
+
 static inline void scan_bus(uint8_t bus) {
     for (size_t slot = 0; slot < pci::MAX_DEVICE; slot++) {
         if (is_function(bus, slot, 0)) {
@@ -517,7 +519,7 @@ static inline void scan_bus(uint8_t bus) {
                 scan_bus(get_secondary_bus(bus, slot, 0));
             } else {
                 auto device = create_device(bus, slot, 0);
-                pci::devices.push_back(device);
+                devices.push_back(device);
             }
 
             if (is_multifunction(bus, slot)) {                
@@ -527,7 +529,7 @@ static inline void scan_bus(uint8_t bus) {
                             scan_bus(get_secondary_bus(bus, slot, func));
                         } else {
                             auto device = create_device(bus, slot, func);
-                            pci::devices.push_back(device);
+                            devices.push_back(device);
                         }
                     }
                 }

@@ -105,25 +105,22 @@ namespace vfs {
             frg::vector<size_t, memory::mm::heap_allocator> free_list;
             
             uint8_t *fat;
-
             uint8_t type;
-
             filesystem *devfs;
 
             ssize_t last_free;
 
+            typedef frg::tuple<void *, size_t, frg::vector<size_t, memory::mm::heap_allocator>> rw_result;
+            rw_result rw_clusters(size_t begin, void *buf, ssize_t offset = 0, ssize_t len = 0, bool read_all = false, bool rw = false);
             uint32_t rw_entry(size_t cluster, bool rw = false, size_t val = 0);
 
-
-            typedef frg::tuple<void *, size_t, frg::vector<size_t, memory::mm::heap_allocator>> rw_result;
-            rw_result rw_clusters(size_t begin, void *buf, ssize_t offset = 0, ssize_t len = 0, bool rw = false);
             bool is_eof(uint32_t entry);
         public:
             fatfs() : sector_map(vfs::path_hasher()) {}
 
             void init_fs(node *root, node *source) override;
             
-            node *lookup(const pathlist& filepath, vfs::path path, int64_t flags) override;
+            node *lookup(const pathlist& filepath, frg::string_view path, int64_t flags) override;
             
             ssize_t read(node *file, void *buf, ssize_t len, ssize_t offset) override;
             ssize_t write(node *file, void *buf, ssize_t len, ssize_t offset) override;
