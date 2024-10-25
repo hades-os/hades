@@ -5,6 +5,7 @@
 
 namespace util {
 	inline uint8_t font[] = {
+        // 32 0x20 'NULL'
 		0b00000000,
 		0b00000000,
 		0b00000000,

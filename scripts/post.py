@@ -2,6 +2,7 @@
 
 import argparse
 import subprocess
+import shutil
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
@@ -75,10 +76,13 @@ def do_efi():
     efi_dir = Path(mount_dir, "EFI", "BOOT").resolve()
     efi_dir.mkdir(parents = True, exist_ok = True)
 
+    loader_dest = Path(efi_dir, "BOOTX64.EFI").resolve()
     loader_file = Path(source_dir, "misc", "limine.efi").resolve()
 
-    subprocess.run(["cp", str(loader_file), str(Path(efi_dir, "BOOTX64.EFI").resolve())])
-    subprocess.run(["cp", "-r", f"{str(sysroot_dir)}/", f"{str(mount_dir)}/"])
+    print(sysroot_dir)
+
+    shutil.copy(loader_file, loader_dest)
+    shutil.copytree(sysroot_dir, mount_dir, dirs_exist_ok=True)
 
 def do_limine_install(device):
     subprocess.run(["sudo", "umount", str(mount_dir)])

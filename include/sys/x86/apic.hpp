@@ -72,34 +72,32 @@ namespace apic {
     constexpr size_t ICR_DEST_INIT = (0x5 << 8);
     constexpr size_t ICR_DEASSERT = (1 << 15);
 
-    extern acpi::madt::iso *get_iso(uint32_t gsi);
     namespace ioapic {
-        extern uint32_t read(size_t ioapic, uint32_t reg);
-        extern void write(size_t ioapic, uint32_t reg, uint32_t data);
-        extern void setup();
-    };
+        uint32_t read(size_t ioapic, uint32_t reg);
+        void write(size_t ioapic, uint32_t reg, uint32_t data);
 
-    extern void route(uint64_t num, uint8_t irq, uint32_t pin, uint16_t flags, uint8_t apic, uint8_t masked);
-    extern size_t max_redirs(size_t ioapic);
+        uint64_t read_route(size_t ioapic, uint32_t entry);
+        void write_route(size_t ioapic, uint32_t entry, uint64_t data);
+        size_t max_redirs(size_t ioapic);
+        
+        uint8_t route(uint8_t apic, uint8_t irq, uint8_t vector, uint8_t masked);
+
+        void setup();
+    };
 
     namespace lapic {
-        extern void write(uint32_t reg, uint32_t data);
-        extern uint32_t read(uint32_t reg);
-        extern void setup();
-        extern void *get_base();
+        void write(uint32_t reg, uint32_t data);
+        uint32_t read(uint32_t reg);
+        void setup();
+        void *get_base();
 
-        extern uint64_t id();
-        extern void eoi();
-        extern void ipi(uint32_t ap, uint32_t flags);
+        uint64_t id();
+        void eoi();
+        void ipi(uint32_t ap, uint32_t flags);
     };
 
-    extern void remap();
-    extern size_t gsi_to_ioapic(uint32_t gsi);
-    extern void mask_pin(size_t ioapic, uint32_t pin, int masked);
-
-    extern void gsi_mask(uint32_t gsi, uint8_t masked);
-    extern int64_t get_gsi(uint8_t irq);
-    extern void init();
+    void remap();
+    void init();
 };
 
 #endif

@@ -77,7 +77,7 @@ namespace memory {
                             bool is_unmanaged;
                             frg::rbtree_hook hook;
                             struct callback_obj {
-                                bool *(*map)(void *virt, bool huge_page, void *map) = nullptr;
+                                bool (*map)(void *virt, bool huge_page, void *map) = nullptr;
                                 bool (*unmap)(void *virt, bool huge_page, void *map) = nullptr;
                             };
                             mapping::callback_obj callbacks;

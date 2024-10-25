@@ -42,7 +42,7 @@ void pit::init() {
     io::ports::write<uint8_t>(0x40, (uint8_t)(divisor & 0xFF));
     io::ports::write<uint8_t>(0x40, (uint8_t)(divisor >> 8 & 0xFF));
 
-    apic::gsi_mask(apic::get_gsi(0), 0);
+    apic::ioapic::route(0, 0, 34, false);
 
     sched::clock_mono = { .tv_sec = 0, .tv_nsec = 0 };
     sched::clock_rt = { .tv_sec = 0, .tv_nsec = 0 };

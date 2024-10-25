@@ -1,10 +1,11 @@
 
 #include "driver/keyboard.hpp"
+#include "driver/tty/tty.hpp"
+#include "sys/irq.hpp"
+#include "sys/x86/apic.hpp"
 #include "util/io.hpp"
+#include <cstddef>
 #include <cstdint>
-static void enable();
-static void disable();
-static void flush_buffer();
 
 static bool is_shift;
 static bool is_shift_locked;
@@ -150,4 +151,77 @@ static int get_character(char *character) {
         }
 
         return -1;
+}
+
+void validate();
+
+void enable() {
+    while (io::ports::read<uint8_t>(kb::KBD_PS2_STATUS) & (1 << 1)) asm volatile("pause");
+    io::ports::write(kb::KBD_PS2_COMMAND, (uint8_t) 0xAE);
+
+    while (io::ports::read<uint8_t>(kb::KBD_PS2_STATUS) & (1 << 1)) asm volatile("pause");
+    io::ports::write(kb::KBD_PS2_COMMAND, (uint8_t) 0xA8);
+}
+
+void disable() {
+    while (io::ports::read<uint8_t>(kb::KBD_PS2_STATUS) & (1 << 1)) asm volatile("pause");
+    io::ports::write(kb::KBD_PS2_COMMAND, (uint8_t) 0xAD);
+
+    while (io::ports::read<uint8_t>(kb::KBD_PS2_STATUS) & (1 << 1)) asm volatile("pause");
+    io::ports::write(kb::KBD_PS2_COMMAND, (uint8_t) 0xA7);
+}
+
+void flush() {
+    while (io::ports::read<uint8_t>(kb::KBD_PS2_STATUS) & (1 << 0)) {
+        io::ports::read<uint8_t>(kb::KBD_PS2_DATA);
+    }
+}
+
+void ps2_handler(irq::regs *r) {
+    if (!tty::active_tty) {
+        flush();
+        return;
+    }
+
+    tty::active_tty->in_lock.irq_acquire();
+    while (true) {
+        uint8_t status = io::ports::read<uint8_t>(kb::KBD_PS2_STATUS);
+        if (!(status & (1 << 0))) {
+            break;
+        }
+
+        if (status & (1 << 5)) {
+            continue;
+        }
+
+        char c = '\0';
+        int fun = get_character(&c);
+        tty::active_tty->handle_signal(c);
+
+        if (c != '\0') {
+            tty::active_tty->in.push(c);
+            continue;
+        }
+
+        if (fun == -1) {
+            continue;
+        }
+
+        char *seq = control_sequence[fun];
+        for (size_t i = 0; i < strlen(seq); i++) {
+            tty::active_tty->in.push(seq[i]);
+        }
+    }
+
+    tty::active_tty->in_lock.irq_release();
+}
+
+void kb::init() {
+    disable();
+    flush();
+
+    irq::add_handler(&ps2_handler, 35);
+    apic::ioapic::route(0, 1, 35, false);
+
+    enable();
 }

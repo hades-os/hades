@@ -13,6 +13,10 @@
 #include <util/log/log.hpp>
 #include <util/shared.hpp>
 
+namespace sched {
+    class process;
+}
+
 namespace vfs {
     class node;
     class filesystem;
@@ -91,7 +95,8 @@ namespace vfs {
             EXCL,
             NONBLOCK,
             SYNC,
-            NOFD
+            NOFD,
+            NOCTTY
         };
     };
 
@@ -132,6 +137,7 @@ namespace vfs {
         };
     };
 
+    struct fd;
     class node {
         public:
             struct type {
@@ -194,6 +200,16 @@ namespace vfs {
 
             void rm_child(path abspath) {
                 children.remove(abspath);
+            }
+
+            node *get_child(frg::string_view name) {
+                for (auto [child_name, child]: children) {
+                    if (child_name == name) {
+                        return child;
+                    }
+                }
+
+                return nullptr;
             }
 
             void add_link(node *link) {
@@ -351,12 +367,20 @@ namespace vfs {
                 return nullptr;
             }
 
+            virtual ssize_t on_open(vfs::fd *fd, ssize_t flags) {
+                return -error::NOSYS;
+            }
+
+            virtual ssize_t on_close(vfs::fd *fd, ssize_t flags) {
+                return -error::NOSYS;
+            }
+
             virtual ssize_t read(node *file, void *buf, ssize_t len, ssize_t offset) {
                 return -error::NOSYS;
             }
 
-            virtual ssize_t mmap(node *file, void *addr, ssize_t len, ssize_t offset) {
-                return -error::NOSYS;
+            virtual void *mmap(node *file, void *addr, ssize_t len, ssize_t offset) {
+                return nullptr;
             }
 
             virtual ssize_t write(node *file, void *buf, ssize_t len, ssize_t offset) {
@@ -407,9 +431,6 @@ namespace vfs {
         size_t ref;
 
         ssize_t pos;
-        ssize_t flags;
-        ssize_t mode;
-
         node::statinfo *info;
     };
 
@@ -417,17 +438,21 @@ namespace vfs {
         descriptor *read;
         descriptor *write;
         void *buf;
+        size_t len;
+        bool data_written;
     };
 
     struct fd;
     struct fd_table;
+    using fd_pair = frg::tuple<vfs::fd *, vfs::fd *>;
 
     struct fd {
         util::lock lock;
         descriptor *desc;
         fd_table *table;
         int fd_number;
-        int flags;
+        ssize_t flags;
+        ssize_t mode;
     };
     
     struct fd_table {
@@ -438,7 +463,9 @@ namespace vfs {
         fd_table(): fd_list(frg::hash<int>()) {}
     };
 
-    node *resolve(frg::string_view path);
+    node *resolve_process(frg::string_view path, sched::process *proc);
+    node *resolve_at(frg::string_view path, node *base);
+    node *resolve_abs(frg::string_view path);
     node *get_parent(frg::string_view path);
     filesystem *resolve_fs(frg::string_view path);
 
@@ -446,12 +473,14 @@ namespace vfs {
     ssize_t umount(node *dst);
 
     vfs::fd *open(frg::string_view filepath, fd_table *table, int64_t flags, int64_t mode);
+    fd_pair open_pipe(fd_table *table, ssize_t flags);
     ssize_t lseek(vfs::fd *fd, size_t off, size_t whence);
+    vfs::fd *dup(vfs::fd *fd, ssize_t flags, ssize_t new_num);
     ssize_t close(vfs::fd *fd);
     ssize_t read(vfs::fd *fd, void *buf, ssize_t len);
-    ssize_t map(vfs::fd *fd, void *addr, ssize_t off, ssize_t len);
     ssize_t write(vfs::fd *fd, void *buf, ssize_t len);
     ssize_t ioctl(vfs::fd *fd, size_t req, void *buf);
+    void *mmap(vfs::fd *fd, void *addr, ssize_t off, ssize_t len);
     ssize_t lstat(frg::string_view filepath, node::statinfo *buf);
     ssize_t create(frg::string_view filepath, fd_table *table, int64_t type, int64_t flags, int64_t mode);
     ssize_t mkdir(frg::string_view dirpath, int64_t flags, int64_t mode);
@@ -463,7 +492,8 @@ namespace vfs {
 
     // fs use only
     ssize_t in_use(frg::string_view filepath);
-    ssize_t insert_node(frg::string_view filepath, int64_t type);
+    vfs::node *insert_node(frg::string_view filepath, int64_t type);
+    vfs::fd *make_fd(vfs::node *node, fd_table *table, int64_t flags, int64_t mode);
 
     // sched use
     fd_table *make_table();

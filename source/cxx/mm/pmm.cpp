@@ -276,7 +276,7 @@ void *memory::pmm::phys(size_t req_pages) {
     return (void *) (((uint64_t) alloc(req_pages)) - common::virtualBase);
 }
 
-void memory::pmm::free(void *address, size_t req_pages) {
+void memory::pmm::free(void *address) {
     pmm_lock.acquire();
 
     pmm::allocation *alloc = (pmm::allocation *) (((char *) address) - common::page_size);

@@ -9,7 +9,8 @@ ipc::message *ipc::mailbox::recv(bool block, int filter_what, sched::thread* rec
         return nullptr;
     }
 
-    owner->sig_queue.active = true;
+    if (owner)
+        owner->sig_queue.active = true;
     // if we have messages, check them first
     if (__atomic_load_n(&this->size, __ATOMIC_SEQ_CST) > 0) {
         lock.irq_acquire();
@@ -46,9 +47,10 @@ ipc::message *ipc::mailbox::recv(bool block, int filter_what, sched::thread* rec
     lock.irq_acquire();
     current_waiter = nullptr;
 
-    owner->sig_queue.active = false;
+    if (owner)
+        owner->sig_queue.active = false;
     // We were interrupted by a signal, drop out
-    if (owner->block_signals) {
+    if (owner && owner->block_signals) {
         if (latest_message) {
             messages.push_back(latest_message);
             __atomic_fetch_add(&this->size, 1, __ATOMIC_SEQ_CST);

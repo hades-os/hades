@@ -10,6 +10,7 @@
 #include <frg/hash_map.hpp>
 #include <mm/mm.hpp>
 #include <fs/vfs.hpp>
+#include <fs/dev.hpp>
 
 namespace vfs {
     class fatfs : public vfs::filesystem {
@@ -106,11 +107,11 @@ namespace vfs {
             
             uint8_t *fat;
             uint8_t type;
-            filesystem *devfs;
+            vfs::devfs *devfs;
 
             ssize_t last_free;
 
-            typedef frg::tuple<void *, size_t, frg::vector<size_t, memory::mm::heap_allocator>> rw_result;
+            typedef frg::tuple<void *, size_t> rw_result;
             rw_result rw_clusters(size_t begin, void *buf, ssize_t offset = 0, ssize_t len = 0, bool read_all = false, bool rw = false);
             uint32_t rw_entry(size_t cluster, bool rw = false, size_t val = 0);
 

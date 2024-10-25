@@ -175,6 +175,15 @@ namespace stivale {
                 uint16_t height;
                 uint16_t pitch;
                 uint16_t bpp;
+                
+                uint8_t memory_model;
+                uint8_t  red_mask_size;
+                uint8_t  red_mask_shift;
+                uint8_t  green_mask_size;
+                uint8_t  green_mask_shift;
+                uint8_t  blue_mask_size;
+                uint8_t  blue_mask_shift;
+                uint8_t  unused;
             };
 
             struct [[gnu::packed]] modules {
@@ -236,7 +245,7 @@ namespace stivale {
             }
 
             info_parser(stivale::boot::header *header) {
-                this->header = header;
+                this->header = memory::common::offsetVirtual(header);
             }
 
             stivale::boot::tags::framebuffer *fb() {

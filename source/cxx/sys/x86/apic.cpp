@@ -7,16 +7,6 @@
 #include <util/log/panic.hpp>
 
 namespace apic {
-    acpi::madt::iso *get_iso(uint32_t gsi) {
-        for (auto iso : acpi::madt::isos) {
-            if (iso->gsi == gsi) {
-                return iso;
-            }
-        }
-
-        return nullptr;
-    };
-
     namespace ioapic {
         uint32_t read(size_t ioapic, uint32_t reg) {
             if (ioapic > acpi::madt::ioapics.size()) {
@@ -38,47 +28,63 @@ namespace apic {
             *(base + 4) = data;
         }
 
-        void setup() {
-            uint8_t vector = 0x20;
-            for (size_t i = 0; i < acpi::madt::ioapics.size() && vector < 0x2F; i++) {
-                size_t pins = apic::max_redirs(i);
-                for (size_t j = 0; j <= pins; j++, vector++) {
-                    acpi::madt::iso *iso = apic::get_iso(vector);
-                    if (!iso) {
-                        route(i, vector, j, 0, 0, 1);
-                    } else {
-                        route(i, vector, j, iso->flags, 0, 1);
-                    }
+        void write_route(size_t ioapic, uint32_t entry, uint64_t data) {
+            write(ioapic, entry + 0x10, data & 0xFFFFFFFF);
+            write(ioapic, entry + 0x10 + 1, (data >> 32) & 0xFFFFFFFF);            
+        }
+
+        uint64_t read_route(size_t ioapic, uint32_t entry) {
+            uint64_t data = read(ioapic, entry + 0x10) | (((uint64_t) read(ioapic, entry + 0x10 + 1)) << 32);
+            return data;
+        }
+
+        size_t max_redirs(size_t ioapic) {
+            return (ioapic::read(ioapic, 1) >> 16) & 0xFF;
+        }
+
+        uint8_t route(uint8_t apic, uint8_t irq, uint8_t vector, uint8_t masked) {
+            uint64_t flags = 0;
+            for (size_t i = 0; i < acpi::madt::isos.size(); i++) {
+                acpi::madt::iso *iso = acpi::madt::isos[i];
+                if (iso->irq != irq) {
+                    continue;
                 }
+
+                if (iso->flags & 2) {
+                    flags |= IOAPIC_REDIR_POLARITY;
+                }
+
+                if (iso->flags & 8) {
+                    flags |= IOAPIC_REDIR_TRIGGER_MODE;
+                }
+
+                irq = iso->gsi;
+                break;
+            }
+            
+            if (masked) {
+                flags |= IOAPIC_REDIR_MASK;
+            }
+
+            uint64_t entry = vector | flags | (((uint64_t) apic) << 56);
+            for (size_t i = 0; i < acpi::madt::ioapics.size(); i++) {
+                auto ioapic = acpi::madt::ioapics[i];
+                if (irq <= max_redirs(i) && irq >= ioapic->gsi_base) {
+                    write_route(i, (irq - ioapic->gsi_base) * 2, entry);
+                    return irq;
+                }
+            }
+            
+            return irq;
+        }
+
+        void setup() {
+            uint8_t base_vector = 32;
+            for (size_t i = 0; i < 16; i++) {
+                route(0, i, i + base_vector, true);
             }
         };
     };
-
-    void route(uint64_t num, uint8_t irq, uint32_t pin, uint16_t flags, uint8_t apic, uint8_t masked) {
-        size_t ent = irq;
-
-        if (flags & 2) {
-            ent |= IOAPIC_REDIR_POLARITY;
-        }
-
-        if (flags & 8) {
-            ent |= IOAPIC_REDIR_TRIGGER_MODE;
-        }
-
-        if (masked) {
-            ent |= IOAPIC_REDIR_MASK;
-        }
-
-        ent |= ((size_t) apic) << 56;
-
-        uint32_t reg = pin * 2 + 16;
-        ioapic::write(num, reg + 0, (uint32_t) ent);
-        ioapic::write(num, reg + 1, (uint32_t) (ent >> 32));
-    }
-
-    size_t max_redirs(size_t ioapic) {
-        return (ioapic::read(ioapic, 1) >> 16) & 0xFF;
-    }
 
     void remap() {
         uint8_t master_mask = io::ports::read<uint8_t>(0x21);
@@ -114,34 +120,6 @@ namespace apic {
         io::ports::io_wait();
         io::ports::write<uint8_t>(0xA1, 0xFF);
         io::ports::write<uint8_t>(0x21, 0xFF);
-    };
-
-    size_t gsi_to_ioapic(uint32_t gsi) {
-        for (uint64_t i = 0; i < acpi::madt::ioapics.size(); i++) {
-            acpi::madt::ioapic* ioapic = acpi::madt::ioapics[i];
-            uint64_t max_redirs = apic::max_redirs(i);
-            if (gsi >= ioapic->gsi_base && gsi <= ioapic->gsi_base + max_redirs) {
-                return i;
-            }
-        }
-
-        return -1;
-    };
-
-    void mask_pin(size_t ioapic, uint32_t pin, int masked)  {
-        uint32_t reg = pin * 2 + 16;
-        uint64_t ent = 0;
-        ent |= ioapic::read(ioapic, reg + 0);
-        ent |= (uint64_t) ioapic::read(ioapic, reg + 1) << 32;
-
-        if (masked) {
-            ent |= (1 << 16);
-        } else {
-            ent &= ~(1 << 16);
-        }
-
-        ioapic::write(ioapic, reg + 0, (uint32_t) ent);
-        ioapic::write(ioapic, reg + 1, (uint32_t) (ent >> 32));
     };
 
     namespace lapic {
@@ -181,24 +159,6 @@ namespace apic {
             lapic::write(LAPIC_REG_ICR_HIGH, ap << 24);
             lapic::write(LAPIC_REG_ICR_LOW, flags);
         }
-    };
-
-    void gsi_mask(uint32_t gsi, uint8_t masked) {
-        size_t ioapic = apic::gsi_to_ioapic(gsi);
-
-        uint32_t pin = gsi - acpi::madt::ioapics[ioapic]->gsi_base;
-
-        mask_pin(ioapic, pin, masked);
-    };
-
-    int64_t get_gsi(uint8_t irq) {
-        for (size_t i = 0; i < acpi::madt::isos.size(); i++) {
-            if (acpi::madt::isos[i]->bus == 0 && acpi::madt::isos[i]->irq == irq) {
-                return acpi::madt::isos[i]->gsi;
-            }
-        }
-
-        return -1;
     };
 
     void init() {

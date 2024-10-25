@@ -5,10 +5,14 @@
 #include <mm/mm.hpp>
 
 size_t part::probe(vfs::devfs::device *dev) {
-    mbr::header *mbr_header = (mbr::header *) kmalloc(dev->block_size);
-    gpt::header *gpt_header = (gpt::header *) kmalloc(dev->block_size);
+    if (!dev->blockdev) {
+        return -1;
+    }
 
-    if (dev->read(gpt_header, dev->block_size, dev->block_size) < 1) {
+    mbr::header *mbr_header = (mbr::header *) kmalloc(dev->block.block_size);
+    gpt::header *gpt_header = (gpt::header *) kmalloc(dev->block.block_size);
+
+    if (dev->read(gpt_header, dev->block.block_size, dev->block.block_size) < 1) {
         kfree(mbr_header);
         kfree(gpt_header);
         return -1;
@@ -22,7 +26,7 @@ size_t part::probe(vfs::devfs::device *dev) {
         }
 
         gpt::part *gpt_part_list = (gpt::part *) kmalloc(gpt_header->part_len * sizeof(gpt::part));
-        if (dev->read(gpt_part_list, gpt_header->part_len * sizeof(gpt::part), gpt_header->part_start * dev->block_size) < 1) {
+        if (dev->read(gpt_part_list, gpt_header->part_len * sizeof(gpt::part), gpt_header->part_start * dev->block.block_size) < 1) {
             kfree(mbr_header);
             kfree(gpt_header);
             kfree(gpt_part_list);
@@ -36,7 +40,7 @@ size_t part::probe(vfs::devfs::device *dev) {
                 continue;
             }
 
-            dev->part_list.push({part.lba_end - part.lba_start, part.lba_start});
+            dev->block.part_list.push({part.lba_end - part.lba_start, part.lba_start});
         }
 
         kfree(mbr_header);
@@ -45,7 +49,7 @@ size_t part::probe(vfs::devfs::device *dev) {
         return 0;
     }
 
-    if (dev->read(mbr_header, dev->block_size, 0) < 1) {
+    if (dev->read(mbr_header, dev->block.block_size, 0) < 1) {
         kfree(mbr_header);
         kfree(gpt_header);
         return -1;
@@ -59,7 +63,7 @@ size_t part::probe(vfs::devfs::device *dev) {
                 continue;
             }
 
-            dev->part_list.push({part.len, part.lba_start});
+            dev->block.part_list.push({part.len, part.lba_start});
         }
     }
 
