@@ -26,12 +26,12 @@ tty::ssize_t tty::ptmx::on_open(vfs::fd *fd, tty::ssize_t flags) {
 
     ptm->resolveable = false;
     ptm->name = vfs::path("ptm") + ((last_ptm++) + 48);
+    ptm->slave = pts;
     vfs::devfs::add(ptm);
     vfs::node *ptm_node = frg::construct<vfs::node>(memory::mm::heap, fd->desc->node->get_fs(), ptm->name, "", fd->desc->node, 0, vfs::node::type::CHARDEV);
     fd->desc->node = ptm_node;
 
     pts_tty->driver = pts;
-
     pts->slave_no = slave_no;
     pts->tty = pts_tty;
     pts->master = ptm;
@@ -87,16 +87,16 @@ tty::ssize_t tty::ptm::write(void *buf, ssize_t len, ssize_t offset) {
     ssize_t count;
     char *chars = (char *) buf;
 
-    in_lock.irq_acquire();
+    slave->tty->in_lock.irq_acquire();
     for (count = 0; count < len; count++) {
-        if (!in.push(*chars)) {
+        if (!slave->tty->in.push(*chars)) {
             break;
         }
 
         chars++;
     }
     
-    in_lock.irq_release();
+    slave->tty->in_lock.irq_release();
     return count;
 }
 
