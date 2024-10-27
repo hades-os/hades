@@ -20,50 +20,50 @@ namespace util {
     static constexpr size_t dec(T val) {
         return (size_t) val;
     }
+
+    static constexpr auto digits_upper = "0123456789ABCDEF";
+    static constexpr auto digits_lower = "0123456789abcdef";
+    inline char *num_fmt(char *buf, size_t buf_len, uint64_t i, int base, int padding, char pad_with, int handle_signed, int upper, int len) {
+        int neg = (signed) i < 0 && handle_signed;
+
+        if (neg)
+            i = (unsigned) (-((signed) i));
+
+        char *ptr = buf + buf_len - 1;
+        *ptr = '\0';
+
+        const char *digits = upper ? digits_upper : digits_lower;
+
+        do {
+            *--ptr = digits[i % base];
+            if (padding)
+                padding--;
+            if (len > 0)
+                len--;
+            buf_len--;
+        } while ((i /= base) != 0 && (len == -1 || len) && buf_len);
+
+        while (padding && buf_len) {
+            *--ptr = pad_with;
+            padding--;
+            buf_len--;
+        }
+
+        if (neg && buf_len)
+            *--ptr = '-';
+
+        return ptr;
+    }    
     
     class stream {
         public:
             typedef void (*logger)(const char *str);
         private:
             static constexpr auto log_size = 1000;
-            static constexpr auto digits_upper = "0123456789ABCDEF";
-            static constexpr auto digits_lower = "0123456789abcdef";
             static constexpr auto num_buf_len = 48;
 
             char num_buf[num_buf_len];
             logger loggers[32] = { 0 };
-
-            char *num_fmt(char *buf, size_t buf_len, uint64_t i, int base, int padding, char pad_with, int handle_signed, int upper, int len) {
-                int neg = (signed) i < 0 && handle_signed;
-
-                if (neg)
-                    i = (unsigned) (-((signed) i));
-
-                char *ptr = buf + buf_len - 1;
-                *ptr = '\0';
-
-                const char *digits = upper ? digits_upper : digits_lower;
-
-                do {
-                    *--ptr = digits[i % base];
-                    if (padding)
-                        padding--;
-                    if (len > 0)
-                        len--;
-                    buf_len--;
-                } while ((i /= base) != 0 && (len == -1 || len) && buf_len);
-
-                while (padding && buf_len) {
-                    *--ptr = pad_with;
-                    padding--;
-                    buf_len--;
-                }
-
-                if (neg && buf_len)
-                    *--ptr = '-';
-
-                return ptr;
-            }
 
         public:
             stream& operator <<(const char *arg) {
@@ -87,7 +87,6 @@ namespace util {
             };
 
             stream& operator <<(void *arg) {
-                *this << "0x";
                 auto fmt = num_fmt(num_buf, num_buf_len, (uint64_t) arg, 16, 0, ' ', 0, 0, 16);
                 *this << fmt;
                 return *this;

@@ -293,7 +293,12 @@ void pci::device::enable_busmastering() {
 void pci::device::enable_mmio() {
     if (!(readd(0x4) & (1 << 1))) {
         writed(0x4, readd(0x4) | (1 << 1));
-    }}
+    }
+}
+
+uint8_t pci::device::read_irq() {
+    return readb(0x3C);
+}
 
 const char *pci::to_string(uint8_t clazz, uint8_t subclass, uint8_t prog_if) {
     switch (clazz) {
@@ -547,6 +552,20 @@ pci::device *pci::get_device(uint8_t cl, uint8_t subcl, uint8_t prog_if) {
 
         if (current_class == cl && current_subclass == subcl &&
             current_prog_if == prog_if) {
+            return &devices[i];
+        }
+    }
+
+    return nullptr;
+}
+
+pci::device *pci::get_device(uint16_t vendor, uint16_t device) {
+    auto len = devices.size();
+    for (size_t i = 0; i < len; i++) {
+        auto current_vendor    = devices[i].get_vendor();
+        auto current_device = devices[i].get_device();
+
+        if (current_vendor == vendor && current_device == device) {
             return &devices[i];
         }
     }

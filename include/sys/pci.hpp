@@ -81,8 +81,10 @@ namespace pci {
             void     writed(uint32_t offset, uint32_t value);
             int      read_bar(size_t index, pci::bar& bar_out);
             int      register_msi(uint8_t vector, uint8_t lapic_id);
+
             void     enable_busmastering();
             void     enable_mmio();
+            uint8_t  read_irq();
     };
 
     union [[gnu::packed]] msi_address {
@@ -111,6 +113,7 @@ namespace pci {
     
     void init();
     device *get_device(uint8_t clazz, uint8_t subclazz, uint8_t prog_if);
+    device *get_device(uint16_t vendor, uint16_t device);
     const char *to_string(uint8_t clazz, uint8_t subclass, uint8_t prog_if);
 };
 
