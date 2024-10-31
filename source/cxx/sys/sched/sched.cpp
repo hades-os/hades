@@ -56,7 +56,7 @@ void sched::send_ipis() {
 }
 
 void sched::sleep(size_t time) {
-    volatile uint64_t final_time = uptime + (time * (PIT_FREQ / 1000));
+    volatile uint64_t final_time = uptime + (time * (TIMER_HZ / PIT_FREQ));
 
     final_time += 1;
     while (uptime < final_time) {  }
@@ -261,7 +261,7 @@ bool sched::exec(thread *target, const char *path, char **argv, char **envp) {
         }
     }
 
-    auto fd = vfs::open(path, target->proc->fds, 0, 0);
+    auto fd = vfs::open(nullptr, path, target->proc->fds, 0, 0);
     if (!fd) {
         // TODO: errno
         return false;
@@ -340,14 +340,14 @@ void sched::process_env::place_params(char **envp, char **argv, thread *target) 
 
     *(--location) = 0;
     location -= params.envc;
-    for (size_t i = 0; i < params.envc; i++) {
+    for (size_t i = 0; i < (size_t) params.envc; i++) {
         args_location -= strlen(params.envp[i]) + 1;
         location[i] = args_location;
     }
 
     *(--location) = 0;
     location -= params.argc;
-    for (size_t i = 0; i < params.argc; i++) {
+    for (size_t i = 0; i < (size_t)  params.argc; i++) {
         args_location -= strlen(params.argv[i]) + 1;
         location[i] = args_location;
     }
@@ -358,7 +358,7 @@ void sched::process_env::place_params(char **envp, char **argv, thread *target) 
 
 //TODO : cleanup
 bool sched::process_env::load_elf(const char *path) {
-    auto fd = vfs::open(path, proc->fds, 0, 0);
+    auto fd = vfs::open(nullptr, path, proc->fds, 0, 0);
     if (!fd) {
         return false;
     }
@@ -376,7 +376,7 @@ bool sched::process_env::load_elf(const char *path) {
     vfs::close(fd);
 
     if (has_interp) {
-        fd = vfs::open(interp_path, nullptr, 0, 0);
+        fd = vfs::open(nullptr, interp_path, nullptr, 0, 0);
         if (!fd) {
             return -1;
         }
@@ -405,12 +405,12 @@ bool sched::process_env::load_elf(const char *path) {
 }
 
 uint64_t *sched::process_env::place_args(uint64_t *location) {
-    for (size_t i = 0; i < params.envc; i++) {
+    for (size_t i = 0; i < (size_t)  params.envc; i++) {
         location = (uint64_t *)((char *) location - (strlen(params.envp[i]) + 1));
         strcpy((char *) location, params.envp[i]);
     }
 
-    for (size_t i = 0; i < params.argc; i++) {
+    for (size_t i = 0; i < (size_t) params.argc; i++) {
         location = (uint64_t *)((char *) location - (strlen(params.argv[i]) + 1));
         strcpy((char *) location, params.argv[i]);
     }
@@ -456,12 +456,12 @@ void sched::process_env::load_params(char **argv, char **envp) {
     params.argv = (char **) kmalloc(sizeof (char *) * params.argc);
     params.envp = (char **) kmalloc(sizeof (char *) * params.envc);
 
-    for (size_t i = 0; i < params.argc; i++) {
+    for (size_t i = 0; i < (size_t) params.argc; i++) {
         params.argv[i] = (char *) kmalloc(strlen(argv[i] + 1));
         strcpy(params.argv[i], argv[i]);
     }
 
-    for (size_t i = 0; i < params.envc; i++) {
+    for (size_t i = 0; i < (size_t) params.envc; i++) {
         params.envp[i] = (char *) kmalloc(strlen(envp[i] + 1));
         strcpy(params.envp[i], envp[i]);
     }
@@ -864,7 +864,11 @@ void sched::swap_task(irq::regs *r) {
         running_task->ustack = smp::get_locals()->ustack;
 
         running_task->stopped = io::tsc();
+
+        size_t prev_uptime = running_task->uptime;
         running_task->uptime += running_task->stopped - running_task->started;
+        uptime += running_task->uptime - prev_uptime;
+
         running_task->cpu = -1;
 
         running_task->reg.cr3 = memory::vmm::read_cr3();

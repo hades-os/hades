@@ -20,6 +20,14 @@ namespace acpi {
         uint32_t creatorversion;
     };
 
+    struct [[gnu::packed]] gas {
+        uint8_t address_space;
+        uint8_t bit_width;
+        uint8_t bit_off;
+        uint8_t access_size;
+        uint64_t address;
+    };
+
     namespace madt {
         struct [[gnu::packed]] ioapic {
             uint8_t type;
@@ -69,6 +77,72 @@ namespace acpi {
         extern void init();
     };
 
+    struct [[gnu::packed]] fadt {
+        sdt _sdt;
+
+        uint32_t fw_ctl;
+        uint32_t dsdt;
+
+        uint8_t rsv;
+
+        uint8_t preferred_pwr;
+        uint16_t sci_irq;
+        uint32_t smi_cmd;
+
+        uint8_t acpi_enable;
+        uint8_t acpi_disable;
+
+        uint8_t s4bios_req;
+        uint8_t pstate_ctrl;
+
+        uint32_t pm1a_evt_blk;
+        uint32_t pm1b_evt_blk;
+
+        uint32_t pm1a_ctrl_blk;
+        uint32_t pm1b_ctrl_blk;
+
+        uint32_t pm2_ctrl_blk;
+        uint32_t pm2_timer_blk;
+
+        uint32_t gpe0_block;
+        uint32_t gpe1_block;
+
+        uint8_t pm1_event_len;
+        uint8_t pm1_ctrl_len;
+        uint8_t pm2_ctrl_len;
+        uint8_t pm_timer_len;
+
+        uint8_t gpe0_length;
+        uint8_t gpe1_length;
+        uint8_t gpe1_base;
+
+        uint8_t c_state_ctrl;
+        
+        uint16_t worst_c2_latency;
+        uint16_t worst_c3_latency;
+
+        uint16_t flush_size;
+        uint16_t flush_stride;
+
+        uint8_t duty_off;
+        uint8_t duty_width;
+
+        uint8_t day_alarm;
+        uint8_t month_alarm;
+        uint8_t century;
+
+        uint16_t boot_arch_flags;
+        uint8_t rsv2;
+        uint32_t flags;
+
+        gas reset_reg;
+        uint8_t reset_val;
+        uint8_t rsv3[3];
+
+        uint64_t x_fw_ctl;
+        uint64_t x_dsdt;
+    };
+
     struct [[gnu::packed]] rsdt {
         sdt _sdt;
         uint32_t ptrs[];
@@ -92,22 +166,12 @@ namespace acpi {
         uint8_t reserved[3];
     };
 
-    extern acpi::sdt *tables[22];
-
-    extern acpi::xsdt *_xsdt;
-    extern acpi::rsdt *_rsdt;
-
-    extern acpi::rsdp *_rsdp;
-
-    extern uint8_t use_xsdt;
-
-    extern void _locate(const char *sig);
-    extern uint8_t _rsdp_check();
-    extern uint8_t _rsdt_check();
-    extern uint8_t _xsdt_check();
+    uint8_t _rsdp_check();
+    uint8_t _rsdt_check();
+    uint8_t _xsdt_check();
 
     void init(stivale::boot::tags::rsdp *info);
-    acpi::sdt *table(const char *sig);
+    acpi::sdt *table(const char *sig, size_t index);
 };
 
 #endif

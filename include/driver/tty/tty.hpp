@@ -114,8 +114,8 @@ namespace tty {
 
             ssize_t on_open(vfs::fd *fd, ssize_t flags) override;
             ssize_t on_close(vfs::fd *fd, ssize_t flags) override;
-            ssize_t read(void *buf, ssize_t count, ssize_t offset) override;
-            ssize_t write(void *buf, ssize_t count, ssize_t offset) override;
+            ssize_t read(void *buf, size_t count, size_t offset) override;
+            ssize_t write(void *buf, size_t count, size_t offset) override;
             ssize_t ioctl(size_t req, void *buf) override;
     };
 

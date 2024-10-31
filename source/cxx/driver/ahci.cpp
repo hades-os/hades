@@ -17,6 +17,7 @@
 #include <util/log/panic.hpp>
 #include <util/string.hpp>
 
+int AHCI_MAJOR = 0xA;
 uint8_t port_type(volatile ahci::port *port) {
     uint32_t sata_status = port->sata_status;
     uint8_t detection = sata_status & 0x0F;
@@ -214,9 +215,8 @@ void ahci::device::setup() {
         kmsg("[AHCI] Found ATA Device");
         identify_sata();
 
-        major = vfs::devfs::STORAGE_MAJOR;
+        major = AHCI_MAJOR;
         minor = this->id;
-        name = vfs::path{"sd"} + alphabet[this->id];
     }
 }
 
@@ -298,11 +298,11 @@ void ahci::device::identify_sata() {
     kmsg("[AHCI] Identify succeeded");
 }
 
-void ahci::request_io(void *request_data, ahci::device::block_zone *zones, size_t num_zones, ahci::ssize_t part_offset, bool rw) {
+void ahci::request_io(void *request_data, ahci::device::block_zone *zones, size_t num_zones, size_t part_offset, bool rw) {
     auto device = (ahci::device *) request_data;
-    auto request_id = device->last_request_id++;
 
     device->lock.irq_acquire();
+    auto request_id = device->last_request_id++;
     for (auto zone = zones; zone != nullptr; zone = zone->next) {
         device->requests.push_back({
             .zone = zone,
@@ -469,7 +469,7 @@ void ahci::device::handle_commands() {
     lock.irq_release();
 }
 
-ahci::ssize_t ahci::device::read(void *buf, ssize_t count, ssize_t offset) {
+ahci::ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
     lock.irq_acquire();
 
     uint64_t sector_offset = offset % sector_size;
@@ -517,18 +517,8 @@ ahci::ssize_t ahci::device::read(void *buf, ssize_t count, ssize_t offset) {
     return count;
 }
 
-ahci::ssize_t ahci::device::write(void *buf, ssize_t count, ssize_t offset) {
+ahci::ssize_t ahci::device::write(void *buf, size_t count, size_t offset) {
     return -1;
-}
-
-ahci::ssize_t ahci::device::ioctl(size_t req, void *buf) {
-    switch (req) {
-        case vfs::devfs::BLKRRPART:
-            part::probe(this);
-            return 0;
-        default:
-            return -vfs::error::INVAL;
-    }
 }
 
 static frg::vector<ahci::device *, memory::mm::heap_allocator> devices{};
@@ -588,8 +578,8 @@ void ahci::init() {
                 device->setup();
                 devices.push_back(device);
 
+                vfs::devfs::add(vfs::path{"sd"} + alphabet[device->id], device);
                 part::probe(device);
-                vfs::devfs::add(device);
 
                 break;
             }

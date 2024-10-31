@@ -12,8 +12,7 @@
 tty::device *tty::active_tty = nullptr;
 void tty::self::init() {
     auto self = frg::construct<tty::self>(memory::mm::heap);
-    self->name = "tty";
-    vfs::devfs::add(self);
+    vfs::devfs::add("/dev/tty", self);
 }
 
 tty::ssize_t tty::self::on_open(vfs::fd *fd, ssize_t flags) {
@@ -22,11 +21,7 @@ tty::ssize_t tty::self::on_open(vfs::fd *fd, ssize_t flags) {
         return -1;
     }
 
-    vfs::path tty_name("/dev");
-    if (smp::get_process())
-        tty_name += smp::get_process()->sess->tty->name;
-
-    fd->desc->node = vfs::resolve_abs(tty_name);
+    fd->desc->node = smp::get_process()->sess->tty->file;
     return 0;
 }
 
@@ -74,7 +69,7 @@ tty::ssize_t tty::device::on_close(vfs::fd *fd, ssize_t flags) {
     return 0;
 }
 
-tty::ssize_t tty::device::read(void *buf, ssize_t count, ssize_t offset) {
+tty::ssize_t tty::device::read(void *buf, size_t count, size_t offset) {
     // TODO: orphans
     if (smp::get_process() && smp::get_process()->sess == sess) {
         if (smp::get_process()->group != fg) {
@@ -99,7 +94,7 @@ tty::ssize_t tty::device::read(void *buf, ssize_t count, ssize_t offset) {
     return 0;
 }
 
-tty::ssize_t tty::device::write(void *buf, ssize_t count, ssize_t offset) {
+tty::ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     // TODO: orphans
     if (smp::get_process() && smp::get_process()->sess == sess) {
         if (smp::get_process()->group != fg && (termios.c_cflag & TOSTOP)) {

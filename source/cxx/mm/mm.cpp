@@ -209,16 +209,4 @@ namespace memory::mm::allocator {
     void *calloc(size_t nr_items, size_t size) {
         return malloc(nr_items * size);
     }
-
-    void *realloc(void *p, size_t size) {
-        void *prev = p;
-        header *hdr = (header *) ((char *) prev - sizeof(header));
-
-        void *ptr = malloc(size);
-
-        memcpy(ptr, prev, hdr->block_size);
-        free(prev);
-
-        return ptr;
-    }
 }

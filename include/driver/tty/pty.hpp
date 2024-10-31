@@ -38,14 +38,11 @@ namespace tty {
             friend struct pts;
 
             ptm(): in_lock(), in(max_chars), slave(nullptr) {};
-            ssize_t read(void *buf, ssize_t len, ssize_t offset) override;
-            ssize_t write(void *buf, ssize_t len, ssize_t offset) override; 
+            ssize_t read(void *buf, size_t len, size_t offset) override;
+            ssize_t write(void *buf, size_t len, size_t offset) override; 
             ssize_t ioctl(size_t req, void *buf) override;        
     };
 
-    static util::lock ptmx_lock{};
-    static size_t last_pts = 0;
-    static size_t last_ptm = 0;
     struct ptmx: vfs::devfs::device {
         public:
             static void init();

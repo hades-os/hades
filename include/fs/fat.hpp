@@ -102,7 +102,6 @@ namespace vfs {
             };
 
             super *superblock = nullptr;
-            frg::hash_map<vfs::path, size_t, vfs::path_hasher, memory::mm::heap_allocator> sector_map;
             frg::vector<size_t, memory::mm::heap_allocator> free_list;
             
             uint8_t *fat;
@@ -112,23 +111,23 @@ namespace vfs {
             ssize_t last_free;
 
             typedef frg::tuple<void *, size_t> rw_result;
-            rw_result rw_clusters(size_t begin, void *buf, ssize_t offset = 0, ssize_t len = 0, bool read_all = false, bool rw = false);
+            rw_result rw_clusters(size_t begin, void *buf, size_t offset = 0, size_t len = 0, bool read_all = false, bool rw = false);
             uint32_t rw_entry(size_t cluster, bool rw = false, size_t val = 0);
 
             bool is_eof(uint32_t entry);
         public:
-            fatfs() : sector_map(vfs::path_hasher()) {}
+            fatfs() {}
 
             void init_fs(node *root, node *source) override;
             
-            node *lookup(const pathlist& filepath, frg::string_view path, int64_t flags) override;
+            node *lookup(node *parent, frg::string_view name) override;
+            ssize_t lsdir(node *dir) override;
             
-            ssize_t read(node *file, void *buf, ssize_t len, ssize_t offset) override;
-            ssize_t write(node *file, void *buf, ssize_t len, ssize_t offset) override;
-            ssize_t create(path name, node *parent, node *nnode, int64_t type, int64_t flags) override;
-            ssize_t mkdir(const pathlist& dirpath, int64_t flags) override;
-            ssize_t remove(node *dest) override;
-            ssize_t lsdir(node *dir, pathlist& names) override;
+            ssize_t read(node *file, void *buf, size_t len, size_t offset) override;
+            ssize_t write(node *file, void *buf, size_t len, size_t offset) override;
+            ssize_t create(node *dst, path name, int64_t type, int64_t flags) override;
+            ssize_t mkdir(node *dst, frg::string_view name, int64_t flags) override;
+            ssize_t remove(node *dst) override;
     };
 };
 

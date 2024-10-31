@@ -75,7 +75,7 @@ void video::vesa::display_bmp(void *buf, size_t size) {
         char *image_row = image + (flipped ? yp : (info->height - yp)) * rowSize;
         uint32_t *fb_row = ((uint32_t *) address) + ((yp + y) * width) + x;
 
-        for (uint32_t xp = 0; xp < info->width; xp++) {
+        for (uint32_t xp = 0; xp < (uint32_t) info->width; xp++) {
             uint32_t b = image_row[0] & 0xFF;
             uint32_t g = image_row[1] & 0xFF;
             uint32_t r = image_row[2] & 0xFF;

@@ -1,0 +1,3 @@
+[submodule "subprojects/lai"]
+	path = subprojects/lai
+	url = https://github.com/managarm/lai

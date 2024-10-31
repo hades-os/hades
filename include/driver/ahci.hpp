@@ -296,7 +296,7 @@ namespace ahci {
 
     struct device;
     void init();
-    void request_io(void *request_data, vfs::devfs::device::block_zone *zones, size_t num_zones, ssize_t part_offset, bool rw);
+    void request_io(void *request_data, vfs::devfs::device::block_zone *zones, size_t num_zones, size_t part_offset, bool rw);
     ssize_t find_cmdslot(ahci::device *device);
 
     void ahci_task();
@@ -316,7 +316,7 @@ namespace ahci {
                 block_zone *zone;
                 void *tmp;
                 size_t request_id;
-                ssize_t part_offset;
+                size_t part_offset;
                 size_t num_zones;
                 bool rw;
                 command_slot slot;
@@ -339,7 +339,7 @@ namespace ahci {
             void handle_finished();
             void handle_commands();
         public:
-            friend void ahci::request_io(void *request_data, block_zone *zones, size_t num_zones, ssize_t part_offset, bool rw);
+            friend void ahci::request_io(void *request_data, block_zone *zones, size_t num_zones, size_t part_offset, bool rw);
             friend void ahci::init();
             friend void ahci::ahci_task();
             friend ssize_t ahci::find_cmdslot(ahci::device *device);
@@ -348,9 +348,8 @@ namespace ahci {
 
             void setup();
             void identify_sata();
-            ssize_t read(void *buf, ssize_t count, ssize_t offset) override;
-            ssize_t write(void *buf, ssize_t count, ssize_t offset) override; 
-            ssize_t ioctl(size_t req, void *buf) override;
+            ssize_t read(void *buf, size_t count, size_t offset) override;
+            ssize_t write(void *buf, size_t count, size_t offset) override; 
     };
 };
 

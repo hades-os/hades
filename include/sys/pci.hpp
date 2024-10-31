@@ -84,7 +84,7 @@ namespace pci {
 
             void     enable_busmastering();
             void     enable_mmio();
-            uint8_t  read_irq();
+            uint8_t  read_pin();
     };
 
     union [[gnu::packed]] msi_address {
@@ -111,6 +111,15 @@ namespace pci {
         uint32_t raw;
     };
     
+    uint32_t read_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg);
+    void write_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint32_t data);
+
+    uint16_t read_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg);
+    void write_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint16_t data);
+
+    uint16_t read_byte(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg);
+    void write_byte(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint8_t data);
+
     void init();
     device *get_device(uint8_t clazz, uint8_t subclazz, uint8_t prog_if);
     device *get_device(uint16_t vendor, uint16_t device);

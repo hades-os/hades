@@ -9,6 +9,7 @@
 
 void tick_handler(irq::regs *r) {
     sched::timespec interval = { .tv_sec = 0, .tv_nsec = pit::TIMER_HZ / sched::PIT_FREQ };
+    sched::uptime += interval.tv_nsec;
 
     sched::clock_rt = sched::clock_rt + interval;
     sched::clock_mono = sched::clock_mono + interval;
@@ -31,7 +32,7 @@ void tick_handler(irq::regs *r) {
 }
 
 void pit::init() {
-    irq::add_handler(tick_handler, 34);
+    irq::add_handler(tick_handler, irq::IRQ0);
 
     uint16_t divisor = 1193182 / PIT_FREQ;
     if ((1193182 % PIT_FREQ) > (PIT_FREQ / 2)) {
@@ -42,7 +43,7 @@ void pit::init() {
     io::ports::write<uint8_t>(0x40, (uint8_t)(divisor & 0xFF));
     io::ports::write<uint8_t>(0x40, (uint8_t)(divisor >> 8 & 0xFF));
 
-    apic::ioapic::route(0, 0, 34, false);
+    apic::ioapic::route(0, 0, irq::IRQ0, false);
 
     sched::clock_mono = { .tv_sec = 0, .tv_nsec = 0 };
     sched::clock_rt = { .tv_sec = 0, .tv_nsec = 0 };

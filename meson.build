@@ -1,4 +1,4 @@
-project('hades', 'cpp', version: '0.0.1')
+project('hades', ['cpp', 'c'], version: '0.0.1')
 main_sources = files(
     'source/cxx/sys/x86/apic.cpp',
     'source/cxx/sys/acpi.cpp',
@@ -11,6 +11,7 @@ main_sources = files(
     'source/cxx/sys/pit.cpp',
 	'source/cxx/sys/runtime.cpp',
     'source/cxx/sys/syscall.cpp',
+    'source/cxx/sys/laihost.cpp',
     'source/cxx/entry.cpp',
     'source/cxx/mm/ctx.cpp',
 	'source/cxx/mm/mm.cpp',
@@ -31,7 +32,8 @@ main_sources = files(
 	'source/cxx/driver/part.cpp',
     'source/cxx/driver/keyboard.cpp',
     'source/cxx/driver/net/e1000.cpp',
-    'source/cxx/util/elf.cpp'
+    'source/cxx/util/elf.cpp',
+    'source/cxx/util/string.cpp'
 )
 main_includes = include_directories('include')
 nasm_sources = files(
@@ -44,12 +46,11 @@ nasm = find_program('nasm')
 nasm_gen = generator(nasm, output: '@BASENAME@.o', arguments: ['-f', 'elf64', '-g', '-F', 'dwarf', '@INPUT@', '-o', '@OUTPUT@'])
 nasm_objects = nasm_gen.process(nasm_sources)
 
-source_dir = join_paths(meson.source_root(), 'source')
+source_dir = join_paths(meson.project_source_root(), 'source')
 
 ld_script = join_paths(source_dir, 'misc', 'linker.ld')
 
-flags_cpp = [
-    '-std=gnu++20',
+flags_common = [
 	'-I$(INCLUDE)',
 	'-ggdb',
 	'-O3',
@@ -57,10 +58,6 @@ flags_cpp = [
 	'-fdiagnostics-color=always',
 	'-fno-stack-protector',
 	'-fno-omit-frame-pointer',
-	'-fno-rtti',
-	'-fno-exceptions',
-	'-fno-use-cxa-atexit',
-	'-Wno-int-to-pointer-cast',
 	'-fno-pic',
 	'-mno-sse',
 	'-mno-sse2',
@@ -72,6 +69,18 @@ flags_cpp = [
 	'-mcmodel=kernel'
 ]
 
+flags_c = [
+    '-std=c11'
+]
+
+flags_cpp = [
+    '-std=gnu++20',
+	'-fno-rtti',
+	'-fno-exceptions',
+	'-fno-use-cxa-atexit',
+
+]
+
 flags_ld = [
 	'-T', ld_script,
     '-nostdlib',
@@ -79,9 +88,18 @@ flags_ld = [
 	'-no-pie'
 ]
 
-make_elf = executable('hades.elf', main_sources, nasm_objects, include_directories: main_includes, link_depends: ld_script, install: true, cpp_args: flags_cpp, link_args: flags_ld, build_by_default: false)
+lai_proj = subproject('lai')
 
-script_path = join_paths(meson.source_root(), 'scripts', 'post.py')
+lai_sources = lai_proj.get_variable('sources')
+lai_includes = lai_proj.get_variable('includes')
+
+make_elf = executable(
+    'hades.elf', main_sources, lai_sources,
+    nasm_objects, 
+    include_directories: [main_includes, lai_includes],
+    link_depends: ld_script, install: true, c_args: flags_common + flags_c, cpp_args: flags_common + flags_cpp, link_args: flags_ld, build_by_default: false)
+
+script_path = join_paths(meson.project_source_root(), 'scripts', 'post.py')
 custom_target(
 	'hades',
 	depends: make_elf,
@@ -91,10 +109,10 @@ custom_target(
 		meson.project_name(), 
 		'-k', make_elf,
 		
-		'-s', join_paths(meson.source_root(), 'source'),
-        '-r', join_paths(meson.source_root(), 'sys'),
+		'-s', join_paths(meson.project_source_root(), 'source'),
+        '-r', join_paths(meson.project_source_root(), 'sys'),
 
-		'-b', meson.build_root(),
+		'-b', meson.project_build_root(),
 	],
 	build_by_default: true
 )

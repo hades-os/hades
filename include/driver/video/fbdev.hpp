@@ -116,9 +116,9 @@ namespace fb {
             friend struct vt::driver;
             friend void init(stivale::boot::tags::framebuffer *info);
 
-            ssize_t read(void *buf, ssize_t count, ssize_t offset) override;
-            ssize_t write(void *buf, ssize_t count, ssize_t offset) override; 
+            ssize_t read(void *buf, size_t count, size_t offset) override;
+            ssize_t write(void *buf, size_t count, size_t offset) override; 
             ssize_t ioctl(size_t req, void *buf) override;
-            void *mmap(vfs::node *file, void *addr, ssize_t len, ssize_t offset) override;
+            void *mmap(vfs::node *file, void *addr, size_t len, size_t offset) override;
     };
 }
