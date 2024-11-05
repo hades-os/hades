@@ -66,7 +66,7 @@ void fb::init(stivale::boot::tags::framebuffer *info) {
 		.reserved = { 0 }
     };
 
-    vfs::devfs::add(device);
+    vfs::devfs::add("/dev/fb0", device);
 }
 
 vfs::ssize_t fb::device::read(void *buf, size_t count, size_t offset) {

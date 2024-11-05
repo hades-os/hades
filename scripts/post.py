@@ -57,7 +57,7 @@ w
 q
 """, text = True)    
     part_offset = subprocess.check_output([f"parted -s {str(image_path)} unit s print | sed 's/^ //g' | grep \"^2 \" | tr -s ' ' | cut -d ' ' -f2 |  sed 's/s//g'"], shell = True, text = True).strip()
-    subprocess.run(["mkfs.fat", "-F", "32", "--offset", part_offset, str(image_path)])
+    subprocess.run(["mkfs.vfat", "-F", "32", "--offset", part_offset, str(image_path)])
 
     free_device = subprocess.check_output(["losetup", "-f"], text = True).strip()
     subprocess.run(["sudo", "losetup", "--partscan", free_device, str(image_path)])

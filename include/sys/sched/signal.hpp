@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <sys/sched/regs.hpp>
-#include <sys/sched/mail.hpp>
+#include <sys/sched/wait.hpp>
 #include <sys/sched/time.hpp>
 
 #define SIG_ERR ((void*) -1)
@@ -119,7 +119,7 @@ namespace sched {
             int ref;
             int signum;
             siginfo *info;
-            ipc::port *notify_queue;
+            ipc::trigger *notify_queue;
             queue *sig_queue;
         };
 
@@ -131,7 +131,7 @@ namespace sched {
             sigset_t sigdelivered;
 
             bool active;
-            ipc::mailbox *mail;
+            ipc::queue *waitq;
             process *proc;
             util::lock sig_lock;
         };

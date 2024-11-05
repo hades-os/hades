@@ -7,7 +7,7 @@
 #include <frg/vector.hpp>
 #include <fs/dev.hpp>
 #include <sys/pci.hpp>
-#include <sys/sched/mail.hpp>
+#include <sys/sched/wait.hpp>
 #include <util/lock.hpp>
 
 namespace ahci {
@@ -296,7 +296,7 @@ namespace ahci {
 
     struct device;
     void init();
-    void request_io(void *request_data, vfs::devfs::device::block_zone *zones, size_t num_zones, size_t part_offset, bool rw);
+    void request_io(void *extra_data, vfs::devfs::device::io_request *req, size_t part_offset, bool rw);
     ssize_t find_cmdslot(ahci::device *device);
 
     void ahci_task();
@@ -312,39 +312,35 @@ namespace ahci {
             bool lba48;
             volatile ahci::port *port;
             
-            struct command_io {
-                block_zone *zone;
+            struct io_command {
+                io_request::block *zone;
                 void *tmp;
                 size_t request_id;
+                volatile bool *completion_flag;
                 size_t part_offset;
-                size_t num_zones;
                 bool rw;
                 command_slot slot;
             };
 
             volatile uint32_t last_issued_cmdset = 0xFFFF;
             volatile size_t num_free_commands = 0;
-            command_io active_commands[32];
+            io_command active_commands[32];
 
-            size_t last_request_id = 0;
-            frg::vector<command_io, memory::mm::heap_allocator> requests;
-            frg::vector<command_io, memory::mm::heap_allocator> responses;
+            size_t last_request_id = 1;
+            frg::vector<io_command, memory::mm::heap_allocator> requests;
 
             frg::hash_map<size_t, size_t, frg::hash<size_t>, memory::mm::heap_allocator> finished_map;
             
             command_slot issue_read_write(void *buf, uint16_t count, size_t offset, bool rw);
 
-            ipc::port *mail_port;
-
-            void handle_finished();
             void handle_commands();
         public:
-            friend void ahci::request_io(void *request_data, block_zone *zones, size_t num_zones, size_t part_offset, bool rw);
+            friend void ahci::request_io(void *extra_data, io_request *req, size_t part_offset, bool rw);
             friend void ahci::init();
             friend void ahci::ahci_task();
             friend ssize_t ahci::find_cmdslot(ahci::device *device);
 
-            device(): requests(), responses(), finished_map(frg::hash<size_t>()) {};
+            device(): requests(), finished_map(frg::hash<size_t>()) {};
 
             void setup();
             void identify_sata();

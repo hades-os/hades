@@ -1,6 +1,7 @@
 #ifndef SCHED_HPP
 #define SCHED_HPP
 
+#include "sys/sched/wait.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <frg/hash.hpp>
@@ -11,7 +12,7 @@
 #include <mm/mm.hpp>
 #include <mm/vmm.hpp>
 #include <sys/irq.hpp>
-#include <sys/sched/mail.hpp>
+#include <sys/sched/wait.hpp>
 #include <sys/sched/signal.hpp>
 #include <sys/sched/regs.hpp>
 #include <util/lock.hpp>
@@ -197,8 +198,8 @@ namespace sched {
             signal::queue sig_queue;
             signal::sigaction sigactions[SIGNAL_MAX];
 
-            ipc::mailbox *mail;
-            ipc::port *parent_port;
+            ipc::queue *waitq;
+            ipc::trigger *notify_status;
 
             pid_t pid;
             pid_t ppid;
@@ -215,6 +216,8 @@ namespace sched {
                 STOPPED,
                 RUNNING,
                 TERMINATED,
+
+                STATUS_CHANGED = (1 << 31)
             };
 
             enum messages {

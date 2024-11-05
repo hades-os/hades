@@ -1,6 +1,6 @@
 #include "mm/vmm.hpp"
 #include "sys/irq.hpp"
-#include "sys/sched/mail.hpp"
+#include "sys/sched/wait.hpp"
 #include "sys/smp.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +18,8 @@
 #include <util/string.hpp>
 
 int AHCI_MAJOR = 0xA;
+sched::thread *ahci_thread;
+
 uint8_t port_type(volatile ahci::port *port) {
     uint32_t sata_status = port->sata_status;
     uint8_t detection = sata_status & 0x0F;
@@ -189,7 +191,7 @@ void get_ownership(volatile ahci::abar *bar) {
 void ahci::device::setup() {
     __atomic_store_n(&num_free_commands, ((bar->cap >> 8) & 0xF0), __ATOMIC_RELAXED);
     for (size_t i = 0; i < num_free_commands; i++) {
-        last_issued_cmdset &= ~(1 << i);        
+        last_issued_cmdset &= ~(1 << i);
     }
 
     stop_command(port);
@@ -285,12 +287,10 @@ void ahci::device::identify_sata() {
     lba48 = (id_mem[167] & (1 << 2)) && (id_mem[173] & (1 << 2));
 
     exists = true;
-    block.block_size = sector_size;
-    block.blocks = sectors;
-    block.mail = frg::construct<ipc::mailbox>(memory::mm::heap, nullptr);
-    block.request_data = this;
-    block.request_io = request_io;
-    mail_port = block.mail->make_port();
+    blockdev.block_size = sector_size;
+    blockdev.blocks = sectors;
+    blockdev.extra_data = this;
+    blockdev.request_io = request_io;
 
     free_command(slot.entry);
     memory::pmm::free(id_mem);
@@ -298,22 +298,28 @@ void ahci::device::identify_sata() {
     kmsg("[AHCI] Identify succeeded");
 }
 
-void ahci::request_io(void *request_data, ahci::device::block_zone *zones, size_t num_zones, size_t part_offset, bool rw) {
-    auto device = (ahci::device *) request_data;
+void ahci::request_io(void *extra_data, device::io_request *req, size_t part_offset, bool rw) {
+    auto device = (ahci::device *) extra_data;
+    volatile bool completed = false;
 
     device->lock.irq_acquire();
     auto request_id = device->last_request_id++;
-    for (auto zone = zones; zone != nullptr; zone = zone->next) {
+    for (size_t i = 0; i < req->len; i++) {
+        auto zone = req->blocks[i];
         device->requests.push_back({
             .zone = zone,
             .request_id = request_id,
+            .completion_flag = &completed,
             .part_offset = part_offset,
-            .num_zones = num_zones,
-            .rw = rw
+            .rw = rw,
         });
 
     }
+
     device->lock.irq_release();
+    while (!completed) {
+        asm volatile("pause");
+    }
 }
 
 ahci::command_slot ahci::device::issue_read_write(void *buf, uint16_t count, size_t offset, bool rw) {
@@ -381,29 +387,9 @@ ahci::command_slot ahci::device::issue_read_write(void *buf, uint16_t count, siz
     return slot;
 }
 
-void ahci::device::handle_finished() {
-    lock.irq_acquire();
-
-    while (responses.size() > 0) {
-        auto command = responses.pop();
-        finished_map.contains(command.request_id) 
-            ? finished_map[command.request_id]++
-            : finished_map[command.request_id] = 1;
-        if (finished_map[command.request_id] == command.num_zones) {
-            finished_map.remove(command.request_id);
-            mail_port->post({
-                .what = (int) (command.rw ? BLOCK_IO_WRITE : BLOCK_IO_READ)
-            });
-        }
-    }
-
-    lock.irq_release();
-}
-
 void ahci::device::handle_commands() {
     lock.irq_acquire();
     // handle completed commands first
-    // we post a message when all zones are done
     for (size_t idx = 0; idx < 32; idx++) {
         // handle finished command
         if (!(port->cmd_issue & (1 << idx)) && (last_issued_cmdset & (1 << idx))) {
@@ -418,7 +404,13 @@ void ahci::device::handle_commands() {
                 free_command(command.slot.entry);
                 memory::pmm::free(command.tmp);
 
-                responses.push_back(command);
+                finished_map.contains(command.request_id)
+                    ? finished_map[command.request_id]++
+                    : finished_map[command.request_id] = 1;
+                if (finished_map[command.request_id] == command.zone->req->len) {
+                    *command.completion_flag = true;
+                }
+
                 __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
 
                 continue;
@@ -430,9 +422,14 @@ void ahci::device::handle_commands() {
 
             uint64_t sector_offset = (command.zone->offset + command.part_offset) % sector_size;
             memcpy(command.zone->buf, (char *) command.tmp + sector_offset, command.zone->len);
-            
+
             memory::pmm::free(command.tmp);
-            responses.push_back(command);
+            finished_map.contains(command.request_id)
+                ? finished_map[command.request_id]++
+                : finished_map[command.request_id] = 1;
+            if (finished_map[command.request_id] == command.zone->req->len) {
+                *command.completion_flag = true;
+            }
             __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
         }
     }
@@ -464,7 +461,7 @@ void ahci::device::handle_commands() {
         active_commands[slot.idx].slot = slot;
         active_commands[slot.idx].tmp = tmp;
     }
-    
+
 
     lock.irq_release();
 }
@@ -528,7 +525,6 @@ void ahci::ahci_task() {
             if (device == nullptr) continue;
             if (device->exists) {
                 device->handle_commands();
-                device->handle_finished();
             }
         }
     }
@@ -571,10 +567,10 @@ void ahci::init() {
                 kmsg("[AHCI] Found SATA device with port id ", i);
 
                 auto device = frg::construct<ahci::device>(memory::mm::heap);
-                device->blockdev = true;
+                device->is_blockdev = true;
                 device->bar = ahci_bar;
                 device->id = i;
-                device->port = &ahci_bar->ports[i];              
+                device->port = &ahci_bar->ports[i];
                 device->setup();
                 devices.push_back(device);
 
@@ -591,7 +587,7 @@ void ahci::init() {
     if (!found_devices) {
         kmsg("[AHCI] No AHCI Drives found");
     } else {
-        auto ahci_thread = sched::create_thread(&ahci_task, (uint64_t) memory::pmm::stack(4), (memory::vmm::vmm_ctx *) memory::vmm::boot(), 0);
+        ahci_thread = sched::create_thread(&ahci_task, (uint64_t) memory::pmm::stack(4), (memory::vmm::vmm_ctx *) memory::vmm::boot(), 0);
         ahci_thread->start();
     }
 }

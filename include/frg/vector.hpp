@@ -65,9 +65,13 @@ public:
 	template<typename... Args>
 	void resize(size_t new_size, Args &&... args);
 
-	void clear() {
+	void wipe() {
 		for(size_t i = 0; i < _size; i++)
 			_elements[i].~T();
+		_size = 0;
+	}
+
+	void clear() {
 		_size = 0;
 	}
 
