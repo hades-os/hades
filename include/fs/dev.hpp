@@ -98,10 +98,10 @@ namespace vfs {
             ssize_t on_close(vfs::fd *fd, ssize_t flags) override;
             
             bool request_io(node *file, device::io_request *req, bool rw, bool all_success);
-            ssize_t read(node *file, void *buf, size_t len, size_t offset) override;
-            ssize_t write(node *file, void *buf, size_t len, size_t offset) override;
+            ssize_t read(node *file, void *buf, size_t len, off_t offset) override;
+            ssize_t write(node *file, void *buf, size_t len, off_t offset) override;
             ssize_t ioctl(node *file, size_t req, void *buf) override;
-            void *mmap(node *file, void *addr, size_t len, size_t offset) override;
+            void *mmap(node *file, void *addr, size_t len, off_t offset) override;
             ssize_t mkdir(node *dst, frg::string_view name, int64_t flags) override;
     };
 };

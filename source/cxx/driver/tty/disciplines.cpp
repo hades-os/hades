@@ -60,7 +60,7 @@ bool new_line(tty::termios termios, char c) {
 	return true;    
 }
 
-tty::ssize_t tty::device::read_canon(void *buf, size_t len) {
+ssize_t tty::device::read_canon(void *buf, size_t len) {
     char *chars = (char *) buf;
     size_t count = 0;
     canon_lock.irq_acquire();
@@ -149,7 +149,7 @@ tty::ssize_t tty::device::read_canon(void *buf, size_t len) {
     goto acquire_chars;
 }
 
-tty::ssize_t tty::device::read_raw(void *buf, size_t len) {
+ssize_t tty::device::read_raw(void *buf, size_t len) {
     cc_t min = termios.c_cc[VMIN];
     cc_t time = termios.c_cc[VTIME];
     char *chars = (char *) buf;

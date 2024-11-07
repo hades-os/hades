@@ -320,7 +320,7 @@ char *fat_stitch_name(const char *name) {
     return tmp;
 }
 
-vfs::ssize_t vfs::fatfs::readdir(node *dir) {
+ssize_t vfs::fatfs::readdir(node *dir) {
     auto res = rw_clusters(dir->inum, nullptr, 0, 0, true);
 
     fatEntry *ents = (fatEntry *) res.get<0>();
@@ -388,26 +388,26 @@ vfs::node *vfs::fatfs::lookup(node *parent, frg::string_view name) {
     return nullptr;
 }
 
-vfs::ssize_t vfs::fatfs::read(node *file, void *buf, size_t len, size_t offset) {
+ssize_t vfs::fatfs::read(node *file, void *buf, size_t len, off_t offset) {
     auto clus = file->inum;
     auto res = rw_clusters(clus, buf, offset, len);
 
     return res.get<1>();
 }
 
-vfs::ssize_t vfs::fatfs::write(node *file, void *buf, size_t len, size_t offset) {
+ssize_t vfs::fatfs::write(node *file, void *buf, size_t len, off_t offset) {
     return 0;
 }
 
-vfs::ssize_t vfs::fatfs::create(node *dst, path name, int64_t type, int64_t flags) {
+ssize_t vfs::fatfs::create(node *dst, path name, int64_t type, int64_t flags) {
     return 0;
 }
 
-vfs::ssize_t vfs::fatfs::mkdir(node *dst, frg::string_view name, int64_t flags) {
+ssize_t vfs::fatfs::mkdir(node *dst, frg::string_view name, int64_t flags) {
     return 0;
 }
 
-vfs::ssize_t vfs::fatfs::remove(node *dest) {
+ssize_t vfs::fatfs::remove(node *dest) {
     return 0;
 }
 

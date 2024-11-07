@@ -3,6 +3,7 @@
 #include "mm/vmm.hpp"
 #include "sys/sched/sched.hpp"
 #include "sys/sched/signal.hpp"
+#include "sys/sched/time.hpp"
 #include "sys/smp.hpp"
 #include <cstddef>
 #include <mm/mm.hpp>
@@ -90,7 +91,7 @@ void syscall_exec(irq::regs *r) {
     current_task->proc->env.place_params(envp, argv, current_task);
 
     for (auto [fd_number, fd]: process->fds->fd_list) {
-        if (fd->flags & vfs::O_CLOEXEC) {
+        if (fd->flags & O_CLOEXEC) {
             vfs::close(fd);
         }
     }
@@ -120,6 +121,11 @@ void syscall_fork(irq::regs *r) {
     r->rax = child->pid;
 }
 
+void syscall_exit(irq::regs *r) {
+    auto process = smp::get_process();
+    process->kill(r->rdi);
+}
+
 void syscall_waitpid(irq::regs *r) {
     int pid = r->rdi;
     int *status = (int *) r->rsi;
@@ -132,6 +138,45 @@ void syscall_waitpid(irq::regs *r) {
 
     *status = exit_status;
     r->rax = exit_pid;
+}
+
+void syscall_usleep(irq::regs *r) {
+    sched::timespec *req = (sched::timespec *) r->rdi;
+    sched::timespec *rem = (sched::timespec *) r->rsi;
+
+    auto process = smp::get_process();
+    process->waitq->set_timer(req);
+    for (;;) {
+        auto waker = process->waitq->block(smp::get_thread());
+        if (waker == nullptr) {
+            r->rax = -1;
+            goto finish;
+        }
+    }
+
+    *rem = *req;
+    r->rax = 0;
+    finish:
+        process->waitq->timer_trigger->remove(process->waitq);
+}
+
+void syscall_clock_gettime(irq::regs *r) {
+    clockid_t clkid = r->rdi;
+    sched::timespec *spec = (sched::timespec *) r->rsi;
+
+    switch(clkid) {
+        case sched::CLOCK_REALTIME:
+            *spec = sched::clock_rt;
+            break;
+        case sched::CLOCK_MONOTONIC:
+            *spec = sched::clock_mono;
+        default:
+            // TODO: errno
+            r->rax = -1;
+            return;
+    }
+
+    r->rax = 0;
 }
 
 void syscall_getpid(irq::regs *r) {
@@ -147,8 +192,8 @@ void syscall_gettid(irq::regs *r) {
 }
 
 void syscall_setpgid(irq::regs *r) {
-    sched::pid_t pid = r->rdi == 0 ? smp::get_process()->pid : r->rdi;
-    sched::pid_t pgid = r->rsi == 0 ? smp::get_process()->pid : r->rsi;
+    pid_t pid = r->rdi == 0 ? smp::get_process()->pid : r->rdi;
+    pid_t pgid = r->rsi == 0 ? smp::get_process()->pid : r->rsi;
 
     auto current_process = smp::get_process();
     auto process = sched::processes[pid];
@@ -194,7 +239,7 @@ void syscall_setpgid(irq::regs *r) {
 }
 
 void syscall_getpgid(irq::regs *r) {
-    sched::pid_t pid = r->rdi == 0 ? smp::get_process()->pid : r->rdi;
+    pid_t pid = r->rdi == 0 ? smp::get_process()->pid : r->rdi;
 
     auto process = sched::processes[pid];
     if (process == nullptr) {
@@ -224,8 +269,8 @@ void syscall_setsid(irq::regs *r) {
     auto session = frg::construct<sched::session>(memory::mm::heap);
     auto group = frg::construct<sched::process_group>(memory::mm::heap);
 
-    sched::pid_t sid = current_process->pid;
-    sched::pid_t pgid = current_process->pid;
+    pid_t sid = current_process->pid;
+    pid_t pgid = current_process->pid;
 
     session->sid = sid;
     session->leader_pgid = pgid;
@@ -323,21 +368,21 @@ void syscall_sigaction(irq::regs *r) {
 }
 
 void syscall_sigpending(irq::regs *r) {
-    sched::signal::sigset_t *set = (sched::signal::sigset_t *) r->rdi;
+    sigset_t *set = (sigset_t *) r->rdi;
     sched::signal::do_sigpending(smp::get_process(), set);
     r->rax = 0;
 }
 
 void syscall_sigprocmask(irq::regs *r) {
     int how = r->rdi;
-    sched::signal::sigset_t *set = (sched::signal::sigset_t *) r->rsi;
-    sched::signal::sigset_t *old_set = (sched::signal::sigset_t *) r->rdx;
+    sigset_t *set = (sigset_t *) r->rsi;
+    sigset_t *old_set = (sigset_t *) r->rdx;
 
     r->rax = sched::signal::do_sigprocmask(smp::get_process(), how, set, old_set);
 }
 
 void syscall_kill(irq::regs *r) {
-    sched::pid_t pid = r->rdi;
+    pid_t pid = r->rdi;
     int sig = r->rsi;
 
     r->rax = sched::signal::do_kill(pid, sig);
@@ -354,13 +399,13 @@ void syscall_pause(irq::regs *r) {
 }
 
 void syscall_sigsuspend(irq::regs *r) {
-    sched::signal::sigset_t *mask = (sched::signal::sigset_t *) r->rdi;
+    sigset_t *mask = (sigset_t *) r->rdi;
 
     auto task = smp::get_thread();
     auto process = smp::get_process();
     auto sig_queue = &process->sig_queue;
 
-    sched::signal::sigset_t prev;
+    sigset_t prev;
 
     sched::signal::do_sigprocmask(process, SIG_SETMASK, mask, &prev);
     sched::signal::wait_signal(task, sig_queue, ~(*mask), nullptr);

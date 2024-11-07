@@ -2,6 +2,7 @@
 #define TTY_HPP
 
 #include "driver/tty/termios.hpp"
+#include "fs/vfs.hpp"
 #include "util/lock.hpp"
 #include "util/ring.hpp"
 #include <cstddef>
@@ -35,8 +36,6 @@ namespace tty {
     constexpr size_t output_size = 8192;
 
     constexpr size_t major = 29;
-
-    using ssize_t = signed long long int;
 
     struct winsize {
         uint16_t ws_row;
@@ -124,6 +123,8 @@ namespace tty {
             static void init();
             ssize_t on_open(vfs::fd *fd, ssize_t flags) override;        
     };
+
+    void set_active(frg::string_view path, vfs::fd_table *table);
 };
 
 #endif

@@ -12,6 +12,7 @@
 #include <util/lock.hpp>
 #include <util/log/log.hpp>
 #include <util/shared.hpp>
+#include <util/types.hpp>
 
 namespace sched {
     class process;
@@ -22,7 +23,6 @@ namespace vfs {
     class filesystem;
     class manager;
 
-    using ssize_t = signed long long int;
     using path = frg::string<memory::mm::heap_allocator>;
     using pathlist = frg::vector<frg::string_view, memory::mm::heap_allocator>;
     using nodelist = frg::vector<node *, memory::mm::heap_allocator>;
@@ -58,22 +58,6 @@ namespace vfs {
             NOFD
         };
     };
-
-    constexpr int O_CREAT = 1;
-    constexpr int O_APPEND = 2;
-    constexpr int O_CLOEXEC = 3;
-    constexpr int O_EXCL = 4;
-    constexpr int O_DIRECTORY = 5;
-    constexpr int O_TRUNC = 6;
-
-    constexpr int O_RDONLY = 9;
-    constexpr int O_WRONLY = 10;
-    constexpr int O_RDWR = 11;
-
-    constexpr int O_NOCTTY = 12;
-
-    constexpr int AT_FDCWD = 0xFFFFFF9C;
-    constexpr int AT_EMPTY_PATH = 1;
     
     struct mflags {
         enum {
@@ -81,32 +65,6 @@ namespace vfs {
             NODST = 0x4,
         };
     };
-
-    constexpr int SEEK_SET = 1;
-    constexpr int SEEK_CUR = 2;
-    constexpr int SEEK_END = 3;
-    
-    constexpr int F_DUPFD = 1;
-    constexpr int F_DUPFD_CLOEXEC = 2;
-    constexpr int F_GETFD = 3;
-    constexpr int F_SETFD = 4;
-    constexpr int F_GETFL = 5;
-    constexpr int F_SETFL = 6;
-    constexpr int F_GETLK = 7;
-    constexpr int F_SETLK = 8;
-    constexpr int F_SETLKW = 9;
-    constexpr int F_GETOWN = 10;
-    constexpr int F_SETOWN = 11;
-
-    constexpr size_t DT_UNKNOWN = 0;
-    constexpr size_t DT_FIFO = 1;
-    constexpr size_t DT_CHR = 2;
-    constexpr size_t DT_DIR = 4;
-    constexpr size_t DT_BLK = 6;
-    constexpr size_t DT_REG = 8;
-    constexpr size_t DT_LNK = 10;
-    constexpr size_t DT_SOCK = 12;
-    constexpr size_t DT_WHT = 14;
 
     struct fslist {
         enum {
@@ -119,14 +77,6 @@ namespace vfs {
             FAT,
             EXT
         };
-    };
-
-    struct dirent {
-        size_t d_ino;
-        size_t d_off;
-        uint16_t d_reclen;
-        uint8_t d_type;
-        char d_name[1024];
     };
 
     struct fd;
@@ -267,19 +217,19 @@ namespace vfs {
                 return -error::NOSYS;
             }
 
-            virtual ssize_t read(node *file, void *buf, size_t len, size_t offset) {
+            virtual ssize_t read(node *file, void *buf, size_t len, off_t offset) {
                 return -error::NOSYS;
             }
 
-            virtual void *mmap(node *file, void *addr, size_t len, size_t offset) {
+            virtual void *mmap(node *file, void *addr, size_t len, off_t offset) {
                 return nullptr;
             }
 
-            virtual ssize_t write(node *file, void *buf, size_t len, size_t offset) {
+            virtual ssize_t write(node *file, void *buf, size_t len, off_t offset) {
                 return -error::NOSYS;
             }
 
-            virtual ssize_t truncate(node *file, size_t offset) {
+            virtual ssize_t truncate(node *file, off_t offset) {
                 return 0;
             }
 
@@ -367,13 +317,13 @@ namespace vfs {
 
     vfs::fd *open(node *dir, frg::string_view filepath, fd_table *table, int64_t flags, int64_t mode);
     fd_pair open_pipe(fd_table *table, ssize_t flags);
-    ssize_t lseek(vfs::fd *fd, size_t off, size_t whence);
+    ssize_t lseek(vfs::fd *fd, off_t off, size_t whence);
     vfs::fd *dup(vfs::fd *fd, bool cloexec, ssize_t new_num);
     ssize_t close(vfs::fd *fd);
     ssize_t read(vfs::fd *fd, void *buf, size_t len);
     ssize_t write(vfs::fd *fd, void *buf, size_t len);
     ssize_t ioctl(vfs::fd *fd, size_t req, void *buf);
-    void *mmap(vfs::fd *fd, void *addr, size_t off, size_t len);
+    void *mmap(vfs::fd *fd, void *addr, off_t off, size_t len);
     ssize_t lstat(node *dir, frg::string_view filepath, node::statinfo *buf);
     ssize_t create(node *dir, frg::string_view filepath, fd_table *table, int64_t type, int64_t flags, int64_t mode);
     ssize_t mkdir(node *dir, frg::string_view dirpath, int64_t flags, int64_t mode);

@@ -61,7 +61,7 @@ void issue_command(volatile ahci::port *port, size_t slot) {
     port->cmd_issue |= (1 << slot);
 }
 
-ahci::ssize_t ahci::find_cmdslot(ahci::device *device) {
+ssize_t ahci::find_cmdslot(ahci::device *device) {
     uint32_t slots = device->last_issued_cmdset;
     for (size_t i = 0; i < ahci::MAX_SLOTS; i++) {
         if (!(slots & (1 << i))) {
@@ -466,7 +466,7 @@ void ahci::device::handle_commands() {
     lock.irq_release();
 }
 
-ahci::ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
+ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
     lock.irq_acquire();
 
     uint64_t sector_offset = offset % sector_size;
@@ -514,7 +514,7 @@ ahci::ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
     return count;
 }
 
-ahci::ssize_t ahci::device::write(void *buf, size_t count, size_t offset) {
+ssize_t ahci::device::write(void *buf, size_t count, size_t offset) {
     return -1;
 }
 

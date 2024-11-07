@@ -7,6 +7,7 @@
 #include "util/string.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <util/elf.hpp>
 
 bool check_hdr(elf::elf64_hdr *header) {
@@ -87,13 +88,13 @@ bool elf::file::init(vfs::fd *fd) {
     this->phdr = (elf64_phdr *) kcalloc(hdr->ph_num, sizeof(elf64_phdr));
     this->shdr = (elf64_shdr *) kcalloc(hdr->sh_num, sizeof(elf64_shdr));
 
-    vfs::lseek(fd, hdr->shoff, vfs::sflags::SET);
+    vfs::lseek(fd, hdr->shoff, SEEK_SET);
     res = vfs::read(fd, shdr, hdr->sh_num * sizeof(elf64_shdr));
     if (res < 0) {
         return false;
     }
 
-    vfs::lseek(fd, hdr->phoff, vfs::sflags::SET);
+    vfs::lseek(fd, hdr->phoff, SEEK_SET);
     res = vfs::read(fd, phdr, hdr->ph_num * sizeof(elf64_phdr));
     if (res < 0) {
         return false;
@@ -102,7 +103,7 @@ bool elf::file::init(vfs::fd *fd) {
     shstrtab_hdr = shdr + header->shstrndx;
     shstrtab = memory::pmm::alloc((shstrtab_hdr->sh_size / memory::common::page_size) + 1);
     
-    vfs::lseek(fd, shstrtab_hdr->sh_offset, vfs::sflags::SET);
+    vfs::lseek(fd, shstrtab_hdr->sh_offset, SEEK_SET);
     res = vfs::read(fd, shstrtab, shstrtab_hdr->sh_size);
 
     if ((size_t) res != shstrtab_hdr->sh_size) {
@@ -116,7 +117,7 @@ bool elf::file::init(vfs::fd *fd) {
 
     strtab = memory::pmm::alloc((strtab_hdr->sh_size / memory::common::page_size) + 1);
     
-    vfs::lseek(fd, strtab_hdr->sh_offset, vfs::sflags::SET);
+    vfs::lseek(fd, strtab_hdr->sh_offset, SEEK_SET);
     res = vfs::read(fd, strtab, strtab_hdr->sh_size);
 
     if ((size_t) res != strtab_hdr->sh_size) {
@@ -130,7 +131,7 @@ bool elf::file::init(vfs::fd *fd) {
 
     symtab = memory::pmm::alloc((symtab_hdr->sh_size / memory::common::page_size) + 1);
 
-    vfs::lseek(fd, symtab_hdr->sh_offset, vfs::sflags::SET);
+    vfs::lseek(fd, symtab_hdr->sh_offset, SEEK_SET);
     res = vfs::read(fd, symtab, symtab_hdr->sh_size);
     if ((size_t) res != symtab_hdr->sh_size) {
         return false;
@@ -160,7 +161,7 @@ void elf::file::load() {
 
         memory::vmm::map((void *)(phdr->p_vaddr + load_offset - misalign), pages * memory::common::page_size, VMM_PRESENT | VMM_WRITE | VMM_USER | VMM_FIXED | VMM_MANAGED, ctx);
 
-        vfs::lseek(fd, phdr->p_offset, vfs::sflags::SET);
+        vfs::lseek(fd, phdr->p_offset, SEEK_SET);
         vfs::read(fd, (void *)(phdr->p_vaddr + load_offset), phdr->p_filesz);
     }
 }
@@ -180,7 +181,7 @@ bool elf::file::load_interp(char **interp_path) {
 
     *interp_path = (char *) kmalloc(phdr->p_filesz + 1);
 
-    vfs::lseek(fd, phdr->p_offset, vfs::sflags::SET);
+    vfs::lseek(fd, phdr->p_offset, SEEK_SET);
     vfs::read(fd, *interp_path, phdr->p_filesz);
 
     return true;

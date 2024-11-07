@@ -123,8 +123,8 @@ namespace vfs {
             node *lookup(node *parent, frg::string_view name) override;
             ssize_t readdir(node *dir) override;
             
-            ssize_t read(node *file, void *buf, size_t len, size_t offset) override;
-            ssize_t write(node *file, void *buf, size_t len, size_t offset) override;
+            ssize_t read(node *file, void *buf, size_t len, off_t offset) override;
+            ssize_t write(node *file, void *buf, size_t len, off_t offset) override;
             ssize_t create(node *dst, path name, int64_t type, int64_t flags) override;
             ssize_t mkdir(node *dst, frg::string_view name, int64_t flags) override;
             ssize_t remove(node *dst) override;

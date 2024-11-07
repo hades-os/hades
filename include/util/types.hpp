@@ -1,0 +1,71 @@
+#ifndef TYPES_HPP
+#define TYPES_HPP
+
+#include <cstddef>
+#include <cstdint>
+
+using pid_t = int64_t;
+using tid_t = int64_t;
+using uid_t = int32_t;
+using gid_t = int32_t;
+
+using ino_t = size_t;
+using mode_t = int64_t;
+using clockid_t = int64_t;
+using time_t = int64_t;
+
+using sigset_t = uint64_t;
+using ssize_t = int64_t;
+using off_t = int64_t;
+
+constexpr int O_CREAT = 1;
+constexpr int O_APPEND = 2;
+constexpr int O_CLOEXEC = 3;
+constexpr int O_EXCL = 4;
+constexpr int O_DIRECTORY = 5;
+constexpr int O_TRUNC = 6;
+
+constexpr int O_RDONLY = 9;
+constexpr int O_WRONLY = 10;
+constexpr int O_RDWR = 11;
+
+constexpr int O_NOCTTY = 12;
+
+constexpr int AT_FDCWD = 0xFFFFFF9C;
+constexpr int AT_EMPTY_PATH = 1;
+
+constexpr int SEEK_SET = 1;
+constexpr int SEEK_CUR = 2;
+constexpr int SEEK_END = 3;
+
+constexpr int F_DUPFD = 1;
+constexpr int F_DUPFD_CLOEXEC = 2;
+constexpr int F_GETFD = 3;
+constexpr int F_SETFD = 4;
+constexpr int F_GETFL = 5;
+constexpr int F_SETFL = 6;
+constexpr int F_GETLK = 7;
+constexpr int F_SETLK = 8;
+constexpr int F_SETLKW = 9;
+constexpr int F_GETOWN = 10;
+constexpr int F_SETOWN = 11;
+
+constexpr size_t DT_UNKNOWN = 0;
+constexpr size_t DT_FIFO = 1;
+constexpr size_t DT_CHR = 2;
+constexpr size_t DT_DIR = 4;
+constexpr size_t DT_BLK = 6;
+constexpr size_t DT_REG = 8;
+constexpr size_t DT_LNK = 10;
+constexpr size_t DT_SOCK = 12;
+constexpr size_t DT_WHT = 14;
+
+struct dirent {
+    size_t d_ino;
+    size_t d_off;
+    uint16_t d_reclen;
+    uint8_t d_type;
+    char d_name[1024];
+};
+
+#endif

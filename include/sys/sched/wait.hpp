@@ -8,13 +8,11 @@
 #include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <sys/sched/time.hpp>
+#include <util/types.hpp>
 
 namespace sched {
     class thread;
     class process;
-
-    using pid_t = int64_t;
-    using tid_t = int64_t;
 };
 
 namespace ipc {
@@ -43,10 +41,10 @@ namespace ipc {
             util::lock lock;
 
             sched::timespec time;
-            trigger *timer_trigger;
         public:
             friend struct trigger;
 
+            trigger *timer_trigger;
             void set_timer(sched::timespec *time);
             sched::thread *block(sched::thread *waiter, bool *set_when_blocking = nullptr);
 

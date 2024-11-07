@@ -22,7 +22,7 @@ void vt::driver::flush(tty::device *tty) {
     tty->out_lock.irq_release();
 }
 
-tty::ssize_t vt::driver::ioctl(tty::device *tty, size_t req, void *buf) {
+ssize_t vt::driver::ioctl(tty::device *tty, size_t req, void *buf) {
     switch (req) {
         case TIOCGWINSZ: {
             tty::winsize *winsz = (tty::winsize *) buf;

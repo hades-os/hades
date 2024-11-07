@@ -17,17 +17,13 @@
 #include <sys/sched/regs.hpp>
 #include <util/lock.hpp>
 #include <util/elf.hpp>
+#include <util/types.hpp>
 
 namespace tty {
     struct device;
 }
 
 namespace sched {
-    using pid_t = int64_t;
-    using tid_t = int64_t;
-    using uid_t = int32_t;
-    using gid_t = int32_t;
-
     inline volatile size_t uptime;
 
     constexpr size_t PIT_FREQ = 1000;
@@ -239,7 +235,7 @@ namespace sched {
             process_env env; 
 
             int64_t start();
-            void kill();
+            void kill(int term_signal = -1);
 
             void suspend();
             void cont();
@@ -251,7 +247,7 @@ namespace sched {
             size_t find_child(process *proc);
             size_t find_zombie(process *proc);
 
-            frg::tuple<uint32_t, pid_t> waitpid(pid_t pid, thread *waiter, int options);
+            frg::tuple<int, pid_t> waitpid(pid_t pid, thread *waiter, int options);
     };
 
     class process_group {
