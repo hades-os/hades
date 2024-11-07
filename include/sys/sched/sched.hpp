@@ -160,7 +160,7 @@ namespace sched {
 
         process *proc;
 
-        bool load_elf(const char *path);
+        bool load_elf(const char *path, vfs::fd *fd);
         void place_params(char **envp, char **argv, thread *target);
 
         uint64_t *place_args(uint64_t* location);
@@ -187,6 +187,8 @@ namespace sched {
             
             uint64_t user_fs;
             uint64_t user_gs;
+
+            bool did_exec;
 
             thread *main_thread;
             process *parent;

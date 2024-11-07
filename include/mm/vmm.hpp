@@ -66,6 +66,8 @@ namespace memory {
                     uint64_t *map = nullptr;
                     hole_tree holes;
 
+                    util::lock lock;
+
                     struct mapping {
                         public:
                             void *addr = nullptr;

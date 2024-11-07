@@ -59,27 +59,22 @@ namespace vfs {
         };
     };
 
-    struct oflags {
-        enum {
-            CREAT = 1,
-            APPEND,
-            CLOEXEC,
-            EXCL,
-            NONBLOCK,
-            SYNC,
-            NOFD,
-            NOCTTY
-        };
-    };
+    constexpr int O_CREAT = 1;
+    constexpr int O_APPEND = 2;
+    constexpr int O_CLOEXEC = 3;
+    constexpr int O_EXCL = 4;
+    constexpr int O_DIRECTORY = 5;
+    constexpr int O_TRUNC = 6;
 
-    struct mode {
-        enum {
-            RDONLY,
-            WRONLY,
-            RDWR
-        };
-    };
+    constexpr int O_RDONLY = 9;
+    constexpr int O_WRONLY = 10;
+    constexpr int O_RDWR = 11;
 
+    constexpr int O_NOCTTY = 12;
+
+    constexpr int AT_FDCWD = 0xFFFFFF9C;
+    constexpr int AT_EMPTY_PATH = 1;
+    
     struct mflags {
         enum {
             NOSRC = 0x8,
@@ -87,13 +82,31 @@ namespace vfs {
         };
     };
 
-    struct sflags {
-        enum {
-            SET,
-            CUR,
-            END
-        };
-    };
+    constexpr int SEEK_SET = 1;
+    constexpr int SEEK_CUR = 2;
+    constexpr int SEEK_END = 3;
+    
+    constexpr int F_DUPFD = 1;
+    constexpr int F_DUPFD_CLOEXEC = 2;
+    constexpr int F_GETFD = 3;
+    constexpr int F_SETFD = 4;
+    constexpr int F_GETFL = 5;
+    constexpr int F_SETFL = 6;
+    constexpr int F_GETLK = 7;
+    constexpr int F_SETLK = 8;
+    constexpr int F_SETLKW = 9;
+    constexpr int F_GETOWN = 10;
+    constexpr int F_SETOWN = 11;
+
+    constexpr size_t DT_UNKNOWN = 0;
+    constexpr size_t DT_FIFO = 1;
+    constexpr size_t DT_CHR = 2;
+    constexpr size_t DT_DIR = 4;
+    constexpr size_t DT_BLK = 6;
+    constexpr size_t DT_REG = 8;
+    constexpr size_t DT_LNK = 10;
+    constexpr size_t DT_SOCK = 12;
+    constexpr size_t DT_WHT = 14;
 
     struct fslist {
         enum {
@@ -106,6 +119,14 @@ namespace vfs {
             FAT,
             EXT
         };
+    };
+
+    struct dirent {
+        size_t d_ino;
+        size_t d_off;
+        uint16_t d_reclen;
+        uint8_t d_type;
+        char d_name[1024];
     };
 
     struct fd;
@@ -151,7 +172,7 @@ namespace vfs {
             }
 
             node(filesystem *fs, path name, node *parent, ssize_t flags, ssize_t type, ssize_t inum = -1) : ref_count(), fs(fs), name(name),
-            resolveable(true), delete_on_close(false), parent(parent), children(), flags(flags), type(type) {
+            resolveable(true), delete_on_close(false), parent(parent), children(), flags(flags), type(type), lock() {
                 if (inum > 0) {
                     this->inum = inum;
                 } else {
@@ -205,6 +226,8 @@ namespace vfs {
             ssize_t inum;
             ssize_t flags;
             ssize_t type;
+
+            util::lock lock;
     };
 
     class filesystem {
@@ -232,7 +255,7 @@ namespace vfs {
                 return nullptr;
             }
 
-            virtual ssize_t lsdir(node *dir) {
+            virtual ssize_t readdir(node *dir) {
                 return -error::NOSYS;
             }
 
@@ -254,6 +277,10 @@ namespace vfs {
 
             virtual ssize_t write(node *file, void *buf, size_t len, size_t offset) {
                 return -error::NOSYS;
+            }
+
+            virtual ssize_t truncate(node *file, size_t offset) {
+                return 0;
             }
 
             virtual ssize_t ioctl(node *file, size_t req, void *buf) {
@@ -288,8 +315,6 @@ namespace vfs {
     // TODO: sockets
     struct pipe;
     struct descriptor {
-        util::lock lock;
-
         vfs::node *node;
         vfs::pipe *pipe;
 
@@ -297,6 +322,9 @@ namespace vfs {
         size_t pos;
 
         node::statinfo *info;
+
+        int current_ent;
+        frg::vector<dirent *, memory::mm::heap_allocator> dirent_list;
     };
 
     struct pipe {
@@ -331,6 +359,7 @@ namespace vfs {
     static size_t zero = 0;
     filesystem *resolve_fs(frg::string_view path, node *base, size_t& symlinks_traversed = zero);
     node *resolve_at(frg::string_view path, node *base, size_t& symlinks_traversed = zero);
+    path *get_absolute(node *node);
     node *get_parent(node *dir, frg::string_view path);
 
     ssize_t mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t fstype, int64_t flags);
@@ -339,7 +368,7 @@ namespace vfs {
     vfs::fd *open(node *dir, frg::string_view filepath, fd_table *table, int64_t flags, int64_t mode);
     fd_pair open_pipe(fd_table *table, ssize_t flags);
     ssize_t lseek(vfs::fd *fd, size_t off, size_t whence);
-    vfs::fd *dup(vfs::fd *fd, ssize_t flags, ssize_t new_num);
+    vfs::fd *dup(vfs::fd *fd, bool cloexec, ssize_t new_num);
     ssize_t close(vfs::fd *fd);
     ssize_t read(vfs::fd *fd, void *buf, size_t len);
     ssize_t write(vfs::fd *fd, void *buf, size_t len);
@@ -352,7 +381,7 @@ namespace vfs {
     ssize_t link(node *from_dir, frg::string_view from, node *to_dir, frg::string_view to, bool is_symlink);
     ssize_t unlink(node *dir, frg::string_view filepath);
     ssize_t rmdir(node *dir, frg::string_view dirpath);
-    pathlist lsdir(node *dir, frg::string_view dirpath);
+    pathlist readdir(node *dir, frg::string_view dirpath);
 
     // fs use only
     vfs::fd *make_fd(vfs::node *node, fd_table *table, int64_t flags, int64_t mode);
@@ -364,6 +393,7 @@ namespace vfs {
     fd_table *copy_table(fd_table *table);
     void delete_table(fd_table *table);
 
+    extern node *tree_root;
     void init();
 };
 

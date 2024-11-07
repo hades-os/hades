@@ -284,7 +284,7 @@ bool sched::exec(thread *target, const char *path, char **argv, char **envp) {
     target->proc->mem_ctx = (memory::vmm::vmm_ctx *) memory::vmm::create();
     memory::vmm::change(target->proc->mem_ctx);
 
-    auto res = target->proc->env.load_elf(path);
+    auto res = target->proc->env.load_elf(path, fd);
     if (!res) {
         return false;
     }
@@ -300,8 +300,11 @@ bool sched::exec(thread *target, const char *path, char **argv, char **envp) {
 
     target->proc->env.place_params(envp, argv, target);
     
-    vfs::delete_table(target->proc->fds);
-    target->proc->fds = vfs::make_table();
+    for (auto [fd_number, fd]: target->proc->fds->fd_list) {
+        if (fd->flags & vfs::O_CLOEXEC) {
+            vfs::close(fd);
+        }
+    }
 
     for (size_t i = 0; i < SIGNAL_MAX; i++) {
         signal::sigaction *act = &target->proc->sigactions[i];
@@ -358,8 +361,7 @@ void sched::process_env::place_params(char **envp, char **argv, thread *target) 
 }
 
 //TODO : cleanup
-bool sched::process_env::load_elf(const char *path) {
-    auto fd = vfs::open(nullptr, path, proc->fds, 0, 0);
+bool sched::process_env::load_elf(const char *path, vfs::fd *fd) {
     if (!fd) {
         return false;
     }

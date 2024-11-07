@@ -1,4 +1,3 @@
-#include "sys/smp.hpp"
 #include "sys/syscall.hpp"
 #include <cstdint>
 #include <util/log/log.hpp>

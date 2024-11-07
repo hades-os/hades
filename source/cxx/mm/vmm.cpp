@@ -1,6 +1,7 @@
 #include "sys/irq.hpp"
 #include "sys/sched/sched.hpp"
 #include "sys/smp.hpp"
+#include "util/lock.hpp"
 #include "util/string.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -462,6 +463,7 @@ void memory::vmm::init() {
 void *memory::vmm::create() {
     common::vmm_lock.acquire();
     vmm_ctx *ctx = frg::construct<vmm_ctx>(mm::heap);
+    ctx->lock = util::lock();
     ctx->map = (uint64_t *) pmm::alloc(1);
     for (size_t i = (VMM_ENTRIES_PER_TABLE / 2); i < VMM_ENTRIES_PER_TABLE; i++) {
         ctx->map[i] = common::boot_ctx->map[i];

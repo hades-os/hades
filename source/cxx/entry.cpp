@@ -66,7 +66,7 @@ static void run_init() {
 }
 
 static void show_splash(vfs::fd_table *table) {
-    auto splash_fd = vfs::open(nullptr, "/home/racemus/hades.bmp", table, 0, vfs::mode::RDONLY);
+    auto splash_fd = vfs::open(nullptr, "/home/racemus/hades.bmp", table, 0, vfs::O_RDONLY);
 
     auto info = frg::construct<vfs::node::statinfo>(memory::mm::heap);
     vfs::lstat(nullptr, "/home/racemus/hades.bmp", info);
