@@ -40,6 +40,9 @@ main_sources = files(
     'source/cxx/util/string.cpp'
 )
 main_includes = include_directories('include')
+freestnd_c_hdrs = include_directories('freestnd_c_hdrs', is_system: true)
+freestnd_cpp_hdrs = include_directories('freestnd_cpp_hdrs', is_system: true)
+
 nasm_sources = files(
     'source/asm/boot.asm',
     'source/asm/irq.asm',
@@ -55,10 +58,10 @@ source_dir = join_paths(meson.project_source_root(), 'source')
 ld_script = join_paths(source_dir, 'misc', 'linker.ld')
 
 flags_common = [
-	'-I$(INCLUDE)',
 	'-ggdb',
 	'-O3',
 	'-ffreestanding',
+    '-nostdinc',
 	'-fdiagnostics-color=always',
 	'-fno-stack-protector',
 	'-fno-omit-frame-pointer',
@@ -82,12 +85,14 @@ flags_cpp = [
 	'-fno-rtti',
 	'-fno-exceptions',
 	'-fno-use-cxa-atexit',
-
 ]
 
 flags_ld = [
 	'-T', ld_script,
     '-nostdlib',
+    '-nostartfiles',
+    '-nodefaultlibs',
+    '-lgcc',
 	'-Wl,-z,max-page-size=0x1000',
 	'-no-pie'
 ]
@@ -100,7 +105,7 @@ lai_includes = lai_proj.get_variable('includes')
 make_elf = executable(
     'hades.elf', main_sources, lai_sources,
     nasm_objects, 
-    include_directories: [main_includes, lai_includes],
+    include_directories: [main_includes, lai_includes, freestnd_c_hdrs, freestnd_cpp_hdrs],
     link_depends: ld_script, install: true, c_args: flags_common + flags_c, cpp_args: flags_common + flags_cpp, link_args: flags_ld, build_by_default: false)
 
 script_path = join_paths(meson.project_source_root(), 'scripts', 'post.py')

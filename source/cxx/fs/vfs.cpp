@@ -229,9 +229,9 @@ vfs::node *vfs::resolve_at(frg::string_view path, node *base, size_t& symlinks_t
 
 ssize_t vfs::lseek(vfs::fd *fd, off_t off, size_t whence) {
     auto desc = fd->desc;
-    if (!desc->node) return -error::NOSYS;
+    if (!desc->node) return -ENOTSUP;
     if (desc->node->get_type() == node::type::DIRECTORY) {
-        return -error::ISDIR;
+        return -EISDIR;
     }
 
     switch (whence) {
@@ -245,7 +245,7 @@ ssize_t vfs::lseek(vfs::fd *fd, off_t off, size_t whence) {
             desc->pos = desc->node->stat()->st_size;
             return desc->pos;
         default:
-            return -error::INVAL;
+            return -EINVAL;
     }
 
     return 0;
@@ -269,7 +269,7 @@ ssize_t vfs::read(vfs::fd *fd, void *buf, size_t len) {
     }
 
     if (desc->node->get_type() == node::type::DIRECTORY) {
-        return -error::ISDIR;
+        return -EISDIR;
     }
 
     auto res = desc->node->get_fs()->read(desc->node, buf, len, desc->pos);
@@ -281,7 +281,7 @@ ssize_t vfs::write(vfs::fd *fd, void *buf, size_t len) {
     auto desc = fd->desc;
     if (!desc->node) {
         if ((size_t) desc->pos >= memory::common::page_size) {
-            return -error::INVAL;
+            return -EINVAL;
         }
 
         if ((size_t) (desc->pos + len) > memory::common::page_size) {
@@ -303,7 +303,7 @@ ssize_t vfs::write(vfs::fd *fd, void *buf, size_t len) {
     }
 
     if (desc->node->get_type() == node::type::DIRECTORY) {
-        return -error::ISDIR;
+        return -EISDIR;
     }
 
     auto res = desc->node->get_fs()->write(desc->node, buf, len, desc->pos);
@@ -354,11 +354,11 @@ vfs::node *vfs::get_parent(node *dir, frg::string_view filepath) {
 ssize_t vfs::create(node *dir, frg::string_view filepath, fd_table *table, int64_t type, int64_t flags, int64_t mode) {
     auto parent = get_parent(dir, filepath);
     if (!parent) {
-        return -error::NOENT;
+        return -ENOENT;
     }
 
     if (parent->get_type() != node::type::DIRECTORY) {
-        return -error::INVAL;
+        return -EINVAL;
     }
 
     auto name = find_name(filepath);
@@ -495,7 +495,7 @@ vfs::fd *vfs::make_fd(vfs::node *node, fd_table *table, int64_t flags, int64_t m
 
     if (node) {
         auto open_val = node->get_fs()->on_open(fd, flags);
-        if (open_val != -error::NOSYS && open_val < 0) {
+        if (open_val != -ENOTSUP && open_val < 0) {
             frg::destruct(memory::mm::heap, desc);
             frg::destruct(memory::mm::heap, fd);
 
@@ -590,7 +590,7 @@ vfs::fd *vfs::dup(vfs::fd *fd, bool cloexec, ssize_t new_num) {
 ssize_t vfs::lstat(node *dir, frg::string_view filepath, node::statinfo *buf) {
     auto node = resolve_at(filepath, dir);
     if (!node) {
-        return -error::NOENT;
+        return -ENOENT;
     }
 
     memcpy(buf, node->stat(), sizeof(node::statinfo));
@@ -630,15 +630,15 @@ ssize_t vfs::mkdir(node *dir, frg::string_view dirpath, int64_t flags, int64_t m
     if (dst) {
         switch (dir->get_type()) {
             case node::type::DIRECTORY:
-                return -error::ISDIR;
+                return -EISDIR;
             default:
-                return -error::EXIST;
+                return -EEXIST;
         }
     }
 
     auto parent = get_parent(dir, dirpath);
     if (!parent) {
-        return -error::NOTDIR;
+        return -ENOTDIR;
     }
 
     return parent->fs->mkdir(parent, find_name(dirpath), flags);
@@ -650,44 +650,44 @@ ssize_t vfs::rename(node *old_dir, frg::string_view oldpath, node *new_dir, frg:
     auto name = find_name(newpath);
 
     if (newview.size() > oldview.size() && newview.sub_string(0, oldview.size()) == oldview) {
-        return -error::INVAL;
+        return -EINVAL;
     }
 
     auto src = resolve_at(oldpath, old_dir);
     if (!src) {
-        return -error::INVAL;
+        return -EINVAL;
     }
 
     auto dst = resolve_at(newpath, new_dir);
     if (dst) {
         if (dst->get_fs() != src->get_fs()) {
-            return -error::XDEV;
+            return -EXDEV;
         }
 
         if (dst->ref_count || src->ref_count) {
-            return -error::BUSY;
+            return -EBUSY;
         }
 
         switch (dst->get_type()) {
             case node::type::SOCKET:
             case node::type::BLOCKDEV:
             case node::type::CHARDEV:
-                return -error::INVAL;
+                return -EINVAL;
             default:
                 break;
         }
 
         if (dst->get_type() == node::type::DIRECTORY && src->get_type() == node::type::DIRECTORY) {
             if (dst->get_ccount()) {
-                return -error::NOTEMPTY;
+                return -ENOTEMPTY;
             }
         }
 
         if (dst->get_type() != src->get_type()) {
-                return -error::INVAL;
+                return -EINVAL;
         }
     } else if (resolve_fs(newpath, nullptr) != src->get_fs()) {
-        return -error::XDEV;
+        return -EXDEV;
     }
 
     src->fs->rename(src, dst, name, flags);
@@ -698,7 +698,7 @@ ssize_t vfs::rename(node *old_dir, frg::string_view oldpath, node *new_dir, frg:
 // TODO: adding a symlink
 ssize_t vfs::link(node *from_dir, frg::string_view from, node *to_dir, frg::string_view to, bool is_symlink) {
     if (from == to) {
-        return -error::INVAL;
+        return -EINVAL;
     }
 
     auto src = resolve_at(from, from_dir);
@@ -708,12 +708,12 @@ ssize_t vfs::link(node *from_dir, frg::string_view from, node *to_dir, frg::stri
     auto dst_parent = get_parent(to_dir, to);
 
     if (dst) {
-        return -error::INVAL;
+        return -EINVAL;
     }
     
     auto dst_fs = resolve_fs(to, to_dir);
     if (dst_fs != src->fs) {
-        return -error::INVAL;
+        return -EINVAL;
     }
 
     auto link_dst = frg::construct<node>(memory::mm::heap, src->fs, dst_name, dst_parent, 0, src->type, src->inum);
@@ -730,7 +730,7 @@ ssize_t vfs::link(node *from_dir, frg::string_view from, node *to_dir, frg::stri
 ssize_t vfs::unlink(node *dir, frg::string_view filepath) {
     auto node = resolve_at(filepath, dir);
     if (node == nullptr || node->type == node::type::DIRECTORY) {
-        return -error::INVAL;
+        return -EINVAL;
     }
 
     auto err = node->fs->unlink(node);
@@ -759,7 +759,7 @@ ssize_t vfs::unlink(node *dir, frg::string_view filepath) {
 ssize_t vfs::rmdir(node *dir, frg::string_view dirpath) {
     auto dst = resolve_at(dirpath, dir);
     if (dst == nullptr || dst->type != node::type::DIRECTORY || dst->children.size() > 0) {
-        return -error::INVAL;
+        return -EINVAL;
     }
 
     auto err = dst->fs->remove(dst);
@@ -801,7 +801,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
             switch (fstype) {
                 case fslist::ROOTFS: {
                     if (tree_root) {
-                        return -error::NOTEMPTY;
+                        return -ENOTEMPTY;
                     }
 
                     auto *fs = frg::construct<rootfs>(memory::mm::heap);
@@ -814,15 +814,15 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
 
                 case fslist::DEVFS: {
                     if (!dst) {
-                        return -error::INVAL;
+                        return -EINVAL;
                     }
 
                     if (dst->get_type() != node::type::DIRECTORY) {
-                        return -error::INVAL;
+                        return -EINVAL;
                     }
 
                     if (dst->get_ccount() > 0) {
-                        return -error::INVAL;
+                        return -EINVAL;
                     }
 
                     auto fs = frg::construct<devfs>(memory::mm::heap);
@@ -834,7 +834,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                 }
 
                 default:
-                    return -error::INVAL;
+                    return -EINVAL;
             }
             break;
         }
@@ -845,13 +845,13 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                     if (!dst || !src) {
                         kmsg("invalid src or dst");
 
-                        return -error::INVAL;
+                        return -EINVAL;
                     }
 
                     if (dst->get_type() != node::type::DIRECTORY || src->get_type() != node::type::BLOCKDEV) {
                         kmsg("invalid source device or dest; dst: ", dst->get_type(), ", source: ", src->get_type());
 
-                        return -error::INVAL;
+                        return -EINVAL;
                     }
 
                     auto fs = frg::construct<fatfs>(memory::mm::heap);
@@ -862,7 +862,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                 }
 
                 default:
-                    return -error::INVAL;
+                    return -EINVAL;
             }
 
             break;
@@ -877,15 +877,15 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
 ssize_t vfs::umount(node *dst) {
     auto *fs = dst->get_fs();
     if (!dst) {
-        return -error::INVAL;
+        return -EINVAL;
     }
 
     if (!fs) {
-        return -error::INVAL;
+        return -EINVAL;
     }
 
     if (dst->ref_count) {
-        return -error::BUSY;
+        return -EBUSY;
     }
 
     frg::destruct(memory::mm::heap, fs);

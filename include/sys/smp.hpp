@@ -87,6 +87,8 @@ namespace smp {
 
     size_t get_pid();
     int64_t get_tid();
+
+    void set_errno(int errno);
 };
 
 #endif

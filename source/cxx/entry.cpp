@@ -67,12 +67,14 @@ static void run_init() {
     };
     proc->cwd = vfs::resolve_at("/bin", nullptr);
 
-    auto fd = vfs::open(nullptr, "/bin/init", proc->fds, 0, O_RDWR);
+    auto fd = vfs::open(nullptr, "/bin/init.elf", proc->fds, 0, O_RDWR);
     memory::vmm::change(proc->mem_ctx);
     proc->env.load_elf("/bin/init.elf", fd);
     proc->main_thread->reg.rip = proc->env.entry;
 
     proc->env.place_params(envp, argv, proc->main_thread);
+
+    kmsg("Trying to run init process, at: ", util::hex(proc->env.entry));
     proc->start();
 }
 
@@ -86,7 +88,6 @@ static void show_splash(vfs::fd_table *table) {
     vfs::read(splash_fd, buffer, info->st_size);
 
     video::vesa::display_bmp(buffer, info->st_size);
-    run_init();
 }
 
 static void kern_task() {
@@ -109,9 +110,10 @@ static void kern_task() {
     tty::set_active("/dev/tty0", boot_table);
     fb::init(&fbinfo);
 
-    show_splash(boot_table);
-
     kb::init();
+
+    show_splash(boot_table);
+    run_init();
 
     while (true) {
         asm volatile("hlt");

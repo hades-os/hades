@@ -52,7 +52,12 @@ void syscall_exec(irq::regs *r) {
     auto current_task = smp::get_thread();
     auto fd = vfs::open(nullptr, path, process->fds, 0, 0);
     if (!fd) {
-        // TODO: errno
+        smp::set_errno(EBADF);
+        kfree(path);
+        kfree(argv);
+        kfree(envp);
+        vfs::close(fd);
+
         r->rax = -1;
         return;
     }
@@ -75,6 +80,10 @@ void syscall_exec(irq::regs *r) {
 
     auto res = process->env.load_elf(path, fd);
     if (!res) {
+        kfree(path);
+        kfree(argv);
+        kfree(envp);
+
         r->rax = -1;
         return;
     }
@@ -126,6 +135,15 @@ void syscall_exit(irq::regs *r) {
     process->kill(r->rdi);
 }
 
+void syscall_futex(irq::regs *r) {
+    uintptr_t uaddr = (uintptr_t) r->rdi;
+    int op = r->rsi;
+    uint32_t val = r->rdx;
+    sched::timespec *timeout = (sched::timespec *) r->r10;
+
+    r->rax = sched::do_futex(uaddr, op, val, timeout);
+} 
+
 void syscall_waitpid(irq::regs *r) {
     int pid = r->rdi;
     int *status = (int *) r->rsi;
@@ -171,12 +189,28 @@ void syscall_clock_gettime(irq::regs *r) {
         case sched::CLOCK_MONOTONIC:
             *spec = sched::clock_mono;
         default:
-            // TODO: errno
+            smp::set_errno(EINVAL);
             r->rax = -1;
             return;
     }
 
     r->rax = 0;
+}
+
+void syscall_clock_get(irq::regs *r) {
+    clockid_t clkid = r->rdi;
+
+    switch(clkid) {
+        case sched::CLOCK_REALTIME:
+            r->rax = sched::clock_rt.tv_nsec;
+            break;
+        case sched::CLOCK_MONOTONIC:
+            r->rax = sched::clock_mono.tv_nsec;
+        default:
+            smp::set_errno(EINVAL);
+            r->rax = -1;
+            return;
+    }
 }
 
 void syscall_getpid(irq::regs *r) {
@@ -198,7 +232,7 @@ void syscall_setpgid(irq::regs *r) {
     auto current_process = smp::get_process();
     auto process = sched::processes[pid];
     if (process == nullptr) {
-        // TODO: errno
+        smp::set_errno(EINVAL);
         r->rax = -1;
         return;
     }
@@ -209,14 +243,14 @@ void syscall_setpgid(irq::regs *r) {
     }
 
     if ((current_process->sess != process->sess) || (process->sess->leader_pgid == process->pid)) {
-        // TODO: errno
+        smp::set_errno(EPERM);
         r->rax = -1;
         return;
     }
 
     if (process->pid != current_process->pid && 
         (process->did_exec || process->parent->pid != current_process->pid)) {
-            // TODO: errno
+        smp::set_errno(EPERM);
         r->rax = -1;
         return;
     }
@@ -243,13 +277,13 @@ void syscall_getpgid(irq::regs *r) {
 
     auto process = sched::processes[pid];
     if (process == nullptr) {
-        // TODO: errno
+        smp::set_errno(EINVAL);
         r->rax = -1;
         return;
     }
     
     if (process->sess != smp::get_process()->sess) {
-        // TODO: errno
+        smp::set_errno(EPERM);
         r->rax = -1;
         return;
     }
@@ -260,8 +294,8 @@ void syscall_getpgid(irq::regs *r) {
 void syscall_setsid(irq::regs *r) {
     auto current_process = smp::get_process();
 
-    if (current_process->group->leader_pid) {
-        // TODO: errno
+    if (current_process->group->leader_pid == current_process->pid) {
+        smp::set_errno(EPERM);
         r->rax = -1;
         return;
     }
@@ -317,33 +351,6 @@ void syscall_sigreturn(irq::regs *r) {
         process->block_signals = true;
     }
 
-    irq::regs new_r{
-        .r15 = regs->r15,
-        .r14 = regs->r14,
-        .r13 = regs->r13,
-        .r12 = regs->r12,
-        .r11 = regs->r11,
-        .r10 = regs->r10,
-        .r9 = regs->r9,
-        .r8 = regs->r8,
-        .rsi = regs->rsi,
-        .rdi = regs->rdi,
-        .rbp = regs->rbx,
-        .rdx = regs->rdx,
-        .rcx = regs->rcx,
-        .rbx = regs->rbx,
-        .rax = regs->rax,
-
-        .int_no = 0,
-        .err = 0,
-
-        .rip = regs->rip,
-        .cs = regs->cs,
-        .rflags = regs->rflags,
-        .rsp = regs->rsp,
-        .ss = regs->ss,
-    };
-
     auto tmp = current_task->kstack;
     current_task->kstack = current_task->sig_kstack;
     current_task->sig_kstack = tmp;
@@ -356,7 +363,22 @@ void syscall_sigreturn(irq::regs *r) {
         io::swapgs();
     }
 
-    sigreturn_exit(&new_r);
+    auto iretq_regs = sched::to_irq(regs);
+
+    sched::set_fcw(regs->fcw);
+    sched::set_mxcsr(regs->mxcsr);
+    sched::load_sse(current_task->sig_context.sse_region);
+    
+    sigreturn_exit(&iretq_regs);
+}
+
+void syscall_sigenter(irq::regs *r) {
+    auto process = smp::get_process();
+    process->sig_lock.irq_acquire();
+    process->sigenter_rip = r->rdi;
+    process->sig_lock.irq_release();
+    
+    r->rax = 0;
 }
 
 void syscall_sigaction(irq::regs *r) {
@@ -394,7 +416,7 @@ void syscall_pause(irq::regs *r) {
     auto sig_queue = &process->sig_queue;
 
     sched::signal::wait_signal(task, sig_queue, ~0, nullptr);
-    // TODO: errno
+    smp::set_errno(EINTR);
     r->rax = -1;
 }
 
@@ -411,7 +433,7 @@ void syscall_sigsuspend(irq::regs *r) {
     sched::signal::wait_signal(task, sig_queue, ~(*mask), nullptr);
     sched::signal::do_sigprocmask(process, SIG_SETMASK, &prev, mask);
 
-    // TODO: errno
+    smp::set_errno(EINTR);
     r->rax = -1;
 }
 
@@ -430,8 +452,7 @@ void syscall_getcwd(irq::regs *r) {
         frg::destruct(memory::mm::heap, path);
         node->lock.irq_release();
 
-        // TODO: errno
-
+        smp::set_errno(ERANGE);
         r->rax = 0;
         return;
     }

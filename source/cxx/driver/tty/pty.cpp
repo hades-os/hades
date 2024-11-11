@@ -127,7 +127,7 @@ ssize_t tty::ptm::ioctl(size_t req, void *buf) {
         }
 
         default: {
-            // TODO: errno
+            smp::set_errno(ENOSYS);
             return -1;
         }
     }
@@ -146,7 +146,7 @@ ssize_t tty::pts::ioctl(device *tty, size_t req, void *buf) {
         }
 
         default: {
-            // TODO: errno
+            smp::set_errno(ENOSYS);
             return -1;
         }
     };

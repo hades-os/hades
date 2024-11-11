@@ -314,8 +314,7 @@ namespace ahci {
             struct io_command {
                 io_request::block *zone;
                 void *tmp;
-                size_t request_id;
-                volatile bool *completion_flag;
+                ipc::trigger *trigger;
                 size_t part_offset;
                 bool rw;
                 command_slot slot;
@@ -325,13 +324,11 @@ namespace ahci {
             volatile size_t num_free_commands = 0;
             io_command active_commands[32];
 
-            size_t last_request_id = 1;
             frg::vector<io_command, memory::mm::heap_allocator> requests;
-
-            frg::hash_map<size_t, size_t, frg::hash<size_t>, memory::mm::heap_allocator> finished_map;
             
             command_slot issue_read_write(void *buf, uint16_t count, size_t offset, bool rw);
 
+            void handle_done();
             void handle_commands();
         public:
             friend void ahci::request_io(void *extra_data, io_request *req, size_t part_offset, bool rw);
@@ -339,7 +336,7 @@ namespace ahci {
             friend void ahci::ahci_task();
             friend ssize_t ahci::find_cmdslot(ahci::device *device);
 
-            device(): requests(), finished_map(frg::hash<size_t>()) {};
+            device(): requests(){};
 
             void setup();
             void identify_sata();

@@ -28,6 +28,35 @@ namespace sched {
 
     constexpr size_t PIT_FREQ = 1000;
 
+    constexpr size_t WNOHANG = 1;
+    constexpr size_t WUNTRACED = 2;
+    constexpr size_t WSTOPPED = 2;
+    constexpr size_t WEXITED = 4;
+    constexpr size_t WCONTINUED = 8;
+    constexpr size_t WNOWAIT = 0x01000000;
+
+    constexpr size_t WCOREFLAG = 0x80;
+
+    constexpr ssize_t WEXITSTATUS(ssize_t x) { return (x & 0xff00) >> 8;  }
+    constexpr ssize_t WTERMSIG(ssize_t x) { return x & 0x7F; }
+    constexpr ssize_t WSTOPSIG(ssize_t x) { return WEXITSTATUS(x); }
+    constexpr ssize_t WIFEXITED(ssize_t x) { return WTERMSIG(x) == 0; }
+    constexpr ssize_t WIFSIGNALED(ssize_t x) { return ((signed char)(((x) & 0x7f) + 1) >> 1) > 0; }
+    constexpr ssize_t WIFSTOPPED(ssize_t x) { return ((x) & 0xff) == 0x7f; }
+    constexpr ssize_t WIFCONTINUED(ssize_t x) { return x == 0xffff; }
+    constexpr ssize_t WCOREDUMP(ssize_t x) { return x & WCOREFLAG; }
+
+    constexpr ssize_t WSTATUS_CONSTRUCT(ssize_t x) { return x << 8; }
+    constexpr ssize_t WEXITED_CONSTRUCT(ssize_t x) { return WSTATUS_CONSTRUCT(x); } 
+    constexpr ssize_t WSIGNALED_CONSTRUCT(ssize_t x) { return x & 0x7F; } 
+    constexpr ssize_t WSTOPPED_CONSTRUCT = 0x7F;
+    constexpr ssize_t WCONTINUED_CONSTRUCT = 0xffff;
+
+    constexpr size_t STATUS_CHANGED = (1ULL << 31);
+
+    constexpr size_t FUTEX_WAIT = 0;
+    constexpr size_t FUTEX_WAKE = 1;
+
     class session;
     class thread;
     class process;
@@ -37,10 +66,10 @@ namespace sched {
     void init();
 
     void send_ipis();
-    void init_idle();
 
     void init_syscalls();
-    void init_locals();
+    void init_idle();
+    void init_sse();
 
     void init_bsp();
     void init_ap();
@@ -48,9 +77,10 @@ namespace sched {
     thread *create_thread(void (*main)(), uint64_t rsp, memory::vmm::vmm_ctx *ctx, uint8_t privilege);
     process *create_process(char *name, void (*main)(), uint64_t rsp, memory::vmm::vmm_ctx *ctx, uint8_t privilege);
 
-    bool exec(thread *target, const char *path, char **argv, char **envp);
     thread *fork(thread *original, memory::vmm::vmm_ctx *ctx);
     process *fork(process *original, thread *caller);
+
+    int do_futex(uintptr_t vaddr, int op, int expected, timespec *timeout);    
 
     process *find_process(pid_t pid);
 
@@ -58,6 +88,24 @@ namespace sched {
     void swap_task(irq::regs *r);
     void tick_bsp(irq::regs *r);
     void retick();
+
+    uint16_t get_fcw();
+    void set_fcw(uint16_t);
+
+    uint32_t get_mxcsr();
+    void set_mxcsr(uint32_t mxcsr);
+
+    void save_sse(char *sse_region);
+    void load_sse(char *sse_region);
+
+    struct futex {
+        util::lock lock;
+        ipc::queue waitq;
+        ipc::trigger trigger;
+        uint64_t paddr;
+
+        int locked;
+    };
 
     struct [[gnu::packed]] thread_info {
         uint64_t meta_ptr;
@@ -82,6 +130,9 @@ namespace sched {
     class thread {
         public:
             regs reg;
+
+            alignas(16)
+            char sse_region[512];
 
             signal::ucontext sig_context;
 
@@ -124,15 +175,6 @@ namespace sched {
             void cont();
 
             int64_t kill();
-    };
-
-    enum wait_opts {
-        WNOHANG = 1,
-        WUNTRACED,
-        WSTOPPED,
-        WIFEXITED,
-        WCONTINUED,
-        WNOWAIT
     };
 
     struct process_env {
@@ -192,6 +234,7 @@ namespace sched {
             session *sess;
 
             bool block_signals;
+            uint64_t sigenter_rip;
             util::lock sig_lock;
             signal::queue sig_queue;
             signal::sigaction sigactions[SIGNAL_MAX];
@@ -210,32 +253,11 @@ namespace sched {
 
             uint8_t privilege;
 
-            enum state_opts {
-                STOPPED,
-                RUNNING,
-                TERMINATED,
-
-                STATUS_CHANGED = (1 << 31)
-            };
-
-            enum messages {
-                SUSPEND,
-                STARTED,
-                KILLED
-            };
-
-            struct state {
-                uint8_t term_signal;
-                uint8_t stop_signal;
-                
-                uint32_t val;
-            };
-
-            state status;
+            ssize_t status;
             process_env env; 
 
             int64_t start();
-            void kill(int term_signal = -1);
+            void kill(int exit_code = 0);
 
             void suspend();
             void cont();
