@@ -1,4 +1,5 @@
 #include "frg/string.hpp"
+#include "util/misc.hpp"
 #include <frg/utility.hpp>
 #include <util/log/log.hpp>
 #include <util/string.hpp>
@@ -147,8 +148,10 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t of
     } else {
         frg::vector<size_t, memory::mm::heap_allocator> cluster_chain{};
         uint32_t entry = begin;
-        if (offset) {
-            size_t skip_clusters = offset / (superblock->secPerClus * superblock->bytesPerSec);
+        size_t clus_size = superblock->secPerClus * superblock->bytesPerSec;
+
+        if (offset > 0) {
+            int skip_clusters = offset / clus_size;
             do {
                 if (skip_clusters <= 0) cluster_chain.push_back(entry);
                 skip_clusters--;
@@ -162,7 +165,6 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t of
             } while (!is_bad(entry) && !is_eof(entry));
         }
 
-        size_t clus_size = superblock->secPerClus * superblock->bytesPerSec;
         size_t ret_len = clus_size * cluster_chain.size();
         char *clus_buf = (char *) kmalloc(ret_len);
 
@@ -174,7 +176,7 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t of
         if (read_all) {
             req->len = cluster_chain.size();
         } else {
-            req->len = (len / clus_size) + (len % clus_size != 0);
+            req->len = util::ceil(offset + len, clus_size);
             while (req->len > cluster_chain.size()) req->len--;
         }
 
@@ -213,7 +215,7 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t of
         }
 
         if (!read_all) {
-            memcpy(ret, clus_buf + (offset % (superblock->secPerClus * superblock->bytesPerSec)), len);
+            memcpy(ret, clus_buf + (offset % clus_size), len);
             kfree(clus_buf);
             return {ret, (size_t) len};
         }
@@ -392,7 +394,7 @@ vfs::node *vfs::fatfs::lookup(node *parent, frg::string_view name) {
     return nullptr;
 }
 
-ssize_t vfs::fatfs::read(node *file, void *buf, size_t len, off_t offset) {
+ssize_t vfs::fatfs::read(node *file, void *buf, size_t len, off_t offset) {    
     auto clus = file->inum;
     auto res = rw_clusters(clus, buf, offset, len);
 

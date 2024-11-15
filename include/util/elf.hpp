@@ -41,6 +41,10 @@
 #define ELF_PT_LOPROC 0x70000000
 #define ELF_PT_HIPROC 0x7fffffff
 
+#define ELF_PF_X 0x1
+#define ELF_PF_W 0x2
+#define ELF_PF_R 0x4
+
 #define SHT_SYMTAB 0x2
 #define SHT_STRTAB 0x3
 

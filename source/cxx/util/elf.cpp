@@ -3,6 +3,7 @@
 #include "mm/mm.hpp"
 #include "mm/pmm.hpp"
 #include "mm/vmm.hpp"
+#include "util/misc.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <util/elf.hpp>
@@ -17,6 +18,7 @@ bool check_hdr(elf::elf64_hdr *header) {
     if (header->ident[ELF_EI_DATA] != ELF_LITTLE_ENDIAN) return false;
     if (header->ident[ELF_EI_CLASS] != ELF_ELF64) return false;
     if (header->machine != ELF_MACH_X86_64 && header->machine != 0) return false;
+    if (header->shstrndx == 0) return false;
 
     return true;
 }
@@ -108,7 +110,7 @@ bool elf::file::init(vfs::fd *fd) {
     }
 
     shstrtab_hdrs = shdrs + header->shstrndx;
-    shstrtab = memory::pmm::alloc((shstrtab_hdrs->sh_size / memory::common::page_size) + 1);
+    shstrtab = memory::pmm::alloc(util::ceil(shstrtab_hdrs->sh_size, memory::common::page_size));
     
     vfs::lseek(fd, shstrtab_hdrs->sh_offset, SEEK_SET);
     res = vfs::read(fd, shstrtab, shstrtab_hdrs->sh_size);
@@ -132,7 +134,7 @@ bool elf::file::init(vfs::fd *fd) {
         return false;
     }
 
-    strtab = memory::pmm::alloc((strtab_hdrs->sh_size / memory::common::page_size) + 1);
+    strtab = memory::pmm::alloc(util::ceil(strtab_hdrs->sh_size, memory::common::page_size));
     
     vfs::lseek(fd, strtab_hdrs->sh_offset, SEEK_SET);
     res = vfs::read(fd, strtab, strtab_hdrs->sh_size);
@@ -158,7 +160,7 @@ bool elf::file::init(vfs::fd *fd) {
         return false;
     }
 
-    symtab = memory::pmm::alloc((symtab_hdrs->sh_size / memory::common::page_size) + 1);
+    symtab = memory::pmm::alloc(util::ceil(symtab_hdrs->sh_size, memory::common::page_size));
 
     vfs::lseek(fd, symtab_hdrs->sh_offset, SEEK_SET);
     res = vfs::read(fd, symtab, symtab_hdrs->sh_size);
@@ -196,13 +198,16 @@ void elf::file::load() {
 
         elf64_phdr *phdr = &this->phdrs[i];
         size_t misalign = phdr->p_vaddr & (memory::common::page_size - 1);
-        size_t pages = ((misalign + phdr->p_memsz) / memory::common::page_size) + 1;
+        size_t pages = util::ceil(misalign + phdr->p_memsz, memory::common::page_size);
 
         if ((misalign + phdr->p_memsz) > memory::common::page_size) {
             pages = pages + 1;
         }
 
-        memory::vmm::map((void *)(phdr->p_vaddr + load_offset - misalign), pages * memory::common::page_size, VMM_PRESENT | VMM_WRITE | VMM_USER | VMM_FIXED | VMM_MANAGED, ctx);
+        uint64_t flags = VMM_PRESENT | VMM_USER | VMM_FIXED;
+        if (phdr->p_flags & ELF_PF_W) flags |= VMM_WRITE;
+
+        memory::vmm::map((void *)(phdr->p_vaddr + load_offset - misalign), pages * memory::common::page_size, flags, ctx);
 
         vfs::lseek(fd, phdr->p_offset, SEEK_SET);
         vfs::read(fd, (void *)(phdr->p_vaddr + load_offset), phdr->p_filesz);

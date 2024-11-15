@@ -407,7 +407,7 @@ int sched::signal::process_signals(process *proc, sched::regs *r, char *sse_regi
                 return 0;
             }
 
-            auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_WRITE | VMM_USER, proc->mem_ctx) + (4 * memory::common::page_size);
+            auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_USER | VMM_WRITE, proc->mem_ctx) + (4 * memory::common::page_size);
             context.stack = stack;
 
             context.regs = *r;

@@ -60,7 +60,11 @@ vfs::filesystem *vfs::resolve_fs(frg::string_view path, node *base, size_t& syml
 
                 current = current->parent;
             } else if (c != ".") {
-                node *next = current->fs->lookup(current, c);
+                node *next = nullptr;
+                if ((next = current->find_child(c)) == nullptr) {
+                    next = current->fs->lookup(current, c);
+                }
+
                 if (next == nullptr || next->resolveable == false) {
                     return current->fs;
                 }
@@ -98,7 +102,11 @@ vfs::filesystem *vfs::resolve_fs(frg::string_view path, node *base, size_t& syml
         view = view.sub_string(pos + 1);
     }
 
-    node *next = current->fs->lookup(current, name);
+    node *next = nullptr;
+    if ((next = current->find_child(name)) == nullptr) {
+        next = current->fs->lookup(current, name);
+    }
+
     if (next == nullptr || next->resolveable == false) {
         return current->fs;
     }
@@ -157,7 +165,11 @@ vfs::node *vfs::resolve_at(frg::string_view path, node *base, size_t& symlinks_t
 
                 current = current->parent;
             } else if (c != ".") {
-                node *next = current->fs->lookup(current, c);
+                node *next = nullptr;
+                if ((next = current->find_child(c)) == nullptr) {
+                    next = current->fs->lookup(current, c);
+                }
+
                 if (next == nullptr || next->resolveable == false) {
                     return nullptr;
                 }
@@ -195,7 +207,11 @@ vfs::node *vfs::resolve_at(frg::string_view path, node *base, size_t& symlinks_t
         view = view.sub_string(pos + 1);
     }
 
-    node *next = current->fs->lookup(current, name);
+    node *next = nullptr;
+    if ((next = current->find_child(name)) == nullptr) {
+        next = current->fs->lookup(current, name);
+    }
+
     if (next == nullptr || next->resolveable == false) {
         return nullptr;
     }
@@ -252,6 +268,8 @@ ssize_t vfs::lseek(vfs::fd *fd, off_t off, size_t whence) {
 }
 
 ssize_t vfs::read(vfs::fd *fd, void *buf, size_t len) {
+    if (len == 0) return 0;
+
     auto desc = fd->desc;
     if (!desc->node) {
         if ((size_t) desc->pos > desc->info->st_size) {
@@ -278,6 +296,8 @@ ssize_t vfs::read(vfs::fd *fd, void *buf, size_t len) {
 }
 
 ssize_t vfs::write(vfs::fd *fd, void *buf, size_t len) {
+    if (len == 0) return 0;
+
     auto desc = fd->desc;
     if (!desc->node) {
         if ((size_t) desc->pos >= memory::common::page_size) {
@@ -332,7 +352,7 @@ vfs::path* vfs::get_absolute(node *node) {
 
     paths.clear();
     return path;
-} 
+}
 
 vfs::node *vfs::get_parent(node *dir, frg::string_view filepath) {
     if (filepath[0] == '/' && filepath.count('/') == 1) {
@@ -691,7 +711,7 @@ ssize_t vfs::rename(node *old_dir, frg::string_view oldpath, node *new_dir, frg:
     }
 
     src->fs->rename(src, dst, name, flags);
-    
+
     return 0;
 }
 
@@ -710,7 +730,7 @@ ssize_t vfs::link(node *from_dir, frg::string_view from, node *to_dir, frg::stri
     if (dst) {
         return -EINVAL;
     }
-    
+
     auto dst_fs = resolve_fs(to, to_dir);
     if (dst_fs != src->fs) {
         return -EINVAL;

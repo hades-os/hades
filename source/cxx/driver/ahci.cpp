@@ -2,6 +2,7 @@
 #include "sys/irq.hpp"
 #include "sys/sched/wait.hpp"
 #include "sys/smp.hpp"
+#include "util/misc.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <driver/ahci.hpp>
@@ -83,7 +84,7 @@ ahci::command_slot get_command(volatile ahci::port *port, volatile ahci::abar *b
         return slot;
     }
 
-    ahci::command_entry *entry = (ahci::command_entry *) memory::pmm::alloc((fis_size / memory::common::page_size) + 1);
+    ahci::command_entry *entry = (ahci::command_entry *) memory::pmm::alloc(util::ceil(fis_size, memory::common::page_size));
 
     slot.idx = slot_idx;
     slot.entry = entry;
@@ -445,7 +446,7 @@ void ahci::device::handle_commands() {
         uint64_t sector_end = ((offset + zone->len) + sector_size - 1) / sector_size;
         uint64_t sector_count = sector_end - sector_start;
 
-        auto tmp = memory::pmm::alloc(((sector_count * sector_size) / memory::common::page_size) + 1);
+        auto tmp = memory::pmm::alloc(util::ceil(sector_count * sector_size, memory::common::page_size));
         auto slot = issue_read_write(tmp, sector_count, sector_start, command_request.rw);
         if (slot.idx == -1) {
             memory::pmm::free(tmp);

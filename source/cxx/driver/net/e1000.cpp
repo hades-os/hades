@@ -7,6 +7,7 @@
 #include "sys/pci.hpp"
 #include "sys/x86/apic.hpp"
 #include "util/log/log.hpp"
+#include "util/misc.hpp"
 #include "util/string.hpp"
 #include <cstdint>
 #include <mm/common.hpp>
@@ -106,7 +107,7 @@ void e1000::device::reset() {
 }
 
 void e1000::device::rx_init() {
-    uint8_t *rx_base = (uint8_t *) memory::pmm::alloc(((sizeof(rx_desc) * rx_max) / memory::common::page_size) + 1);
+    uint8_t *rx_base = (uint8_t *) memory::pmm::alloc(util::ceil(sizeof(rx_desc) * rx_max, memory::common::page_size));
 
     rx_desc *descs = (rx_desc *) rx_base;
     for (size_t i = 0; i < rx_max; i++) {
@@ -131,7 +132,7 @@ void e1000::device::rx_init() {
 }
 
 void e1000::device::tx_init() {
-    uint8_t *tx_base = (uint8_t *) memory::pmm::alloc(((sizeof(tx_desc) * tx_max) / memory::common::page_size) + 1);
+    uint8_t *tx_base = (uint8_t *) memory::pmm::alloc(util::ceil(sizeof(tx_desc) * tx_max, memory::common::page_size));
 
     tx_desc *descs = (tx_desc *) tx_base;
     for (size_t i = 0; i < tx_max; i++) {

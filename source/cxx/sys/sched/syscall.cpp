@@ -88,7 +88,7 @@ void syscall_exec(irq::regs *r) {
         return;
     }
 
-    current_task->ustack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_USER | VMM_WRITE | VMM_MANAGED, (void *) process->mem_ctx) + (4 * memory::common::page_size);
+    current_task->ustack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_USER | VMM_WRITE, (void *) process->mem_ctx) + (4 * memory::common::page_size);
     current_task->reg.cr3 = (uint64_t) memory::vmm::cr3(process->mem_ctx);
     current_task->reg.rsp = current_task->ustack;
 
@@ -97,6 +97,7 @@ void syscall_exec(irq::regs *r) {
     current_task->reg.ss = 0x23;
     current_task->reg.rflags = 0x202;
 
+    current_task->proc->env.load_params(envp, argv);
     current_task->proc->env.place_params(envp, argv, current_task);
 
     for (auto [fd_number, fd]: process->fds->fd_list) {
@@ -127,6 +128,11 @@ void syscall_fork(irq::regs *r) {
     auto child = sched::fork(smp::get_process(), smp::get_thread());
     
     child->main_thread->reg.rax = 0;
+    child->main_thread->reg.rip = r->rcx;
+    child->main_thread->reg.rflags = r->r11;
+
+    child->start();
+    
     r->rax = child->pid;
 }
 
@@ -256,18 +262,18 @@ void syscall_setpgid(irq::regs *r) {
     }
 
     auto session = process->sess;
-    auto target = frg::construct<sched::process_group>(memory::mm::heap);
+    auto group = frg::construct<sched::process_group>(memory::mm::heap);
 
-    target->pgid = pgid;
-    target->sess = session;
-    target->leader_pid = process->pid;
-    target->leader = process;
-    target->procs = frg::vector<sched::process *, memory::mm::heap_allocator>();
+    group->pgid = pgid;
+    group->sess = session;
+    group->leader_pid = process->pid;
+    group->leader = process;
+    group->procs = frg::vector<sched::process *, memory::mm::heap_allocator>();
 
-    session->groups.push(target);
-    target->procs.push(process);
+    session->groups.push(group);
+    group->procs.push(process);
 
-    process->group = target;
+    process->group = group;
 
     r->rax = 0;
 }
@@ -317,6 +323,9 @@ void syscall_setsid(irq::regs *r) {
 
     group->procs.push(current_process);
     session->groups.push(group);
+
+    current_process->sess = session;
+    current_process->group = group;
     
     r->rax = 0;
 }

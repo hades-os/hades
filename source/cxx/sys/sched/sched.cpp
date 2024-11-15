@@ -276,8 +276,6 @@ sched::process *sched::fork(process *original, thread *caller) {
     proc->sig_queue.sigmask = original->sig_queue.sigmask;
     memcpy(&proc->sigactions, &original->sigactions, SIGNAL_MAX * sizeof(signal::sigaction));
 
-    proc->user_fs = original->user_fs;
-    proc->user_gs = original->user_gs;
     proc->env = original->env;
     proc->env.proc = proc;
     proc->mem_ctx = (memory::vmm::vmm_ctx *) memory::vmm::fork(original->mem_ctx);
@@ -395,8 +393,6 @@ sched::thread *sched::process::pick_thread() {
 }
 
 void sched::process_env::place_params(char **envp, char **argv, thread *target) {
-    load_params(argv, envp);
-
     uint64_t *location = (uint64_t *) target->ustack;
     uint64_t args_location = (uint64_t) location;
 
@@ -483,7 +479,7 @@ uint64_t *sched::process_env::place_args(uint64_t *location) {
         strcpy((char *) location, params.argv[i]);
     }
 
-    location = (uint64_t *) ((uint64_t) location & -1611);
+    location = (uint64_t *) ((uint64_t) location & -16ll);
 
     if ((params.argc + params.envc + 1) & 1) {
         location--;
@@ -990,10 +986,6 @@ void sched::swap_task(irq::regs *r) {
     load_sse(running_task->sse_region);
     set_mxcsr(running_task->reg.mxcsr);
     set_fcw(running_task->reg.fcw);
-
-    if (running_task->proc) {
-        io::wrmsr(smp::fsBase, running_task->proc->user_fs);
-    }
 
     smp::get_locals()->kstack = running_task->kstack;
     smp::get_locals()->tss.rsp0 = running_task->kstack;
