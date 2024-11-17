@@ -1,65 +1,22 @@
-#include "fs/vfs.hpp"
-#include "mm/common.hpp"
-#include "sys/sched/wait.hpp"
-#include "sys/sched/signal.hpp"
-#include "util/elf.hpp"
-#include "util/string.hpp"
+#include <arch/types.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <fs/vfs.hpp>
 #include <frg/allocation.hpp>
 #include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
 #include <mm/vmm.hpp>
-#include <sys/irq.hpp>
 #include <sys/sched/sched.hpp>
-#include <sys/smp.hpp>
-#include <sys/x86/apic.hpp>
+#include <sys/sched/wait.hpp>
+#include <sys/sched/signal.hpp>
 #include <util/io.hpp>
 #include <util/log/log.hpp>
 #include <util/log/panic.hpp>
 #include <util/lock.hpp>
+#include <util/elf.hpp>
 
-sched::regs default_kernel_regs{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x8, 0, 0x202, 0, 0x1F80, 0x33F };
-sched::regs default_user_regs{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x23, 0x1B, 0, 0x202, 0, 0x1F80, 0x33F };
-
-frg::hash_map<uint64_t, sched::futex *, frg::hash<uint64_t>, memory::mm::heap_allocator> futex_list{frg::hash<uint64_t>()};
 util::lock sched::sched_lock{};
-
-alignas(16)
-char default_sse_region[512] {};
-
-extern "C" {
-    extern void syscall_enter();
-}
-
-static void _idle() {
-    while (1) { asm volatile("hlt"); };
-}
-
-static void tick_ap(irq::regs *r) {
-    sched::swap_task(r);
-}
-
-void sched::tick_bsp(irq::regs *r) {
-    swap_task(r);
-}
-
-void sched::retick() {
-    irq::on();
-    apic::lapic::ipi(smp::get_locals()->lid, 34);
-}
-
-void sched::send_ipis() {
-    auto info = smp::get_locals();
-    for (auto cpu : smp::cpus) {
-        if (info->lid == cpu->lid) {
-            continue;
-        }
-
-        apic::lapic::ipi(cpu->lid, 253);
-    }
-}
 
 void sched::sleep(size_t time) {
     volatile uint64_t final_time = uptime + (time * (TIMER_HZ / PIT_FREQ));
@@ -68,112 +25,20 @@ void sched::sleep(size_t time) {
     while (uptime < final_time) {  }
 }
 
-void sched::init() {
-    irq::add_handler(&tick_ap, 253);
-    init_bsp();
-}
-
-void sched::init_bsp() {
-    init_syscalls();
-    init_sse();
-    init_idle();
-}
-
-void sched::init_ap() {
-    init_syscalls();
-    init_idle();
-}
-
-void sched::init_idle() {
-    uint64_t idle_rsp = (uint64_t) memory::pmm::stack(1);
-
-    auto idle_task = create_thread(_idle, idle_rsp, memory::vmm::common::boot_ctx, 0);
-    idle_task->state = thread::BLOCKED;
-    auto idle_tid = idle_task->start();
-
-    smp::get_locals()->idle_tid = idle_tid;
-    smp::get_locals()->tid = idle_tid;    
-}
-
-void sched::save_sse(char *sse_region) {
-    asm volatile("fxsaveq (%0)":: "r"(sse_region));
-}
-
-void sched::load_sse(char *sse_region) {
-    asm volatile("fxrstor (%0)":: "r"(sse_region));
-}
-
-uint16_t sched::get_fcw() {
-    uint16_t fcw;
-    asm volatile("fnstcw (%0)":: "r"(&fcw) : "memory");
-    return fcw;
-}
-
-void sched::set_fcw(uint16_t fcw) {
-    asm volatile("fldcw (%0)":: "r"(&fcw) : "memory");
-}
-
-uint32_t sched::get_mxcsr() {
-    uint32_t fcw;
-    asm volatile("stmxcsr (%0)" :: "r"(&fcw) : "memory");
-    return fcw;
-}
-
-void sched::set_mxcsr(uint32_t fcw) {
-    asm volatile("ldmxcsr (%0)" :: "r"(&fcw) : "memory");
-}
-
-void sched::init_sse() {
-    uint64_t cr0;
-    asm volatile("mov %%cr0, %0": "=r"(cr0));
-
-    cr0 &= ~(1 << 2);
-    cr0 |= (1 << 1);
-
-    asm volatile("mov %0, %%cr0":: "r"(cr0));
-
-    uint64_t cr4;
-    asm volatile("mov %%cr4, %0": "=r"(cr4));
-    
-    cr4 |= (1 << 9);
-    cr4 |= (1 << 10);
-
-    asm volatile("mov %0, %%cr4":: "r"(cr4));
-    save_sse(default_sse_region);
-}
-
-void sched::init_syscalls() {
-    io::wrmsr(EFER, io::rdmsr<uint64_t>(EFER) | (1 << 0));
-    io::wrmsr(STAR, (0x18ull << 48 | 0x8ull << 32));
-    io::wrmsr(LSTAR, (uintptr_t) syscall_enter);
-    io::wrmsr(SFMASK, (1 << 9));
-}
-
-sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, memory::vmm::vmm_ctx *ctx, uint8_t privilege) {
+sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege) {
     thread *task = frg::construct<thread>(memory::mm::heap);
 
     task->kstack = (size_t) memory::pmm::stack(4);
+    task->ustack = rsp;
 
     task->sig_kstack = (size_t) memory::pmm::stack(4);
     task->sig_ustack = (size_t) memory::pmm::stack(4);
-    if (privilege == 3) {
-        task->reg = default_user_regs;
-    } else {
-        task->reg = default_kernel_regs;
-    }
-
-    memcpy(task->sse_region, default_sse_region, 512);
-
-    task->reg.rip = (uint64_t) main;
-    task->ustack = rsp;
-    task->reg.rsp = rsp;
-    task->privilege = privilege;
     task->mem_ctx = ctx;
-    task->pid = -1;
 
-    task->reg.cr3 = (uint64_t) memory::vmm::cr3(ctx);
-    task->state = thread::READY;
-    task->cpu = -1;
+    arch::init_context(task, main, rsp, privilege);
+
+    task->state = sched::thread::READY;
+    task->cpu = -1;   
 
     task->env.envc = 0;
     task->env.argc = 0;
@@ -184,8 +49,7 @@ sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, memory::vmm::v
     return task;
 }
 
-sched::process *sched::create_process(char *name, void (*main)(),
-    uint64_t rsp, memory::vmm::vmm_ctx *ctx, uint8_t privilege) {
+sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege) {
     process *proc = frg::construct<process>(memory::mm::heap);
 
     proc->threads = frg::vector<thread *, memory::mm::heap_allocator>();
@@ -227,7 +91,7 @@ sched::process *sched::create_process(char *name, void (*main)(),
     return proc;
 }
 
-sched::thread *sched::fork(thread *original, memory::vmm::vmm_ctx *ctx) {
+sched::thread *sched::fork(thread *original, vmm::vmm_ctx *ctx) {
     thread *task = frg::construct<thread>(memory::mm::heap);
 
     task->kstack = (size_t) memory::pmm::stack(4);
@@ -235,14 +99,10 @@ sched::thread *sched::fork(thread *original, memory::vmm::vmm_ctx *ctx) {
 
     task->sig_ustack = original->sig_ustack;
     task->ustack = original->ustack;
-
-    task->reg = original->reg;
-    memcpy(task->sse_region, original->sse_region, 512);
-    
-    task->privilege = original->privilege;
     task->mem_ctx = ctx;
 
-    task->reg.cr3 = (uint64_t) memory::vmm::cr3(ctx);
+    arch::copy_context(original, task);
+
     task->state = thread::READY;
     task->cpu = -1;
 
@@ -278,7 +138,7 @@ sched::process *sched::fork(process *original, thread *caller) {
 
     proc->env = original->env;
     proc->env.proc = proc;
-    proc->mem_ctx = (memory::vmm::vmm_ctx *) memory::vmm::fork(original->mem_ctx);
+    proc->mem_ctx = original->mem_ctx->fork();
 
     proc->main_thread = fork(caller, proc->mem_ctx);
     proc->main_thread->proc = proc;
@@ -309,76 +169,7 @@ sched::process *sched::fork(process *original, thread *caller) {
 }
 
 int sched::do_futex(uintptr_t vaddr, int op, int expected, timespec *timeout) {
-    auto process = smp::get_process();
-
-    uint64_t vpage = vaddr & ~(0xFFF);
-    uint64_t ppage = (uint64_t) memory::vmm::resolve((void *) vpage, process->mem_ctx);
-
-    if (!ppage) {
-        return -EFAULT;
-    }
-
-    uint64_t paddr = ppage + (vaddr & 0xFFF);
-    uint64_t uaddr = paddr + memory::common::virtualBase;
-    switch (op) {
-        case FUTEX_WAIT: {
-            if (*(uint32_t *) uaddr != expected) {
-                return -EAGAIN;
-            }
-
-            sched::futex *futex;
-            if (!futex_list.contains(paddr)) {
-                futex = frg::construct<sched::futex>(memory::mm::heap);
-
-                futex->lock = util::lock();
-                futex->waitq = ipc::queue();
-                futex->trigger = ipc::trigger();
-                futex->locked = 0;
-                futex->paddr = paddr;
-
-                futex->trigger.add(&futex->waitq);
-                futex_list[paddr] = futex;
-            } else {
-                futex = futex_list[paddr];
-            }
-
-            if (timeout) {
-                futex->waitq.set_timer(timeout);
-            }
-
-            futex->locked = 1;
-            for (;;) {
-                if (futex->locked == 0) {
-                    break;
-                }
-
-                auto waker = futex->waitq.block(smp::get_thread());
-                if (!waker) {
-                    return -1;
-                }
-            }
-
-            break;
-        }
-
-        case FUTEX_WAKE: {
-            sched::futex *futex;
-            if (!futex_list.contains(paddr)) {
-                return 0;
-            } else {
-                futex = futex_list[paddr];
-            }
-
-            futex_list.remove(futex->paddr);
-
-            futex->locked = 0;
-            futex->trigger.arise(smp::get_thread());
-
-            break;
-        }
-    }
-
-    return 0;
+    return arch::do_futex(vaddr, op, expected, timeout);
 }
 
 sched::thread *sched::process::pick_thread() {
@@ -390,145 +181,6 @@ sched::thread *sched::process::pick_thread() {
     }
 
     return nullptr;
-}
-
-void sched::process_env::place_params(char **envp, char **argv, thread *target) {
-    uint64_t *location = (uint64_t *) target->ustack;
-    uint64_t args_location = (uint64_t) location;
-
-    location = place_args(location);
-    location = place_auxv(location);
-
-    *(--location) = 0;
-    location -= params.envc;
-    for (size_t i = 0; i < (size_t) params.envc; i++) {
-        args_location -= strlen(params.envp[i]) + 1;
-        location[i] = args_location;
-    }
-
-    *(--location) = 0;
-    location -= params.argc;
-    for (size_t i = 0; i < (size_t)  params.argc; i++) {
-        args_location -= strlen(params.argv[i]) + 1;
-        location[i] = args_location;
-    }
-
-    *(--location) = params.argc;
-    target->reg.rsp = (uint64_t) location;
-}
-
-bool sched::process_env::load_elf(const char *path, vfs::fd *fd) {
-    if (!fd) {
-        return false;
-    }
-
-    file.ctx = proc->mem_ctx;
-    auto res = file.init(fd);
-    if (!res) return false;
-
-    file.load_aux();
-    file.load();
-
-    entry = file.aux.at_entry;
-    has_interp = file.load_interp(&interp_path);
-
-    vfs::close(fd);
-
-    if (has_interp) {
-        fd = vfs::open(nullptr, interp_path, nullptr, 0, 0);
-        if (!fd) {
-            kfree(interp_path);
-            vfs::close(fd);
-            return -1;
-        }
-
-        interp.ctx = proc->mem_ctx;
-        interp.load_offset = 0x40000000;
-        interp.fd = fd;
-
-        res = interp.init(fd);
-        if (!res) {
-            kfree(interp_path);
-            return false;
-        }
-
-        interp.load_aux();
-        interp.load();
-
-        entry = interp.aux.at_entry;
-
-        vfs::close(fd);
-    }
-
-    file_path = (char *) kmalloc(strlen(path) + 1);
-    strcpy(file_path, path);
-
-    is_loaded = true;
-
-    return true;
-}
-
-uint64_t *sched::process_env::place_args(uint64_t *location) {
-    for (size_t i = 0; i < (size_t)  params.envc; i++) {
-        location = (uint64_t *)((char *) location - (strlen(params.envp[i]) + 1));
-        strcpy((char *) location, params.envp[i]);
-    }
-
-    for (size_t i = 0; i < (size_t) params.argc; i++) {
-        location = (uint64_t *)((char *) location - (strlen(params.argv[i]) + 1));
-        strcpy((char *) location, params.argv[i]);
-    }
-
-    location = (uint64_t *) ((uint64_t) location & -16ll);
-
-    if ((params.argc + params.envc + 1) & 1) {
-        location--;
-    }
-
-    return location;
-}
-
-uint64_t *sched::process_env::place_auxv(uint64_t *location) {
-    location -= 10;
-
-    location[0] = ELF_AT_PHNUM;
-    location[1] = file.aux.at_phnum;
-
-    location[2] = ELF_AT_PHENT;
-    location[3] = file.aux.at_phent;
-
-    location[4] = ELF_AT_PHDR;
-    location[5] = file.aux.at_phdr;
-
-    location[6] = ELF_AT_ENTRY;
-    location[7] = file.aux.at_entry;
-
-    location[8] = 0; location[9] = 0;
-
-    return location;
-}
-
-void sched::process_env::load_params(char **argv, char **envp) {
-    for (;; params.envc++) {
-        if (envp[params.envc] == nullptr) break;
-    }
-
-    for (;; params.argc++) {
-        if (argv[params.argc] == nullptr) break;
-    }
-
-    params.argv = (char **) kmalloc(sizeof (char *) * params.argc);
-    params.envp = (char **) kmalloc(sizeof (char *) * params.envc);
-
-    for (size_t i = 0; i < (size_t) params.argc; i++) {
-        params.argv[i] = (char *) kmalloc(strlen(argv[i] + 1));
-        strcpy(params.argv[i], argv[i]);
-    }
-
-    for (size_t i = 0; i < (size_t) params.envc; i++) {
-        params.envp[i] = (char *) kmalloc(strlen(envp[i] + 1));
-        strcpy(params.envp[i], envp[i]);
-    }
 }
 
 sched::process *sched::find_process(pid_t pid) {
@@ -569,32 +221,16 @@ void sched::process::kill(int exit_code) {
     for (size_t i = 0; i < this->threads.size(); i++) {
         auto task = this->threads[i];
         if (task == nullptr) continue;
-        if (task->tid == smp::get_locals()->tid) {
+        if (task->tid == arch::get_tid()) {
             this->main_thread = task;
             continue;
         };
 
-        while (task->state == thread::BLOCKED) { retick(); }
-        task->state = thread::DEAD;
-        if (task->cpu != -1) {
-            auto cpu = task->cpu;
-            sched_lock.irq_release();
-
-            apic::lapic::ipi(cpu, 253);
-            while (task->cpu != -1) { asm volatile("pause"); };
-
-            sched_lock.irq_acquire();
-        }
-
-        threads[task->tid] = nullptr;
+        task->kill();
         frg::destruct(memory::mm::heap, task);
     }
 
-    auto old_ctx = this->mem_ctx;
-    this->mem_ctx = (memory::vmm::vmm_ctx *) memory::vmm::boot();
-    this->main_thread->mem_ctx = this->mem_ctx;
-    this->main_thread->reg.cr3 = (uint64_t) memory::vmm::cr3(memory::vmm::boot());
-    memory::vmm::destroy(old_ctx);
+    arch::cleanup_vmm_ctx(this);
     signal::send_process(nullptr, this->parent, SIGCHLD);
 
     for (size_t i = 0; i < children.size(); i++) {
@@ -681,11 +317,9 @@ void sched::thread::stop() {
 
     this->state = thread::BLOCKED;
     if (this->cpu != -1) {
-        auto cpu = this->cpu;
         sched_lock.release();
 
-        apic::lapic::ipi(cpu, 253);
-        while (this->cpu != -1) { asm volatile("pause"); };
+        arch::stop_thread(this);
 
         sched_lock.acquire();
     }
@@ -702,13 +336,12 @@ void sched::thread::cont() {
 int64_t sched::thread::kill() {
     sched_lock.acquire();
 
+    while (this->state == thread::BLOCKED) { arch::tick(); }
     this->state = thread::DEAD;
     if (this->cpu != -1) {
-        auto cpu = this->cpu;
         sched_lock.release();
 
-        apic::lapic::ipi(cpu, 253);
-        while (this->cpu != -1) { asm volatile("pause"); };
+        arch::stop_thread(this);
 
         sched_lock.acquire();
     }
@@ -754,16 +387,7 @@ void reap_process(sched::process *zombie) {
     sched::sched_lock.irq_acquire();
 
     auto task = zombie->main_thread;
-    while (task->state == sched::thread::BLOCKED) { asm volatile("pause"); }
-    task->state = sched::thread::DEAD;
-    if (task->cpu != -1) {
-        auto cpu = task->cpu;
-
-        sched::sched_lock.irq_release();
-        apic::lapic::ipi(cpu, 253);
-        while (task->cpu != -1) { asm volatile("pause"); };
-        sched::sched_lock.irq_acquire();
-    }
+    task->kill();
 
     sched::threads[task->tid] = nullptr;
     sched::processes[zombie->pid] = nullptr;
@@ -856,7 +480,7 @@ frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int op
 
 
 int64_t sched::pick_task() {
-    for (int64_t t = smp::get_tid() + 1; (uint64_t) t < threads.size(); t++) {
+    for (int64_t t = arch::get_tid() + 1; (uint64_t) t < threads.size(); t++) {
         auto task = threads[t];
         if (task) {
             if (task->state == thread::READY || task->state == thread::WAIT) {
@@ -865,7 +489,7 @@ int64_t sched::pick_task() {
         }
     }
 
-    for (int64_t t = 0; t < smp::get_tid() + 1; t++) {
+    for (int64_t t = 0; t < arch::get_tid() + 1; t++) {
         auto task = threads[t];
         if (task) {
             if (task->state == thread::READY || task->state == thread::WAIT) {
@@ -877,80 +501,33 @@ int64_t sched::pick_task() {
     return -1;
 }
 
-void sched::swap_task(irq::regs *r) {
+void sched::swap_task(arch::irq_regs *r) {
     sched_lock.acquire();
 
-    auto running_task = smp::get_thread();
+    auto running_task = arch::get_thread();
     if (running_task) {
-        running_task->reg.rax = r->rax;
-        running_task->reg.rbx = r->rbx;
-        running_task->reg.rcx = r->rcx;
-        running_task->reg.rdx = r->rdx;
-        running_task->reg.rbp = r->rbp;
-        running_task->reg.rdi = r->rdi;
-        running_task->reg.rsi = r->rsi;
-        running_task->reg.r8 = r->r8;
-        running_task->reg.r9 = r->r9;
-        running_task->reg.r10 = r->r10;
-        running_task->reg.r11 = r->r11;
-        running_task->reg.r12 = r->r12;
-        running_task->reg.r13 = r->r13;
-        running_task->reg.r14 = r->r14;
-        running_task->reg.r15 = r->r15;
-
-        running_task->reg.rflags = r->rflags;
-        running_task->reg.rip = r->rip;
-        running_task->reg.rsp = r->rsp;
-
-        running_task->reg.cs = r->cs;
-        running_task->reg.ss = r->ss;
-
-        save_sse(running_task->sse_region);
-        running_task->reg.mxcsr = get_mxcsr();
-        running_task->reg.fcw = get_fcw();
-
-        running_task->kstack = smp::get_locals()->tss.rsp0;
-        running_task->ustack = smp::get_locals()->ustack;
-
-        running_task->stopped = io::tsc();
-
-        size_t prev_uptime = running_task->uptime;
-        running_task->uptime += running_task->stopped - running_task->started;
-        uptime += running_task->uptime - prev_uptime;
-
-        running_task->cpu = -1;
-
-        running_task->reg.cr3 = memory::vmm::read_cr3();
-
-        if (running_task->running) {
-            running_task->running = false;
-        }
-
-        if (running_task->state == thread::RUNNING && running_task->tid != smp::get_locals()->idle_tid) {
-            running_task->state = thread::READY;
-        }
+        arch::save_context(r, running_task);
     }
 
     int64_t next_tid = pick_task();
     if (next_tid == -1) {
-        if (running_task->tid != smp::get_locals()->idle_tid && running_task->pid != -1) {
-            signal::process_signals(running_task->proc, &running_task->reg, running_task->sse_region);
+        if (running_task->tid != arch::get_idle() && running_task->pid != -1) {
+            signal::process_signals(running_task->proc, &running_task->ctx);
             goto swap_regs;
         }
 
-        smp::get_locals()->task = threads[smp::get_locals()->idle_tid];
-        smp::get_locals()->tid =  smp::get_locals()->idle_tid;
-        running_task = smp::get_thread();
+        auto idle_task = threads[arch::get_idle()];
+        arch::set_thread(idle_task);
+
+        running_task = arch::get_thread();
     } else {
         auto next_task = threads[next_tid];
         if (next_task->pid != -1) {
-            signal::process_signals(next_task->proc, &next_task->reg, next_task->sse_region);
+            signal::process_signals(next_task->proc, &next_task->ctx);
         }
 
-        smp::get_locals()->proc = next_task->proc;
-        smp::get_locals()->task = next_task;
-        smp::get_locals()->tid = next_tid;
-        smp::get_locals()->pid = next_task->pid;
+        arch::set_process(next_task->proc);
+        arch::set_thread(next_task);
 
         running_task = next_task;
         running_task->running = true;
@@ -958,45 +535,7 @@ void sched::swap_task(irq::regs *r) {
     }
 
     swap_regs:
-
-    running_task->cpu = smp::get_locals()->lid;
-    r->rax = running_task->reg.rax;
-    r->rbx = running_task->reg.rbx;
-    r->rcx = running_task->reg.rcx;
-    r->rdx = running_task->reg.rdx;
-    r->rbp = running_task->reg.rbp;
-    r->rdi = running_task->reg.rdi;
-    r->rsi = running_task->reg.rsi;
-    r->r8 = running_task->reg.r8;
-    r->r9 = running_task->reg.r9;
-    r->r10 = running_task->reg.r10;
-    r->r11 = running_task->reg.r11;
-    r->r12 = running_task->reg.r12;
-    r->r13 = running_task->reg.r13;
-    r->r14 = running_task->reg.r14;
-    r->r15 = running_task->reg.r15;
-
-    r->rflags = running_task->reg.rflags;
-    r->rip = running_task->reg.rip;
-    r->rsp = running_task->reg.rsp;
-
-    r->cs = running_task->reg.cs;
-    r->ss = running_task->reg.ss;
-
-    load_sse(running_task->sse_region);
-    set_mxcsr(running_task->reg.mxcsr);
-    set_fcw(running_task->reg.fcw);
-
-    smp::get_locals()->kstack = running_task->kstack;
-    smp::get_locals()->tss.rsp0 = running_task->kstack;
-    smp::get_locals()->tss.ist[0] = running_task->kstack;
-    smp::get_locals()->ustack = running_task->ustack;
-
-    running_task->started = io::tsc();
-
-    if (memory::vmm::read_cr3() != running_task->reg.cr3) {
-        memory::vmm::write_cr3(running_task->reg.cr3);
-    }
+    arch::rstor_context(running_task, r);
 
     sched_lock.release();
 }

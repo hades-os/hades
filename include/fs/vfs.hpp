@@ -11,7 +11,6 @@
 #include <mm/mm.hpp>
 #include <util/lock.hpp>
 #include <util/log/log.hpp>
-#include <util/shared.hpp>
 #include <util/types.hpp>
 #include <util/errors.hpp>
 

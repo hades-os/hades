@@ -29,7 +29,7 @@ void video::vesa::init(stivale::boot::tags::framebuffer fbinfo) {
     height = fbinfo.height;
     bpp = fbinfo.bpp;
     pitch = fbinfo.pitch;
-    address = fbinfo.addr + memory::common::virtualBase;
+    address = fbinfo.addr + memory::x86::virtualBase;
 
     ft_ctx = flanterm_fb_init(
         NULL,

@@ -1,12 +1,11 @@
-#include "fs/dev.hpp"
-#include "fs/vfs.hpp"
-#include "mm/mm.hpp"
-#include "sys/smp.hpp"
-
 #include <cstddef>
 #include <sys/sched/signal.hpp>
 #include <driver/tty/termios.hpp>
 #include <driver/tty/tty.hpp>
+
+#include <fs/dev.hpp>
+#include <fs/vfs.hpp>
+#include <mm/mm.hpp>
 
 tty::device *tty::active_tty = nullptr;
 void tty::self::init() {
@@ -15,12 +14,12 @@ void tty::self::init() {
 }
 
 ssize_t tty::self::on_open(vfs::fd *fd, ssize_t flags) {
-    if (smp::get_process() && !smp::get_process()->sess->tty) {
-        smp::set_errno(ENODEV);
+    if (arch::get_process() && !arch::get_process()->sess->tty) {
+        arch::set_errno(ENODEV);
         return -1;
     }
 
-    fd->desc->node = smp::get_process()->sess->tty->file;
+    fd->desc->node = arch::get_process()->sess->tty->file;
     return 0;
 }
 
@@ -50,9 +49,9 @@ ssize_t tty::device::on_open(vfs::fd *fd, ssize_t flags) {
     }
 
     if ((sess == nullptr) && (!((flags & O_NOCTTY) == O_NOCTTY)) &&
-        (smp::get_process() && smp::get_process()->group->pgid == smp::get_process()->sess->leader_pgid)) {
-        sess = smp::get_process()->sess;
-        fg = smp::get_process()->group;
+        (arch::get_process() && arch::get_process()->group->pgid == arch::get_process()->sess->leader_pgid)) {
+        sess = arch::get_process()->sess;
+        fg = arch::get_process()->group;
     }
 
     return 0;
@@ -70,16 +69,16 @@ ssize_t tty::device::on_close(vfs::fd *fd, ssize_t flags) {
 
 ssize_t tty::device::read(void *buf, size_t count, size_t offset) {
     // TODO: orphans
-    if (smp::get_process() && smp::get_process()->sess == sess) {
-        if (smp::get_process()->group != fg) {
-            if (sched::signal::is_ignored(smp::get_process(), SIGTTIN)
-                || sched::signal::is_blocked(smp::get_process(), SIGTTIN)) {
-                smp::set_errno(EIO);
+    if (arch::get_process() && arch::get_process()->sess == sess) {
+        if (arch::get_process()->group != fg) {
+            if (sched::signal::is_ignored(arch::get_process(), SIGTTIN)
+                || sched::signal::is_blocked(arch::get_process(), SIGTTIN)) {
+                arch::set_errno(EIO);
                 return -1;
             }
 
-            sched::signal::send_group(nullptr, smp::get_process()->group, SIGTTIN);
-            smp::set_errno(EINTR);
+            sched::signal::send_group(nullptr, arch::get_process()->group, SIGTTIN);
+            arch::set_errno(EINTR);
             return -1;
         }
     }
@@ -95,16 +94,16 @@ ssize_t tty::device::read(void *buf, size_t count, size_t offset) {
 
 ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     // TODO: orphans
-    if (smp::get_process() && smp::get_process()->sess == sess) {
-        if (smp::get_process()->group != fg && (termios.c_cflag & TOSTOP)) {
-            if (sched::signal::is_ignored(smp::get_process(), SIGTTOU)
-                || sched::signal::is_blocked(smp::get_process(), SIGTTOU)) {
-                smp::set_errno(EIO);
+    if (arch::get_process() && arch::get_process()->sess == sess) {
+        if (arch::get_process()->group != fg && (termios.c_cflag & TOSTOP)) {
+            if (sched::signal::is_ignored(arch::get_process(), SIGTTOU)
+                || sched::signal::is_blocked(arch::get_process(), SIGTTOU)) {
+                arch::set_errno(EIO);
                 return -1;
             }
 
-            sched::signal::send_group(nullptr, smp::get_process()->group, SIGTTOU);
-            smp::set_errno(EINTR);
+            sched::signal::send_group(nullptr, arch::get_process()->group, SIGTTOU);
+            arch::set_errno(EINTR);
             return -1;
         }
     }
@@ -112,7 +111,9 @@ ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     // TODO: nonblock support in vfs
     out_lock.irq_acquire();
 
-    char *chars = (char *) buf;
+    char *chars = (char *) kmalloc(count);
+    arch::copy_from_user(chars, buf, count);
+
     size_t bytes = 0;
     for (bytes = 0; bytes < count; bytes++) {
         if (!out.push(*chars++)) {
@@ -125,6 +126,7 @@ ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     out_lock.irq_release();
     driver->flush(this);
 
+    kfree(chars);
     return bytes;
 }
 
@@ -132,8 +134,8 @@ ssize_t tty::device::ioctl(size_t req, void *buf) {
     lock.irq_acquire();
     switch (req) {
         case TIOCGPGRP: {
-            if (smp::get_process()->sess != sess) {
-                smp::set_errno(ENOTTY);
+            if (arch::get_process()->sess != sess) {
+                arch::set_errno(ENOTTY);
                 lock.irq_release();
                 return -1;
             }
@@ -145,8 +147,8 @@ ssize_t tty::device::ioctl(size_t req, void *buf) {
         }
 
         case TIOCSPGRP: {
-            if (smp::get_process()->sess != sess) {
-                smp::set_errno(ENOTTY);
+            if (arch::get_process()->sess != sess) {
+                arch::set_errno(ENOTTY);
                 lock.irq_release();
                 return -1;
             }
@@ -155,7 +157,7 @@ ssize_t tty::device::ioctl(size_t req, void *buf) {
             sched::process_group *group;
 
             if (!(group = sess->groups[pgrp])) {
-                smp::set_errno(EPERM);
+                arch::set_errno(EPERM);
                 lock.irq_release();
                 return -1;
             }
@@ -166,14 +168,14 @@ ssize_t tty::device::ioctl(size_t req, void *buf) {
         }
 
         case TIOCSCTTY: {
-            if (sess || (smp::get_process()->sess->leader_pgid != smp::get_process()->group->pgid)) {
-                smp::set_errno(EPERM);
+            if (sess || (arch::get_process()->sess->leader_pgid != arch::get_process()->group->pgid)) {
+                arch::set_errno(EPERM);
                 lock.irq_release();
                 return -1;
             }
 
-            sess = smp::get_process()->sess;
-            fg = smp::get_process()->group;
+            sess = arch::get_process()->sess;
+            fg = arch::get_process()->group;
             lock.irq_release();
             return 0;
         }
@@ -238,7 +240,7 @@ ssize_t tty::device::ioctl(size_t req, void *buf) {
                 lock.irq_release();
                 return res;
             } else {
-                smp::set_errno(ENOTTY);
+                arch::set_errno(ENOTTY);
                 lock.irq_release();
                 return -1;
             }

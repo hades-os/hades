@@ -47,33 +47,33 @@ static inline uint32_t get_address(uint8_t bus, uint8_t slot, uint8_t func, uint
 }
 
 uint32_t pci::read_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
-    io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
-    return io::ports::read<uint32_t>(pci::DATA_PORT + (reg & 3));
+    io::writed(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
+    return io::readd(pci::DATA_PORT + (reg & 3));
 }
 
 void pci::write_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint32_t data) {
-    io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
-    io::ports::write<uint32_t>(pci::DATA_PORT + (reg & 3), data);
+    io::writed(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
+    io::writed(pci::DATA_PORT + (reg & 3), data);
 }
 
 uint16_t pci::read_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
-    io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
-    return io::ports::read<uint16_t>(pci::DATA_PORT + (reg & 3));
+    io::writed(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
+    return io::readw(pci::DATA_PORT + (reg & 3));
 }
 
 void pci::write_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint16_t data) {
-    io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
-    io::ports::write<uint16_t>(pci::DATA_PORT + (reg & 3), data);
+    io::writed(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
+    io::writew(pci::DATA_PORT + (reg & 3), data);
 }
 
 uint16_t pci::read_byte(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
-    io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
-    return io::ports::read<uint8_t>(pci::DATA_PORT + (reg & 3));
+    io::writed(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
+    return io::readb(pci::DATA_PORT + (reg & 3));
 }
 
 void pci::write_byte(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint8_t data) {
-    io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
-    io::ports::write<uint8_t>(pci::DATA_PORT + (reg & 3), data);
+    io::writed(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
+    io::writeb(pci::DATA_PORT + (reg & 3), data);
 }
 
 static inline uint8_t get_secondary_bus(uint8_t bus, uint8_t slot, uint8_t func) {

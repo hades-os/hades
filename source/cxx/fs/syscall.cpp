@@ -18,13 +18,13 @@
     pathlist lsdir(frg::string_view dirpath);
  */
 
-#include "frg/string.hpp"
-#include "mm/mm.hpp"
-#include "sys/sched/sched.hpp"
-#include "sys/smp.hpp"
+#include <frg/string.hpp>
+#include <mm/mm.hpp>
+#include <sys/sched/sched.hpp>
 #include <cstddef>
 #include <fs/vfs.hpp>
-#include <sys/irq.hpp>
+#include <arch/types.hpp>
+#include <arch/x86/types.hpp>
 
 vfs::node *resolve_dirfd(int dirfd, frg::string_view path, sched::process *process) {
     bool is_relative = path == '/';
@@ -35,7 +35,7 @@ vfs::node *resolve_dirfd(int dirfd, frg::string_view path, sched::process *proce
 
         auto fd = process->fds->fd_list[dirfd];
         if (fd == nullptr || !fd->desc->node || fd->desc->node->type != vfs::node::type::DIRECTORY) {
-            smp::set_errno(EBADF);
+            arch::set_errno(EBADF);
 
             return nullptr;
         }
@@ -75,13 +75,13 @@ void make_dirent(vfs::node *dir, vfs::node *child, dirent *entry) {
     }
 }
 
-void syscall_openat(irq::regs *r) {
+void syscall_openat(arch::irq_regs *r) {
     int dirfd = r->rdi;
     const char *path = (const char *) r->rsi;
     int flags = r->rdx;
     int mode = r->r10;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     auto dir = resolve_dirfd(dirfd, path, process);
     if (dir == nullptr) {
         r->rax = -1;
@@ -92,22 +92,22 @@ void syscall_openat(irq::regs *r) {
     if (flags & O_CREAT && node == nullptr) {
         auto res = vfs::create(dir, path, process->fds, vfs::node::type::FILE, flags, mode);
         if (res < 0) {
-            smp::set_errno(-res);
+            arch::set_errno(-res);
             r->rax = -1;
             return;
         }
     } else if ((flags & O_CREAT) && (flags & O_EXCL)) {
-        smp::set_errno(EEXIST);
+        arch::set_errno(EEXIST);
         r->rax = -1;
         return;
     } else if (node == nullptr) {
-        smp::set_errno(ENOENT);
+        arch::set_errno(ENOENT);
         r->rax = -1;
         return;
     }
 
     if (!(flags & O_DIRECTORY) && node->type == vfs::node::type::DIRECTORY) {
-        smp::set_errno(EISDIR);
+        arch::set_errno(EISDIR);
         r->rax = -1;
         return;
     }
@@ -115,7 +115,7 @@ void syscall_openat(irq::regs *r) {
     if ((flags & O_TRUNC)) {
         auto res = node->fs->truncate(node, 0);
         if (res < 0) {
-            smp::set_errno(-res);
+            arch::set_errno(-res);
             r->rax = -1;
             return;
         }
@@ -125,10 +125,10 @@ void syscall_openat(irq::regs *r) {
     r->rax = fd->fd_number;
 }
 
-void syscall_pipe(irq::regs *r) {
+void syscall_pipe(arch::irq_regs *r) {
     int *fd_nums = (int *) r->rdi;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     process->fds->lock.irq_acquire();
 
     auto [fd_read, fd_write] = vfs::open_pipe(process->fds, 0);
@@ -140,16 +140,16 @@ void syscall_pipe(irq::regs *r) {
     r->rax = 0;   
 }
 
-void syscall_lseek(irq::regs *r) {
+void syscall_lseek(arch::irq_regs *r) {
     off_t offset = r->rsi;
     size_t whence = r->rdx;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
 
     process->fds->lock.irq_acquire();
     auto fd = process->fds->fd_list[r->rdi];
     if (fd == nullptr) {
-        smp::set_errno(ESPIPE);
+        arch::set_errno(ESPIPE);
         process->fds->lock.irq_release();
         r->rax = -1;
         return;
@@ -161,16 +161,16 @@ void syscall_lseek(irq::regs *r) {
     process->fds->lock.irq_release();
 }
 
-void syscall_dup2(irq::regs *r) {
+void syscall_dup2(arch::irq_regs *r) {
     int oldfd_num = r->rdi;
     int newfd_num = r->rsi;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
 
     process->fds->lock.irq_acquire();
     auto oldfd = process->fds->fd_list[oldfd_num];
     if (oldfd == nullptr) {
-        smp::set_errno(EBADF);
+        arch::set_errno(EBADF);
         process->fds->lock.irq_release();
         r->rax = -1;
         return;
@@ -184,14 +184,14 @@ void syscall_dup2(irq::regs *r) {
     r->rax = newfd->fd_number;
 }
 
-void syscall_close(irq::regs *r) {
+void syscall_close(arch::irq_regs *r) {
     int fd_number = r->rdi;
-    auto process = smp::get_process();
+    auto process = arch::get_process();
 
     process->fds->lock.irq_acquire();
     auto fd = process->fds->fd_list[fd_number];
     if (fd == nullptr) {
-        smp::set_errno(EBADF);
+        arch::set_errno(EBADF);
         process->fds->lock.irq_release();
         r->rax = -1;
         return;
@@ -202,17 +202,17 @@ void syscall_close(irq::regs *r) {
     r->rax = 0;
 }
 
-void syscall_read(irq::regs *r) {
+void syscall_read(arch::irq_regs *r) {
     int fd_number = r->rdi;
     void *buf = (void *) r->rsi;
     size_t count = r->rdx;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     
     process->fds->lock.irq_acquire();
     auto fd = process->fds->fd_list[fd_number];
     if (fd == nullptr) {
-        smp::set_errno(EBADF);
+        arch::set_errno(EBADF);
         process->fds->lock.irq_release();
         r->rax = -1;
         return;        
@@ -232,17 +232,17 @@ void syscall_read(irq::regs *r) {
     process->fds->lock.irq_release();
 }
 
-void syscall_write(irq::regs *r) {
+void syscall_write(arch::irq_regs *r) {
     int fd_number = r->rdi;
     void *buf = (void *) r->rsi;
     size_t count = r->rdx;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     
     process->fds->lock.irq_acquire();
     auto fd = process->fds->fd_list[fd_number];
     if (fd == nullptr) {
-        smp::set_errno(EBADF);
+        arch::set_errno(EBADF);
         process->fds->lock.irq_release();
         r->rax = -1;
         return; 
@@ -262,17 +262,17 @@ void syscall_write(irq::regs *r) {
     process->fds->lock.irq_release();
 }
 
-void syscall_ioctl(irq::regs *r) {
+void syscall_ioctl(arch::irq_regs *r) {
     int fd_number = r->rdi;
     size_t req = r->rsi;
     void *arg = (void *) r->rdx;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     
     process->fds->lock.irq_acquire();
     auto fd = process->fds->fd_list[fd_number];
     if (fd == nullptr) {
-        smp::set_errno(EBADF);
+        arch::set_errno(EBADF);
         process->fds->lock.irq_release();
         r->rax = -1;
         return; 
@@ -285,7 +285,7 @@ void syscall_ioctl(irq::regs *r) {
 
     auto res = vfs::ioctl(fd, req, arg);
     if (res < 0) {
-        smp::set_errno(-res);
+        arch::set_errno(-res);
         r->rax = -1;
     } else {
         r->rax = res;
@@ -298,17 +298,17 @@ void syscall_ioctl(irq::regs *r) {
     process->fds->lock.irq_release();
 }
 
-void syscall_lstatat(irq::regs *r) {
+void syscall_lstatat(arch::irq_regs *r) {
     int dirfd = r->rdi;
     const char *path = (const char *) r->rsi;
     void *buf = (void *) r->rdx;
     int flags = r->r10;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     auto dir = resolve_dirfd(dirfd, path, process);
 
     if (!strlen(path) && !(flags & AT_EMPTY_PATH)) {
-        smp::set_errno(ENOENT);
+        arch::set_errno(ENOENT);
         r->rax = -1;
         return;
     }
@@ -316,7 +316,7 @@ void syscall_lstatat(irq::regs *r) {
     vfs::node *node;
     if (flags & AT_EMPTY_PATH) {
         if (dir == nullptr) {
-            smp::set_errno(EBADF);
+            arch::set_errno(EBADF);
             r->rax = -1;
             return;
         }
@@ -325,7 +325,7 @@ void syscall_lstatat(irq::regs *r) {
     } else {
         node = vfs::resolve_at(path, dir);
         if (node == nullptr) {
-            smp::set_errno(EBADF);
+            arch::set_errno(EBADF);
             r->rax = -1;
             return;;
         }
@@ -337,12 +337,12 @@ void syscall_lstatat(irq::regs *r) {
     r->rax = 0;
 }
 
-void syscall_mkdirat(irq::regs *r) {
+void syscall_mkdirat(arch::irq_regs *r) {
     int dirfd = r->rdi;
     const char *path = (const char *) r->rsi;
     int mode = r->rdx;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     auto dir = resolve_dirfd(dirfd, path, process);
     if (dir == nullptr) {
         r->rax = -1;
@@ -354,7 +354,7 @@ void syscall_mkdirat(irq::regs *r) {
     dir->lock.irq_release();
 
     if (res < 0) {
-        smp::set_errno(-res);
+        arch::set_errno(-res);
         r->rax = -1;
         return;
     }
@@ -362,13 +362,13 @@ void syscall_mkdirat(irq::regs *r) {
     r->rax = 0;
 }
 
-void syscall_renameat(irq::regs *r) {
+void syscall_renameat(arch::irq_regs *r) {
     int old_dirfd_num = r->rdi;
     const char *old_path = (char *) r->rsi;
     int new_dirfd_num = r->rdx;
     const char *new_path = (char *) r->r10;
     
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     auto old_dir = resolve_dirfd(old_dirfd_num, old_path, process);
     if (old_dir == nullptr) {
         r->rax = -1;
@@ -383,7 +383,7 @@ void syscall_renameat(irq::regs *r) {
 
     auto src = resolve_at(old_path, old_dir);
     if (!src) {
-        smp::set_errno(EACCES);
+        arch::set_errno(EACCES);
         r->rax = -1;
         return;
     }
@@ -408,7 +408,7 @@ void syscall_renameat(irq::regs *r) {
     src->lock.irq_release();
     
     if (res < 0) {
-        smp::set_errno(-res);
+        arch::set_errno(-res);
         r->rax = -1;
         return;
     }
@@ -416,13 +416,13 @@ void syscall_renameat(irq::regs *r) {
     r->rax = 0;
 }
 
-void syscall_linkat(irq::regs *r) {
+void syscall_linkat(arch::irq_regs *r) {
     int old_dirfd_num = r->rdi;
     const char *old_path = (char *) r->rsi;
     int new_dirfd_num = r->rdx;
     const char *new_path = (char *) r->r10;
     
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     auto old_dir = resolve_dirfd(old_dirfd_num, old_path, process);
     if (old_dir == nullptr) {
         r->rax = -1;
@@ -437,14 +437,14 @@ void syscall_linkat(irq::regs *r) {
 
     auto src = resolve_at(old_path, old_dir);
     if (!src) {
-        smp::set_errno(ENOENT);
+        arch::set_errno(ENOENT);
         r->rax = -1;
         return;
     }
 
     auto dst = resolve_at(new_path, new_dir);
     if (dst) {
-        smp::set_errno(EEXIST);
+        arch::set_errno(EEXIST);
         r->rax = -1;
         return;
     }
@@ -462,7 +462,7 @@ void syscall_linkat(irq::regs *r) {
     src->lock.irq_release();
     
     if (res < 0) {
-        smp::set_errno(-res);
+        arch::set_errno(-res);
         r->rax = -1;
         return;
     }
@@ -470,11 +470,11 @@ void syscall_linkat(irq::regs *r) {
     r->rax = 0;
 }
 
-void syscall_unlinkat(irq::regs *r) {
+void syscall_unlinkat(arch::irq_regs *r) {
     int dirfd_num = r->rdi;
     const char *path = (char *) r->rsi;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
     auto dir = resolve_dirfd(dirfd_num, path, process);
     if (dir == nullptr) {
         r->rax = -1;
@@ -483,7 +483,7 @@ void syscall_unlinkat(irq::regs *r) {
 
     auto node = vfs::resolve_at(path, dir);
     if (node == nullptr) {
-        smp::set_errno(ENOENT);
+        arch::set_errno(ENOENT);
         r->rax = -1;
         return;
     }
@@ -497,7 +497,7 @@ void syscall_unlinkat(irq::regs *r) {
     dir->lock.irq_release();
 
     if (res < 0) {
-        smp::set_errno(-res);
+        arch::set_errno(-res);
         r->rax = -1;
         return;
     }
@@ -505,16 +505,16 @@ void syscall_unlinkat(irq::regs *r) {
     r->rax = 0;
 }
 
-void syscall_readdir(irq::regs *r) {
+void syscall_readdir(arch::irq_regs *r) {
     int fd_number = r->rdi;
     dirent *ents = (dirent *) r->rsi;
 
-    auto process = smp::get_process();
+    auto process = arch::get_process();
 
     process->fds->lock.irq_acquire();
     auto fd = process->fds->fd_list[fd_number];
     if (fd == nullptr || fd->desc->node == nullptr || fd->desc->node->type != vfs::node::type::DIRECTORY) {
-        smp::set_errno(EBADF);
+        arch::set_errno(EBADF);
         process->fds->lock.irq_release();
         r->rax = -1;
         return;
@@ -552,7 +552,7 @@ void syscall_readdir(irq::regs *r) {
     }
 
     if (fd->desc->current_ent >= fd->desc->dirent_list.size()) {
-        smp::set_errno(0);
+        arch::set_errno(0);
         node->lock.irq_release();
         fd->lock.irq_release();
 
@@ -569,12 +569,12 @@ void syscall_readdir(irq::regs *r) {
     return;
 }
 
-void syscall_fcntl(irq::regs *r) {
-    auto process = smp::get_process();
+void syscall_fcntl(arch::irq_regs *r) {
+    auto process = arch::get_process();
     auto fd = process->fds->fd_list[r->rdi];
 
     if (fd == nullptr) {
-        smp::set_errno(EBADF);
+        arch::set_errno(EBADF);
         r->rax = -1;
         return;
     }
@@ -609,7 +609,7 @@ void syscall_fcntl(irq::regs *r) {
 
         case F_GETFL: {
             if (!fd->desc->node) {
-                smp::set_errno(EBADF);
+                arch::set_errno(EBADF);
                 r->rax = -1;
                 return;
             }
@@ -622,7 +622,7 @@ void syscall_fcntl(irq::regs *r) {
 
         case F_SETFL: {
             if (!fd->desc->node) {
-                smp::set_errno(EBADF);
+                arch::set_errno(EBADF);
                 r->rax = -1;
                 return;
             }
@@ -637,7 +637,7 @@ void syscall_fcntl(irq::regs *r) {
         }
 
         default: {
-            smp::set_errno(EINVAL);
+            arch::set_errno(EINVAL);
             r->rax = -1;
         }
     }

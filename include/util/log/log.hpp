@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <util/lock.hpp>
-#include <sys/irq.hpp>
 #include <sys/x86/apic.hpp>
 #include <util/io.hpp>
 

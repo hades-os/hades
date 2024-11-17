@@ -1,7 +1,7 @@
+#include "arch/types.hpp"
 #include "mm/vmm.hpp"
-#include "sys/irq.hpp"
+#include "sys/sched/sched.hpp"
 #include "sys/sched/wait.hpp"
-#include "sys/smp.hpp"
 #include "util/misc.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -84,19 +84,19 @@ ahci::command_slot get_command(volatile ahci::port *port, volatile ahci::abar *b
         return slot;
     }
 
-    ahci::command_entry *entry = (ahci::command_entry *) memory::pmm::alloc(util::ceil(fis_size, memory::common::page_size));
+    ahci::command_entry *entry = (ahci::command_entry *) memory::pmm::alloc(util::ceil(fis_size, memory::page_size));
 
     slot.idx = slot_idx;
     slot.entry = entry;
 
     uint64_t header_address = (port->commands_addr | ((uint64_t) port->commands_addr_upper << 32));
-    ahci::command_header *headers = memory::common::offsetVirtual((ahci::command_header *) header_address);
+    ahci::command_header *headers = memory::add_virt((ahci::command_header *) header_address);
 
-    headers[slot_idx].command_entry = (uint32_t) ((uint64_t) entry - memory::common::virtualBase);
+    headers[slot_idx].command_entry = (uint32_t) ((uint64_t) entry - memory::x86::virtualBase);
     uint8_t is_long = (uint8_t) ((bar->cap & (1 << 31)) >> 31);
 
     if (is_long) {
-        headers[slot_idx].command_entry_hi = (uint32_t) (((uint64_t) entry - memory::common::virtualBase) >> 32);
+        headers[slot_idx].command_entry_hi = (uint32_t) (((uint64_t) entry - memory::x86::virtualBase) >> 32);
     } else {
         headers[slot_idx].command_entry_hi = 0;
     }
@@ -106,7 +106,7 @@ ahci::command_slot get_command(volatile ahci::port *port, volatile ahci::abar *b
 
 ahci::command_header *get_header(volatile ahci::port *port, uint8_t slot) {
     uint64_t header_address = (port->commands_addr | ((uint64_t) port->commands_addr_upper << 32));
-    ahci::command_header *headers = memory::common::offsetVirtual((ahci::command_header *) header_address);
+    ahci::command_header *headers = memory::add_virt((ahci::command_header *) header_address);
 
     return headers + slot;
 }
@@ -156,11 +156,11 @@ void start_command(volatile ahci::port *port) {
 }
 
 void fill_prdt(volatile ahci::port *port, volatile ahci::abar *bar, void *mem, ahci::prdt_entry *prdt) {
-    prdt->base = (uint64_t) memory::common::removeVirtual(mem) & 0xFFFFFFFF;
+    prdt->base = (uint64_t) memory::remove_virt(mem) & 0xFFFFFFFF;
 
     uint8_t is_long = (uint8_t) ((bar->cap & (1 << 31)) >> 31);
     if (is_long) {
-        prdt->base_hi = (uint32_t) ((uint64_t) memory::common::removeVirtual(mem) >> 32);
+        prdt->base_hi = (uint32_t) ((uint64_t) memory::remove_virt(mem) >> 32);
     } else {
         prdt->base_hi = 0;
     }
@@ -196,7 +196,7 @@ void ahci::device::setup() {
     }
 
     stop_command(port);
-    uint64_t data_base = (uint64_t) memory::common::removeVirtual(memory::pmm::alloc(1));
+    uint64_t data_base = (uint64_t) memory::remove_virt(memory::pmm::alloc(1));
     uint64_t fis_base = data_base + (32 * 32);
 
     if (bar->cap & (1 << 31)) {
@@ -309,7 +309,7 @@ void ahci::request_io(void *extra_data, device::io_request *req, size_t part_off
     auto trigger = frg::construct<ipc::trigger>(memory::mm::heap);
     trigger->add(waitq);
 
-    irq::off();
+    arch::irq_off();
     device->lock.acquire();
 
     for (size_t i = 0; i < req->len; i++) {
@@ -323,7 +323,7 @@ void ahci::request_io(void *extra_data, device::io_request *req, size_t part_off
     }
 
     device->lock.release();
-    waitq->block(smp::get_thread());
+    waitq->block(arch::get_thread());
 
     frg::destruct(memory::mm::heap, trigger);
     frg::destruct(memory::mm::heap, waitq);
@@ -413,7 +413,7 @@ void ahci::device::handle_commands() {
 
                 command.zone->req->blocks_failed++;
                 if (command.zone->req->blocks_failed + command.zone->req->blocks_completed == command.zone->req->len) {
-                    command.trigger->arise(smp::get_thread());
+                    command.trigger->arise(arch::get_thread());
                 }
 
                 __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
@@ -430,7 +430,7 @@ void ahci::device::handle_commands() {
             memory::pmm::free(command.tmp);
             command.zone->req->blocks_completed++;
             if (command.zone->req->blocks_failed + command.zone->req->blocks_completed == command.zone->req->len) {
-                command.trigger->arise(smp::get_thread());
+                command.trigger->arise(arch::get_thread());
             }
             __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
         }
@@ -446,7 +446,7 @@ void ahci::device::handle_commands() {
         uint64_t sector_end = ((offset + zone->len) + sector_size - 1) / sector_size;
         uint64_t sector_count = sector_end - sector_start;
 
-        auto tmp = memory::pmm::alloc(util::ceil(sector_count * sector_size, memory::common::page_size));
+        auto tmp = memory::pmm::alloc(util::ceil(sector_count * sector_size, memory::page_size));
         auto slot = issue_read_write(tmp, sector_count, sector_start, command_request.rw);
         if (slot.idx == -1) {
             memory::pmm::free(tmp);
@@ -550,7 +550,7 @@ void ahci::init() {
         return;
     }
 
-    volatile ahci::abar *ahci_bar = memory::common::offsetVirtual((ahci::abar *) pci_bar.base);
+    volatile ahci::abar *ahci_bar = memory::add_virt((ahci::abar *) pci_bar.base);
     kmsg("[AHCI] ABAR Base: ", ahci_bar);
 
     ahci_bar->ghc |= (1 << 31);
@@ -589,7 +589,7 @@ void ahci::init() {
     if (!found_devices) {
         kmsg("[AHCI] No AHCI Drives found");
     } else {
-        ahci_thread = sched::create_thread(&ahci_task, (uint64_t) memory::pmm::stack(4), (memory::vmm::vmm_ctx *) memory::vmm::boot(), 0);
+        ahci_thread = sched::create_thread(&ahci_task, (uint64_t) memory::pmm::stack(4), vmm::boot, 0);
         ahci_thread->start();
     }
 }

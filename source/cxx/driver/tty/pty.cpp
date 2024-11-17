@@ -1,8 +1,7 @@
-#include "driver/tty/tty.hpp"
-#include "fs/dev.hpp"
-#include "fs/vfs.hpp"
-#include "mm/mm.hpp"
-#include "sys/smp.hpp"
+#include <driver/tty/tty.hpp>
+#include <fs/dev.hpp>
+#include <fs/vfs.hpp>
+#include <mm/mm.hpp>
 #include <cstddef>
 #include <driver/tty/pty.hpp>
 
@@ -73,7 +72,7 @@ void tty::pts::flush(tty::device *tty) {
 
 ssize_t tty::ptm::read(void *buf, size_t len, size_t offset) {
     size_t count;
-    char *chars = (char *) buf;
+    char *chars = (char *) kmalloc(len);
 
     in_lock.irq_acquire();
     for (count = 0; count < len; count++) {
@@ -85,12 +84,16 @@ ssize_t tty::ptm::read(void *buf, size_t len, size_t offset) {
     }
 
     in_lock.irq_release();
+
+    arch::copy_to_user(chars, buf, count);
+    kfree(chars);
     return count;
 }
 
 ssize_t tty::ptm::write(void *buf, size_t len, size_t offset) {
     size_t count;
-    char *chars = (char *) buf;
+    char *chars = (char *) kmalloc(len);
+    arch::copy_from_user(chars, buf, len);
 
     slave->tty->in_lock.irq_acquire();
     for (count = 0; count < len; count++) {
@@ -102,6 +105,8 @@ ssize_t tty::ptm::write(void *buf, size_t len, size_t offset) {
     }
 
     slave->tty->in_lock.irq_release();
+
+    kfree(chars);
     return count;
 }
 
@@ -117,17 +122,17 @@ ssize_t tty::ptm::ioctl(size_t req, void *buf) {
         }
 
         case TIOCGWINSZ: {
-            memcpy(buf, &pts->size, sizeof(winsize));
+            arch::copy_to_user(buf, &pts->size, sizeof(winsize));
             return 0;
         }
 
         case TIOCSWINSZ: {
-            memcpy(&pts->size, buf, sizeof(winsize));
+            arch::copy_from_user(&pts->size, buf, sizeof(winsize));
             return 0;
         }
 
         default: {
-            smp::set_errno(ENOSYS);
+            arch::set_errno(ENOSYS);
             return -1;
         }
     }
@@ -136,17 +141,17 @@ ssize_t tty::ptm::ioctl(size_t req, void *buf) {
 ssize_t tty::pts::ioctl(device *tty, size_t req, void *buf) {
     switch (req) {
         case TIOCGWINSZ: {
-            memcpy(buf, &size, sizeof(winsize));
+            arch::copy_to_user(buf, &size, sizeof(winsize));
             return 0;
         }
 
         case TIOCSWINSZ: {
-            memcpy(&size, buf, sizeof(winsize));
+            arch::copy_from_user(&size, buf, sizeof(winsize));
             return 0;
         }
 
         default: {
-            smp::set_errno(ENOSYS);
+            arch::set_errno(ENOSYS);
             return -1;
         }
     };

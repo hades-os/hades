@@ -1,3 +1,5 @@
+#include "arch/types.hpp"
+#include "arch/vmm.hpp"
 #include "driver/keyboard.hpp"
 #include "driver/net/e1000.hpp"
 #include "driver/tty/tty.hpp"
@@ -22,10 +24,7 @@
 #include <sys/acpi.hpp>
 #include <sys/x86/apic.hpp>
 #include <sys/pci.hpp>
-#include <sys/smp.hpp>
-#include <sys/irq.hpp>
 #include <sys/sched/sched.hpp>
-#include <sys/pit.hpp>
 #include <util/stivale.hpp>
 #include <util/log/qemu.hpp>
 #include <util/log/serial.hpp>
@@ -51,10 +50,10 @@ void initarray_run() {
 }
 
 static void run_init() {
-    auto ctx = (memory::vmm::vmm_ctx *) memory::vmm::create();
-    auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_USER | VMM_WRITE, (void *) ctx) + (4 * memory::common::page_size);
+    auto ctx = vmm::create();
+    auto stack = ctx->stack(nullptr, 4 * memory::page_size, vmm::map_flags::PRESENT | vmm::map_flags::USER | vmm::map_flags::WRITE);
 
-    auto proc = sched::create_process((char *) "init", 0, stack, ctx, 3);
+    auto proc = sched::create_process((char *) "init", 0, (uint64_t) stack, ctx, 3);
     auto session = frg::construct<sched::session>(memory::mm::heap);
     auto group = frg::construct<sched::process_group>(memory::mm::heap);
 
@@ -90,9 +89,10 @@ static void run_init() {
     proc->cwd = vfs::resolve_at("/bin", nullptr);
 
     auto fd = vfs::open(nullptr, "/bin/init.elf", proc->fds, 0, O_RDWR);
-    memory::vmm::change(proc->mem_ctx);
+    proc->mem_ctx->swap_in();
+    
     proc->env.load_elf("/bin/init.elf", fd);
-    proc->main_thread->reg.rip = proc->env.entry;
+    proc->env.set_entry();
 
     proc->env.load_params(argv, envp);
     proc->env.place_params(argv, envp, proc->main_thread);
@@ -160,26 +160,25 @@ extern "C" {
 
         acpi::init(stivale::parser.rsdp());
 
-        irq::setup();
-        irq::hook();
+        arch::init_irqs();
 
         memory::pmm::init(stivale::parser.mmap());
-        memory::vmm::init();
+        vmm::init();
 
-        smp::init();
-        smp::tss::init();
+        arch::init_smp();
         
         acpi::madt::init();
-        apic::init();
+        
+        arch::init_features();
         
         pci::init();
         sched::init();
-        pit::init();
+        arch::init_timer();
 
-        auto kern_thread = sched::create_thread(kern_task, (uint64_t) memory::pmm::stack(4), memory::vmm::common::boot_ctx, 0);
+        auto kern_thread = sched::create_thread(kern_task, (uint64_t) memory::pmm::stack(4), vmm::boot, 0);
         kern_thread->start();
         
-        irq::on();
+        arch::irq_on();
         while (true) {
             asm volatile("pause");
         }

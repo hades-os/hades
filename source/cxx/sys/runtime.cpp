@@ -1,5 +1,4 @@
 #include <cstddef>
-#include <cstdint>
 #include <frg/allocation.hpp>
 #include <frg/macros.hpp>
 #include <mm/mm.hpp>

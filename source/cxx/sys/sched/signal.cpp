@@ -1,28 +1,20 @@
 
+#include "arch/vmm.hpp"
+#include "arch/x86/types.hpp"
 #include "fs/vfs.hpp"
 #include "mm/common.hpp"
 #include "mm/mm.hpp"
 #include "mm/pmm.hpp"
 #include "mm/vmm.hpp"
-#include "sys/irq.hpp"
-#include "sys/sched/regs.hpp"
 #include "sys/sched/wait.hpp"
-#include "sys/smp.hpp"
-#include "util/io.hpp"
-#include "util/log/log.hpp"
-#include "util/string.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <sys/sched/signal.hpp>
 #include <sys/sched/sched.hpp>
 
-extern "C" {
-    extern void sigreturn_exit(irq::regs *r);
-}
-
 int sched::signal::do_sigaction(process *proc, int sig, sched::signal::sigaction *act, sigaction *old) {
     if (!is_valid(sig) || (sig == SIGKILL || sig == SIGSTOP)) {
-        smp::set_errno(EINVAL);
+        arch::set_errno(EINVAL);
         return -1;
     }
 
@@ -79,7 +71,7 @@ int sched::signal::do_sigprocmask(process *proc, int how, sigset_t *set, sigset_
                 sig_queue->sigmask = *set;
                 break;
             default:
-                smp::set_errno(EINVAL);
+                arch::set_errno(EINVAL);
                 sig_queue->sig_lock.irq_release();
                 return -1;
         }
@@ -93,16 +85,16 @@ int sched::signal::do_sigprocmask(process *proc, int how, sigset_t *set, sigset_
 
 int sched::signal::do_kill(pid_t pid, int sig) {
     if (!is_valid(sig)) {
-        smp::set_errno(EINVAL);
+        arch::set_errno(EINVAL);
         return -1;
     }
 
-    auto sender = smp::get_process();
+    auto sender = arch::get_process();
     if (pid > 0) {
         process *target = processes[pid];
         if (!target) {
             // TODO: esrch
-            smp::set_errno(EINVAL);
+            arch::set_errno(EINVAL);
             return -1;
         }
 
@@ -113,8 +105,7 @@ int sched::signal::do_kill(pid_t pid, int sig) {
         auto session = sender->sess;
         auto group = session->groups[pid];
         if (group == nullptr) {
-            // TODO: esrch
-            smp::set_errno(ESRCH);
+            arch::set_errno(ESRCH);
             return -1;
         }
 
@@ -158,7 +149,7 @@ int sched::signal::wait_signal(thread *task, queue *sig_queue, sigset_t sigmask,
             }
         }
 
-        auto msg = sig_queue->waitq->block(smp::get_thread());
+        auto msg = sig_queue->waitq->block(arch::get_thread());
         if (msg == nullptr) {
             return -1;
         }
@@ -196,7 +187,7 @@ bool sched::signal::is_valid(int sig) {
 
 bool sched::signal::send_process(process *sender, process *target, int sig) {
     if (!is_valid(sig) && sig != 0) {
-        smp::set_errno(EINVAL);
+        arch::set_errno(EINVAL);
         return false;
     }
 
@@ -206,7 +197,7 @@ bool sched::signal::send_process(process *sender, process *target, int sig) {
     sig_queue->sig_lock.irq_acquire();
 
     if (sender != nullptr && !check_perms(sender, target)) {
-        smp::set_errno(EPERM);
+        arch::set_errno(EPERM);
         sig_queue->sig_lock.irq_release();
         target->sig_lock.irq_release();
         return false;
@@ -244,94 +235,7 @@ bool sched::signal::send_group(process *sender, process_group *target, int sig) 
     return true;
 }
 
-void sigreturn_kill(sched::process *proc, ssize_t status) {
-    proc->kill(status);
-    for (;;) {
-        asm volatile("hlt");
-    }
-}
-
-void sigreturn_default(sched::process *proc, sched::thread *task, bool block_signals) {
-    irq::off();
-
-    auto sig_queue = &proc->sig_queue;
-    sig_queue->sig_lock.irq_acquire();
-
-    auto signal = &sig_queue->queue[task->sig_context.signum - 1];
-    sig_queue->sigdelivered |= SIGMASK(task->sig_context.signum);
-    signal->notify_queue->arise(smp::get_thread());
-    frg::destruct(memory::mm::heap, signal->notify_queue);
-
-    sig_queue->sig_lock.irq_release();
-
-    auto regs = &task->sig_context.regs;
-    task->reg = *regs;
-
-    memory::pmm::free((void *) task->sig_context.stack);
-
-    if (block_signals) {
-        task->state = sched::thread::READY;
-        proc->block_signals = true;
-    }
-
-    smp::get_locals()->ustack = task->ustack;
-    smp::get_locals()->kstack = task->kstack;
-
-    if (regs->cs & 0x3) {
-        io::swapgs();
-    }
-
-    auto iretq_regs = sched::to_irq(regs);
-
-    sched::set_fcw(regs->fcw);
-    sched::set_mxcsr(regs->mxcsr);
-    sched::load_sse(task->sig_context.sse_region);
-    
-    sigreturn_exit(&iretq_regs);
-}
-
-void sig_default(sched::process *proc, sched::thread *task, int sig) {
-    ssize_t status = sched::WSIGNALED_CONSTRUCT(sig);
-    switch (sig) {
-		case SIGHUP:
-		case SIGINT:
-		case SIGQUIT:
-		case SIGILL:
-		case SIGTRAP:
-		case SIGBUS:
-		case SIGFPE:
-		case SIGKILL:
-		case SIGUSR1:
-		case SIGSEGV:
-		case SIGUSR2:
-		case SIGPIPE:
-		case SIGALRM:
-		case SIGSTKFLT:
-		case SIGXCPU:
-		case SIGXFSZ:
-		case SIGVTALRM:
-		case SIGPROF:
-		case SIGSYS:
-            sigreturn_kill(proc, status);
-            break;
-        case SIGSTOP:
-        case SIGTTIN:
-        case SIGTTOU:
-        case SIGTSTP:
-            proc->suspend();
-            break;
-        case SIGCONT:
-            proc->cont();
-            break;
-        case SIGCHLD:
-        case SIGWINCH:
-            break;
-    }
-
-    sigreturn_default(proc, task, false);
-}
-
-int sched::signal::process_signals(process *proc, sched::regs *r, char *sse_region) {
+int sched::signal::process_signals(process *proc, arch::thread_ctx *ctx) {
     auto sig_queue= &proc->sig_queue;
     sig_queue->sig_lock.irq_acquire();
     if (sig_queue->active == false) {
@@ -370,28 +274,7 @@ int sched::signal::process_signals(process *proc, sched::regs *r, char *sse_regi
 
                 context.stack = (uint64_t) stack;
                 
-                context.regs = *r;
-
-                memcpy(context.sse_region, sse_region, 512);
-
-                context.signum = signal->signum;
-                memset(r, 0, sizeof(regs));
-
-                r->ss = 0x10;
-                r->cs = 0x8;
-                r->rsp = context.stack;
-                r->rflags = 0x202;
-
-                r->rdi = (uint64_t) proc;
-                r->rsi = (uint64_t) task;
-                r->rdx = signal->signum;
-                r->rip = (uint64_t) sig_default;
-
-                r->cr3 = (uint64_t) memory::vmm::cr3(proc->mem_ctx);
-
-                r->mxcsr = 0x1F80;
-                r->fcw = 0x33F;
-                memset(task->sse_region, 0, 512);
+                arch::init_default_sigreturn(task, ctx, signal, &context);
 
                 task->sig_context = context;
 
@@ -407,58 +290,10 @@ int sched::signal::process_signals(process *proc, sched::regs *r, char *sse_regi
                 return 0;
             }
 
-            auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_USER | VMM_WRITE, proc->mem_ctx) + (4 * memory::common::page_size);
+            auto stack = (size_t) proc->mem_ctx->stack(nullptr, 4 * memory::page_size, vmm::map_flags::USER | vmm::map_flags::WRITE);
             context.stack = stack;
-
-            context.regs = *r;
-            memcpy(context.sse_region, sse_region, 512);
-
-            context.signum = signal->signum;
-
-            memset(r, 0, sizeof(regs));
-
-            stack -= 128;
-            stack &= -1611;
-            stack -= sizeof(siginfo);
-            siginfo *info = (siginfo *) stack;
-            *info = *signal->info;
-
-            info->si_signo = signal->signum;
-
-            stack -= sizeof(sched::regs);
-            ucontext *uctx = (ucontext *) stack;
-            *uctx = context;
-
-            stack -= sizeof(uint64_t);
-
-            task->sig_context = context;
-
-            r->ss = 0x23;
-            r->cs = 0x1B;
-            r->rsp = stack;
-            r->rflags = 0x202;
-            r->cr3 = (uint64_t) memory::vmm::cr3(proc->mem_ctx);
-
-            r->mxcsr = 0x1F80;
-            r->fcw = 0x33F;
-            memset(task->sse_region, 0, 512);
-
-            // [[noreturn]] sigenter_handler(void *handler_rip, bool is_sigaction, int sig, siginfo *info, ucontext_t *ctx)
-            if (proc->sigenter_rip) {
-                r->rip = proc->sigenter_rip;
-                r->rdi = (uint64_t) action->handler.sa_sigaction;
-                r->rsi = action->handler.sa_sigaction != nullptr;
-                r->rdx = signal->signum;
-                r->rcx = (uint64_t) info;
-                r->r8 = (uint64_t) uctx;
-            } else {
-                r->rip = (uint64_t) action->handler.sa_sigaction;
-                r->rdi = signal->signum;
-                if (action->sa_flags & SA_SIGINFO) {
-                    r->rsi = (uint64_t) info;
-                    r->rdx = (uint64_t) uctx;
-                }
-            }
+            
+            arch::init_user_sigreturn(task, ctx, signal, action, &context);
 
             auto tmp = task->kstack;
             task->kstack = task->sig_kstack;
