@@ -14,7 +14,9 @@ namespace vmm {
         SHARED = 32,
         FILE = 64,
 
-        EXEC = 128
+        EXEC = 128,
+
+        FILL_NOW = 256
     };
 
     inline constexpr map_flags
@@ -79,10 +81,7 @@ namespace vmm {
 
     void *remap_single_4k(void *phys, void *virt, page_flags flags, vmm_ctx_map map);
     void *remap_single_2m(void *phys, void *virt, page_flags flags, vmm_ctx_map map);
-
-    void *virt2phys_4k(void* phys);
-    void *virt2phys_2m(void* phys);
-
+    
     void shootdown(uint64_t addr);
     void shootdown(void *addr);
 

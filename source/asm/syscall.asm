@@ -63,6 +63,7 @@ section .text
 
         popaq
         add rsp, 16
+        
         swapgs
 
         iretq

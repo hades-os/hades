@@ -53,11 +53,11 @@ namespace memory {
     T *remove_virt(T *ptr) {
         uint64_t addr = (uint64_t) ptr;
         if (addr >= x86::kernelBase) {
-            return (T *) addr - x86::kernelBase;
+            return (T *) (addr - x86::kernelBase);
         }
 
         if (addr >= x86::virtualBase) {
-            return (T *) addr - x86::virtualBase;
+            return (T *) (addr - x86::virtualBase);
         }
 
         return (T *) addr;
@@ -66,11 +66,11 @@ namespace memory {
     inline uint64_t remove_virt(uint64_t ptr) {
         uint64_t addr = (uint64_t) ptr;
         if (addr >= x86::kernelBase) {
-            return addr - x86::kernelBase;
+            return (addr - x86::kernelBase);
         }
 
         if (addr >= x86::virtualBase) {
-            return addr - x86::virtualBase;
+            return (addr - x86::virtualBase);
         }
 
         return addr;

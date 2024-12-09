@@ -29,6 +29,9 @@ namespace ipc {
             void clear();
 
             trigger(): queues(), lock() {}
+            ~trigger() {
+                queues.clear();
+            }
     };
 
     struct queue {
@@ -44,9 +47,13 @@ namespace ipc {
 
             trigger *timer_trigger;
             void set_timer(sched::timespec *time);
-            sched::thread *block(sched::thread *waiter, bool *set_when_blocking = nullptr);
+            sched::thread *block(sched::thread *waiter);
 
             queue(): last_waker(nullptr), waiters(), lock(), timer_trigger(nullptr) {}
+            ~queue() {
+                waiters.clear();
+                last_waker = nullptr;
+            }
     };
 }
 

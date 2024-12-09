@@ -1,3 +1,4 @@
+#include "fs/ext2.hpp"
 #include "mm/common.hpp"
 #include <sys/sched/sched.hpp>
 #include "util/lock.hpp"
@@ -18,9 +19,10 @@ vfs::node *vfs::tree_root = nullptr;
 frg::hash_map<frg::string_view, vfs::filesystem *, vfs::path_hasher, memory::mm::heap_allocator> mounts{vfs::path_hasher()};
 
 vfs::filesystem *stored_devfs = nullptr;
+static log::subsystem logger = log::make_subsystem("VFS");
 void vfs::init() {
     mount("/", "/", fslist::ROOTFS, mflags::NOSRC);
-    kmsg("[VFS] Initialized");
+    kmsg(logger, "Initialized");
 }
 
 static frg::string_view strip_leading(frg::string_view path) {
@@ -863,13 +865,13 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
             switch (fstype) {
                 case fslist::FAT: {
                     if (!dst || !src) {
-                        kmsg("invalid src or dst");
+                        kmsg(logger, "invalid src or dst");
 
                         return -EINVAL;
                     }
 
                     if (dst->get_type() != node::type::DIRECTORY || src->get_type() != node::type::BLOCKDEV) {
-                        kmsg("invalid source device or dest; dst: ", dst->get_type(), ", source: ", src->get_type());
+                        kmsg(logger, "invalid source device or dest; dst: %ld, src: %ld", dst->get_type(), src->get_type());
 
                         return -EINVAL;
                     }
@@ -879,6 +881,25 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                     dst->set_fs(fs);
                     mounts[strip_leading(dstpath)] = fs;
                     break;
+                }
+
+                case fslist::EXT: {
+                    if (!dst || !src) {
+                        kmsg(logger, "invalid src or dst");
+
+                        return -EINVAL;
+                    }
+
+                    if (dst->get_type() != node::type::DIRECTORY || src->get_type() != node::type::BLOCKDEV) {
+                        kmsg(logger, "invalid source device or dest; dst: %ld, src: %ld", dst->get_type(), src->get_type());
+
+                        return -EINVAL;
+                    }
+
+                    auto fs = frg::construct<ext2fs>(memory::mm::heap);
+                    fs->init_fs(dst, src);
+                    dst->set_fs(fs);
+                    mounts[strip_leading(dstpath)] = fs;
                 }
 
                 default:

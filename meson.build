@@ -7,15 +7,19 @@ main_sources = files(
     'source/cxx/arch/x86/irq.cpp',
     'source/cxx/arch/x86/loader.cpp',
     'source/cxx/arch/x86/pit.cpp',
+    'source/cxx/arch/x86/hpet.cpp',
     'source/cxx/arch/x86/sched.cpp',
     'source/cxx/arch/x86/signal.cpp',
     'source/cxx/arch/x86/smp.cpp',
     'source/cxx/arch/x86/syscall.cpp',
 
+    'source/cxx/arch/x86/copy.cpp',
+    'source/cxx/arch/x86/exception.cpp',
+
     'source/cxx/driver/net/e1000.cpp',
     'source/cxx/driver/tty/tty.cpp',
     'source/cxx/driver/tty/pty.cpp',
-    'source/cxx/driver/disciplines.cpp',
+    'source/cxx/driver/tty/disciplines.cpp',
 
     'source/cxx/driver/video/fbdev.cpp',
     'source/cxx/driver/video/vesa.cpp',
@@ -31,6 +35,7 @@ main_sources = files(
 
     'source/cxx/fs/dev.cpp',
     'source/cxx/fs/fat.cpp',
+    'source/cxx/fs/ext2.cpp',
     'source/cxx/fs/rootfs.cpp',
     'source/cxx/fs/syscall.cpp',
     'source/cxx/fs/vfs.cpp',
@@ -53,6 +58,7 @@ main_sources = files(
 
     'source/cxx/util/elf.cpp',
     'source/cxx/util/string.cpp',
+    'source/cxx/util/log/log.cpp',
 
     'source/cxx/entry.cpp'
 )
@@ -130,7 +136,7 @@ custom_target(
 	'hades',
 	depends: make_elf,
 	input: make_elf,
-	output: '_',
+	output: 'hades.img',
 	command: [script_path,
 		meson.project_name(), 
 		'-k', make_elf,

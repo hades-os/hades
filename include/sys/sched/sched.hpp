@@ -61,14 +61,13 @@ namespace sched {
     class process;
     class process_group;
 
-    void sleep(size_t time);
     void init();
 
     thread *create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege);
     process *create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege);
 
-    thread *fork(thread *original, vmm::vmm_ctx *ctx);
-    process *fork(process *original, thread *caller);
+    thread *fork(thread *original, vmm::vmm_ctx *ctx, arch::irq_regs *r);
+    process *fork(process *original, thread *caller, arch::irq_regs *r);
 
     int do_futex(uintptr_t vaddr, int op, int expected, timespec *timeout);    
 
@@ -109,8 +108,9 @@ namespace sched {
     class thread {
         public:
             arch::thread_ctx ctx;
-            signal::ucontext sig_context;
 
+            signal::thread_ctx sig_ctx;
+            signal::ucontext ucontext;
             uintptr_t sig_kstack;
             uintptr_t sig_ustack;
 
@@ -129,8 +129,10 @@ namespace sched {
                 SLEEP,
                 BLOCKED,
                 DEAD,
-                WAIT
             };
+
+            bool release_waitq;
+            bool dispatch_signals;
 
             uint8_t state;
             int64_t cpu;
@@ -208,11 +210,10 @@ namespace sched {
             process_group *group;
             session *sess;
 
-            bool block_signals;
             arch::entry_trampoline trampoline;
-            util::lock sig_lock;
-            signal::queue sig_queue;
             signal::sigaction sigactions[SIGNAL_MAX];
+            signal::process_ctx sig_ctx;
+            util::lock sig_lock;
 
             ipc::queue *waitq;
             ipc::trigger *notify_status;
@@ -240,7 +241,7 @@ namespace sched {
             void spawn(void (*main)(), uint64_t rsp, uint8_t privilege);
             void add_thread(thread *task);
             void kill_thread(int64_t tid);
-            thread *pick_thread();
+            thread *pick_thread(int signum);
             size_t find_child(process *proc);
             size_t find_zombie(process *proc);
 

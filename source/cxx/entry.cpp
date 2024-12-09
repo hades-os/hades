@@ -39,6 +39,8 @@ extern "C" {
 }
 
 static stivale::boot::tags::framebuffer fbinfo{};
+static log::subsystem logger = log::make_subsystem("HADES");
+
 void initarray_run() {
 	uintptr_t start = (uintptr_t) &_init_array_begin;
 	uintptr_t end = (uintptr_t) &_init_array_end;
@@ -51,7 +53,7 @@ void initarray_run() {
 
 static void run_init() {
     auto ctx = vmm::create();
-    auto stack = ctx->stack(nullptr, 4 * memory::page_size, vmm::map_flags::PRESENT | vmm::map_flags::USER | vmm::map_flags::WRITE);
+    auto stack = ctx->stack(nullptr, 4 * memory::page_size, vmm::map_flags::PRESENT | vmm::map_flags::USER | vmm::map_flags::WRITE | vmm::map_flags::FILL_NOW);
 
     auto proc = sched::create_process((char *) "init", 0, (uint64_t) stack, ctx, 3);
     auto session = frg::construct<sched::session>(memory::mm::heap);
@@ -88,16 +90,16 @@ static void run_init() {
     };
     proc->cwd = vfs::resolve_at("/bin", nullptr);
 
-    auto fd = vfs::open(nullptr, "/bin/init.elf", proc->fds, 0, O_RDWR);
+    auto fd = vfs::open(nullptr, "/bin/init", proc->fds, 0, O_RDWR);
     proc->mem_ctx->swap_in();
     
-    proc->env.load_elf("/bin/init.elf", fd);
+    proc->env.load_elf("/bin/init", fd);
     proc->env.set_entry();
 
     proc->env.load_params(argv, envp);
     proc->env.place_params(argv, envp, proc->main_thread);
 
-    kmsg("Trying to run init process, at: ", util::hex(proc->env.entry));
+    kmsg(logger, "Trying to run init process, at: %lx", proc->env.entry);
     proc->start();
 }
 
@@ -120,7 +122,7 @@ static void kern_task() {
     vfs::init();
     vfs::devfs::init();
     ahci::init();
-    vfs::mount("/dev/sda2", "/", vfs::fslist::FAT, 0);
+    vfs::mount("/dev/sdb1", "/", vfs::fslist::EXT, 0);
 
     e1000::init();
 
@@ -135,7 +137,6 @@ static void kern_task() {
 
     kb::init();
 
-    show_splash(boot_table);
     run_init();
 
     while (true) {
@@ -152,11 +153,7 @@ extern "C" {
         fbinfo = *stivale::parser.fb();
         video::vesa::init(fbinfo);
 
-        util::kern >> log::loggers::qemu;
-        util::kern >> video::vesa::log;
-        util::kern >> log::loggers::serial;
-
-        kmsg("Booted by ", header->brand, " version ", header->version);
+        kmsg(logger, "Booted by ", header->brand, " version ", header->version);
 
         acpi::init(stivale::parser.rsdp());
 
@@ -165,14 +162,12 @@ extern "C" {
         memory::pmm::init(stivale::parser.mmap());
         vmm::init();
 
-        arch::init_smp();
-        
         acpi::madt::init();
-        
-        arch::init_features();
-        
-        pci::init();
+
         sched::init();
+        arch::init_smp();
+
+        pci::init();
         arch::init_timer();
 
         auto kern_thread = sched::create_thread(kern_task, (uint64_t) memory::pmm::stack(4), vmm::boot, 0);

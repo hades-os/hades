@@ -15,7 +15,6 @@ constexpr size_t MAP_PRIVATE = 0x1;
 constexpr size_t MAP_SHARED = 0x2;
 constexpr size_t MAP_FIXED = 0x4;
 constexpr size_t MAP_ANONYMOUS = 0x8;
-constexpr size_t MAP_MIN_ADDR = 0x80000000ull;
 
 vmm::map_flags translate(size_t in_flags, size_t in_prot) {
     vmm::map_flags flags = vmm::map_flags::USER;
@@ -60,8 +59,7 @@ void syscall_mmap(arch::irq_regs *r) {
     }
 
     if ((uint64_t) addr > 0) {
-        if (((uint64_t) addr >= 0x7ffffff00000 || (uint64_t) addr <= MAP_MIN_ADDR) ||
-            ((uint64_t) addr + pages) >= 0x7ffffff00000 || ((uint64_t) addr + len) <= MAP_MIN_ADDR) {
+        if ((uint64_t) addr >= 0x7ffffff00000 || ((uint64_t) addr + len) >= 0x7ffffff00000) {
             arch::set_errno(EINVAL);
             r->rax = -1;
             return;
@@ -72,9 +70,6 @@ void syscall_mmap(arch::irq_regs *r) {
         if (flags & MAP_FIXED) {
             ctx->unmap(addr, pages);
             r->rax = (uint64_t) addr;
-            return;
-        } else if (ctx->mapped(addr, pages)) {
-            r->rax = MAP_FAILED;
             return;
         }
 
@@ -115,8 +110,7 @@ void syscall_munmap(arch::irq_regs *r) {
         return;
     }
 
-    if (((uint64_t) addr >= 0x7ffffff00000 || (uint64_t) addr <= MAP_MIN_ADDR) ||
-        ((uint64_t) addr + pages) >= 0x7ffffff00000 || ((uint64_t) addr + len) <= MAP_MIN_ADDR) {
+    if ((uint64_t) addr >= 0x7ffffff00000 || ((uint64_t) addr + len) >= 0x7ffffff00000) {
         arch::set_errno(EINVAL);
         r->rax = -1;
         return;

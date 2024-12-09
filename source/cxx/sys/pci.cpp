@@ -4,6 +4,7 @@
 #include <util/io.hpp>
 #include <util/log/log.hpp>
 
+static log::subsystem logger = log::make_subsystem("PCI");
 uint8_t pci::device::get_bus() {
     return bus;
 }
@@ -213,7 +214,7 @@ int pci::device::register_msi(uint8_t vector, uint8_t lapic_id) {
 
             switch (cap_id) {
                 case 0x05: {
-                    kmsg("[PCI]: Device has MSI support");
+                    kmsg(logger, "Device has MSI support");
                     off = cap_off;
                     break;
                 }
@@ -223,7 +224,7 @@ int pci::device::register_msi(uint8_t vector, uint8_t lapic_id) {
     }
 
     if (off == 0) {
-        kmsg("[PCI]: Device does not support MSI");
+        kmsg(logger, "Device does not support MSI");
         return 0;
     }
 
@@ -540,7 +541,7 @@ static inline void scan_bus(uint8_t bus) {
 void pci::init() {
     scan_bus(0);
 
-    kmsg("[PCI] Detected ", devices.size(), " devices");
+    kmsg(logger, "Detected %u devices", devices.size());
 }
 
 pci::device *pci::get_device(uint8_t cl, uint8_t subcl, uint8_t prog_if) {

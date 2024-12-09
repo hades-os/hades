@@ -1,6 +1,7 @@
 #include <mm/common.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <arch/x86/hpet.hpp>
 #include <arch/x86/types.hpp>
 #include <sys/acpi.hpp>
 #include <sys/x86/apic.hpp>
@@ -12,7 +13,7 @@ namespace apic {
     namespace ioapic {
         uint32_t read(size_t ioapic, uint32_t reg) {
             if (ioapic > acpi::madt::ioapics.size()) {
-                panic("[IOAPIC] Invalid IOAPIC access of ", ioapic);
+                panic("[IOAPIC] Invalid IOAPIC access of %u", ioapic);
             }
 
             volatile uint32_t *base = (volatile uint32_t *) (acpi::madt::ioapics[ioapic]->address + memory::x86::virtualBase);
@@ -22,7 +23,7 @@ namespace apic {
 
         void write(size_t ioapic, uint32_t reg, uint32_t data) {
             if (ioapic > acpi::madt::ioapics.size()) {
-                panic("[IOAPIC] Invalid IOAPIC access of ", ioapic);
+                panic("[IOAPIC] Invalid IOAPIC access of %u", ioapic);
             }
 
             volatile uint32_t *base = (volatile uint32_t *) (acpi::madt::ioapics[ioapic]->address + memory::x86::virtualBase);
@@ -136,7 +137,7 @@ namespace apic {
         }
 
         void *get_base() {
-            return (void *) (x86::rdmsr<uint64_t>(0x1B) & 0xfffff000);
+            return (void *) (x86::rdmsr<uint64_t>(LAPIC_BASE_MSR) & 0xfffff000);
         };
 
         void set_base(void *base) {
@@ -150,7 +151,25 @@ namespace apic {
             if (!(x86::rdmsr<size_t>(LAPIC_BASE_MSR) & LAPIC_BASE_MSR_ENABLE)) {
                 lapic::set_base(lapic::get_base());
             }
-            lapic::write(LAPIC_REG_SIVR, apic::lapic::read(LAPIC_REG_SIVR) | LAPIC_BASE_MSR_BSP);
+            lapic::write(LAPIC_REG_TPR, 0);
+            lapic::write(LAPIC_REG_SIVR, apic::lapic::read(LAPIC_REG_SIVR) | 0x1FF);
+        }
+
+        void set_timer(uint32_t ms) {
+            lapic::write(LAPIC_REG_DCR, 0x3);
+            lapic::write(LAPIC_REG_INTERNAL_CNTR, ~0);
+
+            hpet::msleep(20);
+
+            uint32_t ticks = ~0 - lapic::read(LAPIC_REG_CURR_CNTR);
+
+            lapic::write(LAPIC_REG_LVT_TIMR, 0x20 | (1 << 17));
+            lapic::write(LAPIC_REG_DCR, 0x3);
+            lapic::write(LAPIC_REG_INTERNAL_CNTR, ticks);
+        }
+
+        uint64_t id() {
+            return (lapic::read(LAPIC_REG_ID) >> 24);
         }
 
         void eoi() {

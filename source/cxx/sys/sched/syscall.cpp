@@ -1,3 +1,4 @@
+#include "arch/types.hpp"
 #include "arch/vmm.hpp"
 #include "arch/x86/types.hpp"
 #include <fs/vfs.hpp>
@@ -11,7 +12,7 @@
 #include <util/string.hpp>
 
 extern "C" {
-    extern void sigreturn_exit(arch::irq_regs *r);
+    extern void x86_sigreturn_exit(arch::irq_regs *r);
 }
 
 void syscall_exec(arch::irq_regs *r) {
@@ -107,7 +108,6 @@ void syscall_exec(arch::irq_regs *r) {
         }
     }
 
-    
     for (size_t i = 0; i < SIGNAL_MAX; i++) {
         sched::signal::sigaction *act = &process->sigactions[i];
         auto handler = act->handler.sa_handler;
@@ -126,12 +126,7 @@ void syscall_exec(arch::irq_regs *r) {
 }
 
 void syscall_fork(arch::irq_regs *r) {
-    auto child = sched::fork(arch::get_process(), arch::get_thread());
-    
-    child->main_thread->ctx.reg.rax = 0;
-    child->main_thread->ctx.reg.rip = r->rcx;
-    child->main_thread->ctx.reg.rflags = r->r11;
-
+    auto child = sched::fork(arch::get_process(), arch::get_thread(), r);
     child->start();
     
     r->rax = child->pid;
@@ -341,25 +336,22 @@ void syscall_sigreturn(arch::irq_regs *r) {
     auto current_task = arch::get_thread();
     auto process = arch::get_process();
 
-    auto sig_queue = &process->sig_queue;
-    sig_queue->sig_lock.irq_acquire();
+    auto ctx = &current_task->sig_ctx;
+    ctx->lock.irq_acquire();
 
-    auto signal = &sig_queue->queue[current_task->sig_context.signum - 1];
-    sig_queue->sigdelivered |= SIGMASK(current_task->sig_context.signum);
+    auto signal = &ctx->queue[current_task->ucontext.signum - 1];
+    
+    ctx->sigdelivered |= SIGMASK(current_task->ucontext.signum);
     signal->notify_queue->arise(arch::get_thread());
     frg::destruct(memory::mm::heap, signal->notify_queue);
 
-    sig_queue->sig_lock.irq_release();
+    ctx->lock.irq_release();
 
-    auto regs = &current_task->sig_context.ctx.reg;
+    auto regs = &current_task->ucontext.ctx.reg;
     current_task->ctx.reg = *regs;
 
-    process->mem_ctx->unmap((void *) current_task->sig_context.stack, 4 * memory::page_size, true);
-
-    if (process->block_signals) {
-        current_task->state = sched::thread::READY;
-        process->block_signals = true;
-    }
+    current_task->dispatch_signals = false;
+    current_task->release_waitq = true;
 
     auto tmp = current_task->kstack;
     current_task->kstack = current_task->sig_kstack;
@@ -377,9 +369,12 @@ void syscall_sigreturn(arch::irq_regs *r) {
 
     x86::set_fcw(regs->fcw);
     x86::set_mxcsr(regs->mxcsr);
-    x86::load_sse(current_task->sig_context.ctx.sse_region);
+    x86::load_sse(current_task->ucontext.ctx.sse_region);
     
-    sigreturn_exit(&iretq_regs);
+    current_task->state = sched::thread::READY;
+    process->mem_ctx->unmap((void *) current_task->ucontext.stack, 4 * memory::page_size, true);
+
+    x86_sigreturn_exit(&iretq_regs);
 }
 
 void syscall_sigenter(arch::irq_regs *r) {
@@ -396,12 +391,12 @@ void syscall_sigaction(arch::irq_regs *r) {
     sched::signal::sigaction *act = (sched::signal::sigaction *) r->rsi;
     sched::signal::sigaction *old = (sched::signal::sigaction *) r->rdx;
 
-    r->rax = sched::signal::do_sigaction(arch::get_process(), sig, act, old);
+    r->rax = sched::signal::do_sigaction(arch::get_process(), arch::get_thread(), sig, act, old);
 }
 
 void syscall_sigpending(arch::irq_regs *r) {
     sigset_t *set = (sigset_t *) r->rdi;
-    sched::signal::do_sigpending(arch::get_process(), set);
+    sched::signal::do_sigpending(arch::get_thread(), set);
     r->rax = 0;
 }
 
@@ -410,7 +405,7 @@ void syscall_sigprocmask(arch::irq_regs *r) {
     sigset_t *set = (sigset_t *) r->rsi;
     sigset_t *old_set = (sigset_t *) r->rdx;
 
-    r->rax = sched::signal::do_sigprocmask(arch::get_process(), how, set, old_set);
+    r->rax = sched::signal::do_sigprocmask(arch::get_thread(), how, set, old_set);
 }
 
 void syscall_kill(arch::irq_regs *r) {
@@ -422,10 +417,7 @@ void syscall_kill(arch::irq_regs *r) {
 
 void syscall_pause(arch::irq_regs *r) {
     auto task = arch::get_thread();
-    auto process = arch::get_process();
-    auto sig_queue = &process->sig_queue;
-
-    sched::signal::wait_signal(task, sig_queue, ~0, nullptr);
+    sched::signal::wait_signal(task, ~0, nullptr);
     arch::set_errno(EINTR);
     r->rax = -1;
 }
@@ -434,14 +426,12 @@ void syscall_sigsuspend(arch::irq_regs *r) {
     sigset_t *mask = (sigset_t *) r->rdi;
 
     auto task = arch::get_thread();
-    auto process = arch::get_process();
-    auto sig_queue = &process->sig_queue;
 
     sigset_t prev;
 
-    sched::signal::do_sigprocmask(process, SIG_SETMASK, mask, &prev);
-    sched::signal::wait_signal(task, sig_queue, ~(*mask), nullptr);
-    sched::signal::do_sigprocmask(process, SIG_SETMASK, &prev, mask);
+    sched::signal::do_sigprocmask(task, SIG_SETMASK, mask, &prev);
+    sched::signal::wait_signal(task, ~(*mask), nullptr);
+    sched::signal::do_sigprocmask(task, SIG_SETMASK, &prev, mask);
 
     arch::set_errno(EINTR);
     r->rax = -1;

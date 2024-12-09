@@ -1,8 +1,7 @@
-#include "arch/types.hpp"
-#include "mm/vmm.hpp"
-#include "sys/sched/sched.hpp"
-#include "sys/sched/wait.hpp"
-#include "util/misc.hpp"
+#include <arch/types.hpp>
+#include <sys/sched/sched.hpp>
+#include <sys/sched/wait.hpp>
+#include <util/misc.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <driver/ahci.hpp>
@@ -21,6 +20,7 @@
 int AHCI_MAJOR = 0xA;
 sched::thread *ahci_thread;
 
+static log::subsystem logger = log::make_subsystem("AHCI");
 uint8_t port_type(volatile ahci::port *port) {
     uint32_t sata_status = port->sata_status;
     uint8_t detection = sata_status & 0x0F;
@@ -63,9 +63,8 @@ void issue_command(volatile ahci::port *port, size_t slot) {
 }
 
 ssize_t ahci::find_cmdslot(ahci::device *device) {
-    uint32_t slots = device->last_issued_cmdset;
     for (size_t i = 0; i < ahci::MAX_SLOTS; i++) {
-        if (!(slots & (1 << i))) {
+        if (!(device->port->cmd_issue & (1 << i))) {
             return i;
         }
     }
@@ -168,7 +167,7 @@ void fill_prdt(volatile ahci::port *port, volatile ahci::abar *bar, void *mem, a
 
 void get_ownership(volatile ahci::abar *bar) {
     if (!(bar->cap2 & (1 << 0))) {
-        kmsg("[AHCI] BIOS Handoff not supported");
+        kmsg(logger, "BIOS Handoff not supported");
         return;
     }
 
@@ -186,15 +185,10 @@ void get_ownership(volatile ahci::abar *bar) {
         panic("[AHCI]: Unable to get BIOS handoff");
     }
 
-    kmsg("[AHCI]: BIOS handoff successful");
+    kmsg(logger, "BIOS handoff successful");
 }
 
 void ahci::device::setup() {
-    __atomic_store_n(&num_free_commands, ((bar->cap >> 8) & 0xF0), __ATOMIC_RELAXED);
-    for (size_t i = 0; i < num_free_commands; i++) {
-        last_issued_cmdset &= ~(1 << i);
-    }
-
     stop_command(port);
     uint64_t data_base = (uint64_t) memory::remove_virt(memory::pmm::alloc(1));
     uint64_t fis_base = data_base + (32 * 32);
@@ -215,7 +209,7 @@ void ahci::device::setup() {
 
     start_command(port);
     if (port->sig == SIG_ATA) {
-        kmsg("[AHCI] Found ATA Device");
+        kmsg(logger, "Found ATA Device");
         identify_sata();
 
         major = AHCI_MAJOR;
@@ -228,7 +222,7 @@ void ahci::device::identify_sata() {
     ahci::command_header *header = get_header(port, slot.idx);
 
     if (slot.idx == -1) {
-        kmsg("[AHCI]: Could not find ATA slot");
+        kmsg(logger, "Could not find ATA slot");
         return;
     }
 
@@ -254,7 +248,7 @@ void ahci::device::identify_sata() {
 
     if (err) {
         uint8_t error = (uint8_t) (port->tfd >> 8);
-        kmsg("[AHCI] Identify Error: ", error);
+        kmsg(logger, "Identify Error: ", error);
 
         reset_engine(port);
         free_command(slot.entry);
@@ -266,7 +260,7 @@ void ahci::device::identify_sata() {
 
     if (port->tfd & (1 << 0)) {
         uint8_t error = (uint8_t) (port->tfd >> 8);
-        kmsg("[AHCI] Identify Error: ", error);
+        kmsg(logger, "Identify Error: ", error);
 
         reset_engine(port);
         free_command(slot.entry);
@@ -293,40 +287,11 @@ void ahci::device::identify_sata() {
     exists = true;
     blockdev.block_size = sector_size;
     blockdev.blocks = sectors;
-    blockdev.extra_data = this;
-    blockdev.request_io = request_io;
 
     free_command(slot.entry);
     memory::pmm::free(id_mem);
 
-    kmsg("[AHCI] Identify succeeded");
-}
-
-void ahci::request_io(void *extra_data, device::io_request *req, size_t part_offset, bool rw) {
-    auto device = (ahci::device *) extra_data;
-
-    auto waitq = frg::construct<ipc::queue>(memory::mm::heap);
-    auto trigger = frg::construct<ipc::trigger>(memory::mm::heap);
-    trigger->add(waitq);
-
-    arch::irq_off();
-    device->lock.acquire();
-
-    for (size_t i = 0; i < req->len; i++) {
-        auto zone = req->blocks[i];
-        device->requests.push_back({
-            .zone = zone,
-            .trigger = trigger,
-            .part_offset = part_offset,
-            .rw = rw,
-        });
-    }
-
-    device->lock.release();
-    waitq->block(arch::get_thread());
-
-    frg::destruct(memory::mm::heap, trigger);
-    frg::destruct(memory::mm::heap, waitq);
+    kmsg(logger, "Identify succeeded");
 }
 
 ahci::command_slot ahci::device::issue_read_write(void *buf, uint16_t count, size_t offset, bool rw) {
@@ -339,13 +304,12 @@ ahci::command_slot ahci::device::issue_read_write(void *buf, uint16_t count, siz
     ahci::command_header *header = get_header(port, slot.idx);
 
     if (slot.idx == -1) {
-        kmsg("[AHCI] No free command slots.");
+        kmsg(logger, "No free command slots.");
         free_command(slot.entry);
 
         return slot;
     }
 
-    __atomic_fetch_sub(&num_free_commands, 1, __ATOMIC_RELAXED);
     header->prdt_cnt = prdt_count;
     header->write = rw;
     header->cmd_fis_len = 5;
@@ -394,82 +358,8 @@ ahci::command_slot ahci::device::issue_read_write(void *buf, uint16_t count, siz
     return slot;
 }
 
-void ahci::device::handle_commands() {
-    lock.irq_acquire();
-    // handle completed commands first
-    for (size_t idx = 0; idx < 32; idx++) {
-        // handle finished command
-        if (!(port->cmd_issue & (1 << idx)) && (last_issued_cmdset & (1 << idx))) {
-            // we had an oopsie
-            auto command = active_commands[idx];
-            last_issued_cmdset &= ~(1 << idx);
-            if (port->tfd & (1 << 0)) {
-                uint8_t error = (uint8_t) (port->tfd >> 8);
-                kmsg("[AHCI] Transfer Error: ", error);
-
-                reset_engine(port);
-                free_command(command.slot.entry);
-                memory::pmm::free(command.tmp);
-
-                command.zone->req->blocks_failed++;
-                if (command.zone->req->blocks_failed + command.zone->req->blocks_completed == command.zone->req->len) {
-                    command.trigger->arise(arch::get_thread());
-                }
-
-                __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
-
-                continue;
-            }
-
-            // command successful
-            free_command(command.slot.entry);
-
-            uint64_t sector_offset = (command.zone->offset + command.part_offset) % sector_size;
-            memcpy(command.zone->buf, (char *) command.tmp + sector_offset, command.zone->len);
-
-            memory::pmm::free(command.tmp);
-            command.zone->req->blocks_completed++;
-            if (command.zone->req->blocks_failed + command.zone->req->blocks_completed == command.zone->req->len) {
-                command.trigger->arise(arch::get_thread());
-            }
-            __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
-        }
-    }
-
-    // if there are free command slots, enqueue, else, exit
-    while (__atomic_load_n(&num_free_commands, __ATOMIC_RELAXED) > 0 && requests.size() > 0) {
-        auto command_request = requests.pop();
-        auto zone = command_request.zone;
-
-        size_t offset = zone->offset + command_request.part_offset;
-        uint64_t sector_start = offset / sector_size;
-        uint64_t sector_end = ((offset + zone->len) + sector_size - 1) / sector_size;
-        uint64_t sector_count = sector_end - sector_start;
-
-        auto tmp = memory::pmm::alloc(util::ceil(sector_count * sector_size, memory::page_size));
-        auto slot = issue_read_write(tmp, sector_count, sector_start, command_request.rw);
-        if (slot.idx == -1) {
-            memory::pmm::free(tmp);
-            requests.push(command_request);
-
-            break;
-        }
-
-        await_ready(port);
-        issue_command(port, slot.idx);
-        last_issued_cmdset |= (1 << slot.idx);
-
-        active_commands[slot.idx] = command_request;
-        active_commands[slot.idx].slot = slot;
-        active_commands[slot.idx].tmp = tmp;
-    }
-
-
-    lock.irq_release();
-}
-
 ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
-    lock.irq_acquire();
+    lock.acquire();
 
     uint64_t sector_offset = offset % sector_size;
     uint64_t sector_start = offset / sector_size;
@@ -477,10 +367,10 @@ ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
     uint64_t sector_count = sector_end - sector_start;
 
     if (sector_count > 0xFFFF) {
-        lock.irq_release();
+        lock.release();
         return -EIO;
     } else if (sector_count == 0) {
-        lock.irq_release();
+        lock.release();
         return -EIO;
     }
 
@@ -488,19 +378,15 @@ ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
     auto slot = issue_read_write(tmp, sector_count, sector_start, false);
     await_ready(port);
 
-    last_issued_cmdset |= (1 << slot.idx);
-
     issue_command(port, slot.idx);
     wait_command(port, slot.idx);
 
-    last_issued_cmdset &= ~(1 << slot.idx);
     if (port->tfd & (1 << 0)) {
         uint8_t error = (uint8_t) (port->tfd >> 8);
-        kmsg("[AHCI] Transfer Error: ", error);
+        kmsg(logger, "Transfer Error: ", error);
 
         reset_engine(port);
         free_command(slot.entry);
-        __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
 
         kfree(tmp);
         lock.irq_release();
@@ -508,11 +394,10 @@ ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
     }
 
     free_command(slot.entry);
-    __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
     memcpy(buf, (char *) tmp + sector_offset, count);
 
     kfree(tmp);
-    lock.irq_release();
+    lock.release();
     return count;
 }
 
@@ -521,21 +406,11 @@ ssize_t ahci::device::write(void *buf, size_t count, size_t offset) {
 }
 
 static frg::vector<ahci::device *, memory::mm::heap_allocator> devices{};
-void ahci::ahci_task() {
-    while (true) {
-        for (auto device: devices) {
-            if (device == nullptr) continue;
-            if (device->exists) {
-                device->handle_commands();
-            }
-        }
-    }
-}
 
 void ahci::init() {
     auto pci_device= pci::get_device(AHCI_CLASS, AHCI_SUBCLASS, AHCI_PROG_IF);
     if (!pci_device) {
-        kmsg("[AHCI] No AHCI Controller avalilable.");
+        kmsg(logger, "No AHCI Controller avalilable.");
         return;
     }
 
@@ -545,13 +420,12 @@ void ahci::init() {
     pci::bar pci_bar;
     pci_device->read_bar(5, pci_bar);
     if (!pci_bar.valid || !pci_bar.is_mmio || !pci_bar.base) {
-        kmsg(pci_bar.valid, ", ", pci_bar.is_mmio, ", ", util::hex(pci_bar.base));
-        kmsg("[AHCI] AHCI ABAR Invalid!");
+        kmsg(logger, "AHCI ABAR Invalid!");
         return;
     }
 
     volatile ahci::abar *ahci_bar = memory::add_virt((ahci::abar *) pci_bar.base);
-    kmsg("[AHCI] ABAR Base: ", ahci_bar);
+    kmsg(logger, "ABAR Base: ", ahci_bar);
 
     ahci_bar->ghc |= (1 << 31);
     get_ownership(ahci_bar);
@@ -562,11 +436,11 @@ void ahci::init() {
             case DEV_PM:
             case DEV_SEMB:
             case DEV_ATAPI:
-                kmsg("[AHCI] Found Unsupported AHCI device with port id ", i);
+                kmsg(logger, "Found Unsupported AHCI device with port id ", i);
                 break;
             case DEV_ATA: {
                 found_devices = true;
-                kmsg("[AHCI] Found SATA device with port id ", i);
+                kmsg(logger, "Found SATA device with port id ", i);
 
                 auto device = frg::construct<ahci::device>(memory::mm::heap);
                 device->is_blockdev = true;
@@ -587,9 +461,6 @@ void ahci::init() {
     }
 
     if (!found_devices) {
-        kmsg("[AHCI] No AHCI Drives found");
-    } else {
-        ahci_thread = sched::create_thread(&ahci_task, (uint64_t) memory::pmm::stack(4), vmm::boot, 0);
-        ahci_thread->start();
+        kmsg(logger, "No AHCI Drives found");
     }
 }

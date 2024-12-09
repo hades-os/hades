@@ -31,7 +31,7 @@ namespace vmm {
         SHARED = (1 << 10),
         FILE = (1 << 11),
 
-        EXEC = (1ULL << 63)
+        EXEC = 0
     };
 
     inline constexpr page_flags
@@ -110,8 +110,8 @@ namespace x86 {
     arch::irq_regs sched_to_irq(arch::sched_regs *r);
     arch::sched_regs irq_to_sched(arch::irq_regs *r);
 
-    void *copy_to_user(void *dst, const void *src, size_t length);
-    void *copy_from_user(void *dst, const void *src, size_t length);
+    size_t copy_to_user(void *dst, const void *src, size_t length);
+    size_t copy_from_user(void *dst, const void *src, size_t length);
 
     struct [[gnu::packed]] irq_ptr {
         uint16_t limit;
@@ -130,17 +130,15 @@ namespace x86 {
 
     void init_irqs();
     void hook_irqs();
+
     void irq_on();
     void irq_off();
+    void stall_cpu();
 
-    using irq_fn = void(*)(size_t irq, arch::irq_regs *r, void *private_data);
-    struct irq_handler {
-        irq_fn fn;
-        void *private_data;
-    };
+    using irq_fn = void(*)(arch::irq_regs *r);
 
     void route_irq(size_t irq, size_t vector);
-    void install_irq(size_t irq, irq_fn handler, void *private_data);
+    void install_irq(size_t irq, irq_fn handler);
 
     void set_gate(uint8_t num, uint64_t base, uint8_t flags);
     void set_ist(uint8_t num, uint8_t idx);
@@ -154,10 +152,8 @@ namespace x86 {
     void save_sse(char *sse_region);
     void load_sse(char *sse_region);
 
-    void handle_bsp(arch::irq_regs *r);
-    
+    void handle_tick(arch::irq_regs *r);    
     void do_tick();
-    void send_ipis();
 
     void init_syscalls();
     void init_idle();
@@ -166,6 +162,7 @@ namespace x86 {
     void init_bsp();
     void init_ap();
 
+    bool handle_user_exception(arch::irq_regs *r);
     bool handle_pf(arch::irq_regs *r);
     void cleanup_vmm_ctx(sched::process *process);
     void stop_thread(sched::thread *task);
@@ -173,7 +170,7 @@ namespace x86 {
     int do_futex(uintptr_t vaddr, int op, int expected, sched::timespec *timeout);
 
     void sigreturn_kill(sched::process *proc, ssize_t status);
-    void sigreturn_default(sched::process *proc, sched::thread *task, bool block_signals);
+    void sigreturn_default(sched::process *proc, sched::thread *task);
     void sighandler_default(sched::process *proc, sched::thread *task, int sig);
 
     namespace loader {
@@ -183,6 +180,8 @@ namespace x86 {
         uint64_t *place_auxv(uint64_t *location, sched::process_env *env);
         void load_params(char **argv, char** envp, sched::process_env *env);
     }
+
+    constexpr size_t IRQ0 = 32;
 
     constexpr size_t entries_per_table = 512;
     constexpr size_t addr_mask = ~0x8000000000000FFF;

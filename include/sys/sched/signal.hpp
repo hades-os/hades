@@ -97,6 +97,7 @@ namespace sched {
 
             sigset_t sa_mask;
             int sa_flags;
+            void (*sa_restorer)(void);
         };
 
         struct ucontext {
@@ -110,35 +111,38 @@ namespace sched {
         };
 
         struct signal;
-        struct queue;
+        struct process_ctx;
+        struct thread_ctx;
 
         struct signal {
-            int ref;
             int signum;
-            siginfo *info;
             ipc::trigger *notify_queue;
-            queue *sig_queue;
         };
 
-        struct queue {
+        struct process_ctx {
+            sigset_t sigpending;
+
+            bool active;
+            util::lock lock;
+        };
+
+        struct thread_ctx {
             sigset_t sigmask;
             signal queue[SIGNAL_MAX];
 
             sigset_t sigpending;
             sigset_t sigdelivered;
 
-            bool active;
             ipc::queue *waitq;
-            process *proc;
-            util::lock sig_lock;
+            util::lock lock;
         };
 
-        int do_sigaction(process *proc, int sig, sigaction *act, sigaction *old);
-        void do_sigpending(process *proc, sigset_t *set);
-        int do_sigprocmask(process *proc, int how, sigset_t *set, sigset_t *oldset);
+        int do_sigaction(process *proc, thread *task, int sig, sigaction *act, sigaction *old);
+        void do_sigpending(thread *task, sigset_t *set);
+        int do_sigprocmask(thread *proc, int how, sigset_t *set, sigset_t *oldset);
         int do_kill(pid_t pid, int sig);
         
-        int wait_signal(thread *task, queue *sig_queue, sigset_t sigmask, timespec *time);
+        int wait_signal(thread *task, sigset_t sigmask, timespec *time);
 
         bool send_process(process *sender, process *target, int sig);
         bool send_group(process *sender, process_group *target, int sig);
@@ -146,7 +150,7 @@ namespace sched {
         bool is_valid(int sig);
         int process_signals(process *proc, arch::thread_ctx *ctx);
 
-        bool is_blocked(process *proc, int sig);
+        bool is_blocked(thread *task, int sig);
         bool is_ignored(process *proc, int sig);
     }
 }

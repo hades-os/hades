@@ -8,6 +8,7 @@
 #include <util/string.hpp>
 #include <util/log/panic.hpp>
 
+static log::subsystem logger = log::make_subsystem("PM");
 memory::pmm::block *next_block(memory::pmm::block *block) {
     return (memory::pmm::block *)(((char *) block) + block->sz);
 }
@@ -237,7 +238,7 @@ void memory::pmm::init(stivale::boot::tags::region_map *info) {
         }
     }
 
-    kmsg("[PMM] Free memory: ", nr_usable * page_size, " bytes");
+    kmsg(logger, "[PMM] Free memory: %lu bytes", nr_usable * page_size);
 }
 
 void *memory::pmm::alloc(size_t req_pages) {

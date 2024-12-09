@@ -139,7 +139,7 @@ namespace e1000 {
     };
 
     void init();
-    void irq_handler(size_t irq, arch::irq_regs *r, void *private_data);
+    void irq_handler(arch::irq_regs *r);
 
     struct device {
         private:
@@ -182,7 +182,7 @@ namespace e1000 {
             frg::hash_map<uint32_t, uint8_t *, frg::hash<uint32_t>, memory::mm::heap_allocator> arp_table;
         public:
             friend void e1000::init();
-            friend void irq_handler(size_t irq, arch::irq_regs *r, void *private_data);
+            friend void irq_handler(arch::irq_regs *r);
 
             bool init();
 

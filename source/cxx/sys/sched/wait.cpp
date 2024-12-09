@@ -5,25 +5,24 @@
 #include <sys/sched/time.hpp>
 #include <sys/sched/sched.hpp>
 
-sched::thread *ipc::queue::block(sched::thread *waiter, bool *set_when_blocking) {
+sched::thread *ipc::queue::block(sched::thread *waiter) {
     lock.irq_acquire();
     waiters.push_back(waiter);
     lock.irq_release();
 
     if (waiter->proc) {
-        waiter->proc->sig_queue.active = true;
+        waiter->proc->sig_ctx.active = true;
     }
 
-    if (set_when_blocking) *set_when_blocking = true;
     waiter->state = sched::thread::BLOCKED;
     while (waiter->state == sched::thread::BLOCKED) arch::tick();
 
     if (waiter->proc) {
-        waiter->proc->sig_queue.active = false;
+        waiter->proc->sig_ctx.active = false;
     }
-
-    if (waiter->proc && waiter->proc->block_signals) {
-        waiter->proc->block_signals = false;
+    
+    if (waiter->release_waitq) {
+        waiter->release_waitq = false;
         arch::set_errno(EINTR);
         return nullptr;
     }
@@ -41,8 +40,6 @@ void ipc::queue::set_timer(sched::timespec *time) {
 
     timer->triggers.push_back(timer_trigger);
     arch::add_timer(timer);
-
-    // TODO: timer
 }
 
 void ipc::trigger::add(queue *waitq) {

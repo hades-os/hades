@@ -83,7 +83,7 @@ namespace vmm {
             using mapping_tree = frg::rbtree<mapping, &mapping::hook, mapping_comparator, frg::null_aggregator>;
             mapping_tree mappings;
 
-            void *create_mapping(void *addr, uint64_t len, page_flags flags);
+            void *create_mapping(void *addr, uint64_t len, page_flags flags, bool fill_now);
             mapping *get_mapping(void *addr);
             void delete_mapping(mapping *node);
 
@@ -108,7 +108,6 @@ namespace vmm {
 
             void *map(void *virt, uint64_t len, map_flags flags);
             void *stack(void *virt, uint64_t len, map_flags flags);
-            bool mapped(void *addr, uint64_t len);
 
             void *resolve(void *virt);
             void *unmap(void *virt, uint64_t len, bool stack = false);

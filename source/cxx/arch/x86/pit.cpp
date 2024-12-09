@@ -11,13 +11,14 @@
 
 void arch::init_timer() {
     pit::init();
+    apic::lapic::set_timer(1);
 }
 
 void arch::add_timer(sched::timer *timer) {
     pit::timers.push_back(timer);
 }
 
-void tick_handler(size_t irq, arch::irq_regs *r, void *_) {
+void tick_handler(arch::irq_regs *r) {
     sched::timespec interval = { .tv_sec = 0, .tv_nsec = pit::TIMER_HZ / sched::PIT_FREQ };
     sched::uptime += interval.tv_nsec;
 
@@ -40,23 +41,21 @@ void tick_handler(size_t irq, arch::irq_regs *r, void *_) {
             pit::timers[i] = nullptr;
         }
     }
-
-    x86::handle_bsp(r);
 }
 
 void pit::init() {
-    x86::install_irq(0, tick_handler, nullptr);
+    x86::install_irq(1, tick_handler);
 
-    uint16_t divisor = 1193182 / PIT_FREQ;
+    int divisor = 1193182 / PIT_FREQ;
     if ((1193182 % PIT_FREQ) > (PIT_FREQ / 2)) {
         divisor++;
     }
 
     io::writeb(0x43, (0b010 << 1) | (0b11 << 4));
-    io::writeb(0x40, (uint8_t)(divisor & 0xFF));
-    io::writeb(0x40, (uint8_t)(divisor >> 8 & 0xFF));
+    io::writeb(0x40, divisor & 0xFF);
+    io::writeb(0x40, divisor >> 8 & 0xFF);
 
-    apic::ioapic::route(0, 0, arch::IRQ0, false);
+    arch::route_irq(1, 1);
 
     sched::clock_mono = { .tv_sec = 0, .tv_nsec = 0 };
     sched::clock_rt = { .tv_sec = 0, .tv_nsec = 0 };
