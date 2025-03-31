@@ -189,7 +189,7 @@ namespace x86 {
     void stop_thread(sched::thread *task);
     void kill_thread(sched::thread *task);
 
-    ssize_t do_futex(uintptr_t vaddr, int op, int expected, sched::timespec *timeout);
+    ssize_t do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *timeout);
 
     void sigreturn_kill(sched::process *proc, ssize_t status);
     void sigreturn_default(sched::process *proc, sched::thread *task);

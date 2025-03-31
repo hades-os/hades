@@ -19,9 +19,9 @@
 
 shared_ptr<vfs::node> vfs::tree_root{};
 frg::hash_map<
-    frg::string_view, 
-    shared_ptr<vfs::filesystem>, 
-    vfs::path_hasher, 
+    frg::string_view,
+    shared_ptr<vfs::filesystem>,
+    vfs::path_hasher,
     memory::mm::heap_allocator
 > mounts{vfs::path_hasher()};
 
@@ -71,8 +71,6 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
         current = base;
     }
 
-    char *symlink_buf = nullptr;
-
     auto view = adjusted_path;
     ssize_t next_slash;
     while ((next_slash = view.find_first('/')) != -1) {
@@ -81,7 +79,6 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
         if (auto c = view.sub_string(0, pos); c.size()) {
             if (c == "..") {
                 if (current->parent.expired()) {
-                    kfree(symlink_buf);
                     return {};
                 }
 
@@ -100,8 +97,7 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
                     }
                 }
 
-                if (!next || next->resolveable == false) {
-                    kfree(symlink_buf);
+                if (!next) {
                     return current->fs;
                 }
 
@@ -111,35 +107,31 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
                         break;
                     case node::type::SYMLINK: {
                         if (!next->meta || next->meta->st_size == 0) {
-                            kfree(symlink_buf);
                             return {};
                         }
 
                         if (symlinks_traversed + 1 > 40) {
-                            kfree(symlink_buf);
                             return {};
                         }
 
-                        if (symlink_buf == nullptr) symlink_buf = (char *) kmalloc(8192);
-                        
                         auto fs = next->fs.lock();
-
-                        if (fs) {
-                            memset(symlink_buf, 0, 8192);
-                            fs->read(next, symlink_buf, next->meta->st_size, 0);
-                            next = resolve_at(symlink_buf, current, symlinks_traversed);
-                            if (!next) {
-                                kfree(symlink_buf);
-                                return current->fs;
-                            }
+                        if (next->link_target.size() == 0) {
+                            if (fs) {
+                                auto res = fs->readlink(next);
+                                if (res < 0) {
+                                    return {};
+                                }
+                            } else return current->fs;
                         }
 
+                        next = resolve_at(next->link_target, current, symlinks_traversed);
+                        if (!next) return current->fs;
+
                         symlinks_traversed++;
-                        break;                        
+                        break;
                     }
 
                     default:
-                        kfree(symlink_buf);
                         return next->fs;
                 }
             }
@@ -151,7 +143,6 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
     shared_ptr<node> next{};
     if (name == "..") {
         if (current->parent.expired()) {
-            kfree(symlink_buf);
             return {};
         }
 
@@ -170,47 +161,37 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
             }
         }
 
-        if (!next || next->resolveable == false) {
-            kfree(symlink_buf);
+        if (!next) {
             return {};
         }
     }
-    
+
     switch (next->type) {
         case node::type::SYMLINK: {
             if (!next->meta || next->meta->st_size == 0) {
-                kfree(symlink_buf);
                 return {};
             }
 
             if (symlinks_traversed + 1 > 40) {
-                kfree(symlink_buf);
                 return {};
             }
 
             auto fs = next->fs.lock();
-
-            if (fs) {
-                memset(symlink_buf, 0, 8192);
-                fs->read(next, symlink_buf, next->meta->st_size, 0);
-                next = resolve_at(symlink_buf, current, symlinks_traversed);
-                if (!next) {
-                    kfree(symlink_buf);
-                    return current->fs;
-                }
+            if (next->link_target.size() == 0) {
+                if (fs) {
+                    auto res = fs->readlink(next);
+                    if (res < 0) {
+                        return {};
+                    }
+                } else return {};
             }
 
-            if (!next) {
-                kfree(symlink_buf);
-                return {};
-            }
-
-            kfree(symlink_buf);
+            next = resolve_at(next->link_target, current, symlinks_traversed);
+            if (!next) return {};
             return next->fs;
         }
 
         default:
-            kfree(symlink_buf);
             return next->fs;
     }
 }
@@ -237,8 +218,6 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
         current = base;
     }
 
-    char *symlink_buf = nullptr;
-
     auto view = adjusted_path;
     ssize_t next_slash;
     while ((next_slash = view.find_first('/')) != -1) {
@@ -247,7 +226,6 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
         if (auto c = view.sub_string(0, pos); c.size()) {
             if (c == "..") {
                 if (current->parent.expired()) {
-                    kfree(symlink_buf);
                     return {};
                 }
 
@@ -266,8 +244,7 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
                     }
                 }
 
-                if (!next || next->resolveable == false) {
-                    kfree(symlink_buf);
+                if (!next) {
                     return {};
                 }
 
@@ -277,35 +254,31 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
                         break;
                     case node::type::SYMLINK: {
                         if (!next->meta || next->meta->st_size == 0) {
-                            kfree(symlink_buf);
                             return {};
                         }
 
                         if (symlinks_traversed + 1 > 40) {
-                            kfree(symlink_buf);
                             return {};
                         }
 
-                        if (symlink_buf == nullptr) symlink_buf = (char *) kmalloc(8192);
-
                         auto fs = next->fs.lock();
-
-                        if (fs) {
-                            memset(symlink_buf, 0, 8192);
-                            fs->read(next, symlink_buf, next->meta->st_size, 0);
-                            next = resolve_at(symlink_buf, current, symlinks_traversed);
-                            if (!next) {
-                                kfree(symlink_buf);
-                                return {};
-                            }
+                        if (next->link_target.size() == 0) {
+                            if (fs) {
+                                auto res = fs->readlink(next);
+                                if (res < 0) {
+                                    return {};
+                                }
+                            } else return {};
                         }
+
+                        next = resolve_at(next->link_target, current, symlinks_traversed);
+                        if (!next) return {};
 
                         symlinks_traversed++;
                         break;
                     }
 
                     default:
-                        kfree(symlink_buf);
                         return {};
                 }
             }
@@ -317,7 +290,6 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
     shared_ptr<node> next{};
     if (name == "..") {
         if (current->parent.expired()) {
-            kfree(symlink_buf);
             return {};
         }
 
@@ -336,15 +308,13 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
             }
         }
 
-        if (!next || next->resolveable == false) {
-            kfree(symlink_buf);
+        if (!next) {
             return {};
         }
     }
-    
+
     switch (next->type) {
         case node::type::DIRECTORY:
-            kfree(symlink_buf);
             return next;
         case node::type::SYMLINK: {
             if (!follow_symlink) {
@@ -359,26 +329,22 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
                 return {};
             }
 
-            if (symlink_buf == nullptr) symlink_buf = (char *) kmalloc(8192);
-
             auto fs = next->fs.lock();
-
-            if (fs) {
-                memset(symlink_buf, 0, 8192);
-                fs->read(next, symlink_buf, next->meta->st_size, 0);
-                next = resolve_at(symlink_buf, current, symlinks_traversed);
-                if (!next) {
-                    kfree(symlink_buf);
-                    return {};
-                }
+            if (next->link_target.size() == 0) {
+                if (fs) {
+                    auto res = fs->readlink(next);
+                    if (res < 0) {
+                        return {};
+                    }
+                } else return {};
             }
 
-            kfree(symlink_buf);
+            next = resolve_at(next->link_target, current, symlinks_traversed);
+            if (!next) return {};
             return next;
         }
 
         default:
-            kfree(symlink_buf);
             return next;
     }
 }
@@ -438,7 +404,38 @@ ssize_t vfs::read(shared_ptr<fd> fd, void *buf, size_t len) {
     if (fs) {
         auto res = fs->read(desc->node, buf, len, desc->pos);
         if (res >= 0) desc->pos += res;
-        return res;    
+        return res;
+    }
+
+    return -EBADF;
+}
+
+ssize_t vfs::pread(shared_ptr<fd> fd, void *buf, size_t len, off_t offset) {
+    if (len == 0) return 0;
+
+    auto desc = fd->desc;
+    if (!desc->node) {
+        if ((size_t) offset > desc->info->st_size) {
+            while (__atomic_load_n(&desc->pipe->data_written, __ATOMIC_RELAXED) == 0);
+            __atomic_clear(&desc->pipe->data_written, __ATOMIC_RELAXED);
+        }
+
+        if ((size_t) offset + len > desc->info->st_size) {
+            len = desc->info->st_size - offset;
+        }
+
+        memcpy(buf, (char *) desc->pipe->buf + offset, len);
+        return len;
+    }
+
+    if (desc->node->type == node::type::DIRECTORY) {
+        return -EISDIR;
+    }
+
+    auto fs = desc->node->fs.lock();
+    if (fs) {
+        auto res = fs->read(desc->node, buf, len, offset);
+        return res;
     }
 
     return -EBADF;
@@ -479,7 +476,46 @@ ssize_t vfs::write(shared_ptr<fd> fd, void *buf, size_t len) {
     if (fs) {
         auto res = fs->write(desc->node, buf, len, desc->pos);
         if (res >= 0) desc->pos += res;
-        return res;    
+        return res;
+    }
+
+    return -EBADF;
+}
+
+ssize_t vfs::pwrite(shared_ptr<fd> fd, void *buf, size_t len, off_t offset) {
+    if (len == 0) return 0;
+
+    auto desc = fd->desc;
+    if (!desc->node) {
+        if ((size_t) offset >= memory::page_size) {
+            return -EINVAL;
+        }
+
+        if ((size_t) (offset + len) > memory::page_size) {
+            len = desc->info->st_size - offset;
+        }
+
+        if ((size_t) (offset + len) > desc->info->st_size) {
+            desc->info->st_size = offset + len - desc->info->st_size;
+        }
+
+        memcpy((char *) desc->pipe->buf + offset, buf, len);
+
+        if ((size_t) offset> desc->info->st_size) {
+            desc->pipe->data_written = true;
+        }
+
+        return len;
+    }
+
+    if (desc->node->type == node::type::DIRECTORY) {
+        return -EISDIR;
+    }
+
+    auto fs = desc->node->fs.lock();
+    if (fs) {
+        auto res = fs->write(desc->node, buf, len, offset);
+        return res;
     }
 
     return -EBADF;
@@ -545,7 +581,7 @@ ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::t
                         return 1;
                     }
                 }
-                
+
                 if (!desc->node->fs.expired()) {
                     auto fs = desc->node->fs.lock();
                     status = fs->poll(file, arch::get_thread());
@@ -555,7 +591,7 @@ ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::t
             if (status < 0) {
                 return -1;
             }
-            
+
             if (status & fds[i].events) {
                 fds[i].revents = status & fds[i].events;
                 return 1;
@@ -563,7 +599,7 @@ ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::t
         }
     }
 
-    return 0;    
+    return 0;
 }
 
 vfs::path vfs::get_abspath(shared_ptr<node> node) {
@@ -617,15 +653,15 @@ ssize_t vfs::create(shared_ptr<node> base, frg::string_view filepath, shared_ptr
                 if ((err = fs->mkdir(parent, name, flags, mode, uid, gid)) != 0) {
                     return err;
                 }
-    
+
                 break;
             }
-    
+
             case node::type::FILE: {
                 if ((err = fs->create(parent, name, type, flags, mode, uid, gid)) != 0) {
                     return err;
                 }
-    
+
                 break;
             }
         }
@@ -723,7 +759,7 @@ shared_ptr<vfs::node>  vfs::make_recursive(shared_ptr<node> base, frg::string_vi
                 next->meta->st_uid = current_node->meta->st_uid;
                 next->meta->st_gid = current_node->meta->st_gid;
                 next->meta->st_mode = current_node->meta->st_mode;
-                
+
                 current_node->children.push_back(next);
                 current_node = next;
             }
@@ -845,7 +881,7 @@ shared_ptr<vfs::fd> vfs::dup(shared_ptr<vfs::fd> fd, bool cloexec, ssize_t new_n
         if (new_num >= 0 && new_fd) {
             close(new_fd);
         }
-    
+
         new_fd = smarter::allocate_shared<vfs::fd>(memory::mm::heap);
         new_fd->desc = fd->desc;
         new_fd->table = fd->table;
@@ -854,13 +890,13 @@ shared_ptr<vfs::fd> vfs::dup(shared_ptr<vfs::fd> fd, bool cloexec, ssize_t new_n
         } else {
             new_fd->fd_number = table->last_fd++;
         }
-    
+
         new_fd->flags = cloexec ? fd->flags | O_CLOEXEC : fd->flags & ~O_CLOEXEC;
         new_fd->mode = fd->mode;
 
         util::lock_guard table_guard{table->lock};
         table->fd_list[new_fd->fd_number] = new_fd;
-    
+
         return new_fd;
     }
 
@@ -896,14 +932,14 @@ ssize_t vfs::close(shared_ptr<fd> fd) {
         if (fd->fd_number <= table->last_fd) {
             table->last_fd = fd->fd_number;
         }
-    
+
         if (desc->ref <= 0) {
             for (auto dirent: desc->dirent_list) {
                 if (dirent == nullptr) continue;
                 frg::destruct(memory::mm::heap, dirent);
             }
         }
-    
+
         return 0;
     }
 
@@ -1004,7 +1040,7 @@ ssize_t vfs::link(shared_ptr<node> from_base, frg::string_view from, shared_ptr<
     auto dst = resolve_at(to, to_base);
     auto dst_name = find_name(to);
     auto dst_parent = get_parent(to_base, to);
-    
+
     auto dst_res = resolve_fs(to, to_base);
     if (dst || dst_res.expired()) {
         return -EINVAL;
@@ -1047,23 +1083,15 @@ ssize_t vfs::unlink(shared_ptr<node> base, frg::string_view filepath) {
         return err;
     }
 
-    node->resolveable = false;
+    if (node->parent.expired()) {
+        return -EBADF;
+    }
+
+    auto parent = node->parent.lock();
+    parent->children.erase(node);
+
     node->delete_on_close = true;
     if (node.use_count() == 1) {
-        if (node->parent.expired()) {
-            return -EBADF;
-        }
-
-        auto parent = node->parent.lock();
-        for (size_t i = 0; i < parent->children.size(); i++) {
-            auto child = parent->children[i];
-            if (!child) continue;
-            if (child->name == node->name) {
-                parent->children.erase(child);
-                break;
-            }
-        }
-
         fs->remove(node);
     }
 
@@ -1132,7 +1160,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                     // weak_ptr<filesystem> fs, path name, weak_ptr<node> parent, ssize_t flags, ssize_t type
                     auto root = smarter::allocate_shared<node>(memory::mm::heap, nullptr, "/", nullptr, 0, node::type::DIRECTORY);
                     auto fs = smarter::allocate_shared<rootfs>(memory::mm::heap, root);
-                    
+
                     fs->selfPtr = fs;
                     root->fs = fs;
                     tree_root = root;

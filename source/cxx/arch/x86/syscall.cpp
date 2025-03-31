@@ -13,6 +13,8 @@ extern void syscall_dup2(arch::irq_regs *);
 extern void syscall_close(arch::irq_regs *);
 extern void syscall_read(arch::irq_regs *);
 extern void syscall_write(arch::irq_regs *);
+extern void syscall_pread(arch::irq_regs *);
+extern void syscall_pwrite(arch::irq_regs *);
 extern void syscall_ioctl(arch::irq_regs *);
 extern void syscall_statat(arch::irq_regs *);
 extern void syscall_mkdirat(arch::irq_regs *);
@@ -98,13 +100,29 @@ void syscall_user_log(arch::irq_regs *r) {
 
 static x86::syscall_handler syscalls_list[] = {
     syscall_openat,
+    syscall_pipe,
     syscall_close,
+    syscall_pread,
     syscall_read,
+    syscall_pwrite,
     syscall_write,
+    syscall_mkdirat,
+    syscall_linkat,
+    syscall_unlinkat,
+    syscall_renameat,
     syscall_lseek,
     syscall_dup2,
+    syscall_fcntl,
+    syscall_statat,
+    syscall_ioctl,    
+
+    syscall_accessat,
+    syscall_poll,
+    syscall_ppoll,
+
     syscall_mmap,
     syscall_munmap,
+    syscall_mprotect,
 
     syscall_set_fs_base,
     syscall_set_gs_base,
@@ -112,13 +130,6 @@ static x86::syscall_handler syscalls_list[] = {
     syscall_get_gs_base,
 
     syscall_exit,
-    syscall_getpid,
-    syscall_gettid,
-    syscall_getppid,
-
-    syscall_fcntl,
-    syscall_statat,
-    syscall_ioctl,
     syscall_fork,
     syscall_exec,
     syscall_futex,
@@ -126,42 +137,34 @@ static x86::syscall_handler syscalls_list[] = {
     syscall_readdir,
     syscall_getcwd,
     syscall_chdir,
-    nullptr, // TODO: faccesat
-    syscall_pipe,
-    nullptr, // TODO: umask,
-    nullptr, // TODO: uid,
-    nullptr, // TODO: euid,
-    nullptr, // TODO: suid,
-    nullptr, // TODO: seuid,
-    nullptr, // TODO: gid,
-    nullptr, // TDOO: egid,
-    nullptr, // TODO: sgid,
-    nullptr, // TODO: segid,
 
-    nullptr, // TODO: chmod,
-    nullptr, // TODO: chmodat,
+    // TODO: symlinkat, readlinkat, umask
+    nullptr, 
+    nullptr, 
+    nullptr, 
+
+    syscall_getpid,
+    syscall_gettid,
+    syscall_getppid,
+    syscall_setpgid,
+    syscall_getpgid,
+    syscall_setsid,
+    syscall_getsid,
+
+    syscall_kill,
+    syscall_pause,
+
+    syscall_sigsuspend,
+    syscall_sigreturn,
 
     syscall_sigenter,
     syscall_sigaction,
     syscall_sigpending,
     syscall_sigprocmask,
-    syscall_kill,
-    syscall_setpgid,
-    syscall_getpgid,
-    syscall_setsid,
-    syscall_getsid,
-    syscall_pause,
-    syscall_sigsuspend,
-    syscall_sigreturn,
 
-    syscall_unlinkat,
-    syscall_renameat,
-    // TODO: symlinkat, readlinkat
-    syscall_mkdirat,
     syscall_sleep,
     syscall_clock_gettime,
     syscall_clock_get,
-    syscall_linkat,
 
     syscall_user_log,
 
@@ -174,14 +177,8 @@ static x86::syscall_handler syscalls_list[] = {
     syscall_getegid,
     syscall_setegid,
 
-    syscall_mprotect,
-
     syscall_sethostname,
     syscall_gethostname,
-
-    syscall_accessat,
-    syscall_poll,
-    syscall_ppoll
 };
 
 extern "C" {

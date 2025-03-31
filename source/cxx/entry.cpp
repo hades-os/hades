@@ -45,16 +45,16 @@ static void run_init() {
     sched::create_session(proc, group);
 
     char *argv[] = { (char *)
-        "/bin/init", 
+        "/usr/bin/init", 
         NULL 
     };
 
     proc->cwd = vfs::resolve_at("/", nullptr);
 
-    auto fd = vfs::open(nullptr, "/bin/init", proc->fds, 0, O_RDWR, 0, 0);
+    auto fd = vfs::open(nullptr, "/usr/bin/init", proc->fds, 0, O_RDWR, 0, 0);
     proc->mem_ctx->swap_in();
     
-    proc->env.load_elf("/bin/init", fd);
+    proc->env.load_elf("/usr/bin/init", fd);
     proc->env.set_entry();
 
     proc->env.load_params(argv, nullptr);
@@ -87,7 +87,7 @@ static void kern_task() {
     vfs::devfs::probe();
     // TODO: fix device init
 
-    vfs::mount("/dev/sdb1", "/", vfs::fslist::EXT, 0);
+    vfs::mount("/dev/sdb", "/", vfs::fslist::EXT, 0);
 
     vt::init(fbinfo);
     tty::self::init();

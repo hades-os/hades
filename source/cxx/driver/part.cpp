@@ -38,13 +38,13 @@ size_t part::probe(vfs::devfs::blockdev *dev) {
             }
 
             dev->part_list.push({part.lba_end - part.lba_start, part.lba_start});
-            auto private_data = frg::construct<vfs::devfs::dev_priv>(memory::mm::heap);
+            auto private_data = smarter::allocate_shared<vfs::devfs::dev_priv>(memory::mm::heap);
             private_data->dev = dev;
             private_data->part = dev->part_list.size() - 1;
 
             auto parent = dev->file->parent.lock();
             auto part_node = smarter::allocate_shared<vfs::node>(memory::mm::heap, dev->file->fs, dev->file->name + (dev->part_list.size() + 48), parent, 0, vfs::node::type::BLOCKDEV);
-            part_node->private_data = private_data;
+            part_node->as_data(private_data);
 
             parent->children.push_back(part_node);
         }
@@ -70,13 +70,13 @@ size_t part::probe(vfs::devfs::blockdev *dev) {
             }
 
             dev->part_list.push({part.len, part.lba_start});
-            auto private_data = frg::construct<vfs::devfs::dev_priv>(memory::mm::heap);
+            auto private_data = smarter::allocate_shared<vfs::devfs::dev_priv>(memory::mm::heap);
             private_data->dev = dev;
             private_data->part = dev->part_list.size() - 1;
 
             auto parent = dev->file->parent.lock();
             auto part_node = smarter::allocate_shared<vfs::node>(memory::mm::heap, dev->file->fs, dev->file->name + (dev->part_list.size() + 48), parent, 0, vfs::node::type::BLOCKDEV);
-            part_node->private_data = private_data;
+            part_node->as_data(private_data);
             
             parent->children.push_back(part_node);
         }

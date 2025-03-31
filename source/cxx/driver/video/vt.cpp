@@ -3,8 +3,8 @@
 #include <cstddef>
 #include <driver/video/vt.hpp>
 #include <driver/tty/tty.hpp>
-#include <flanterm/flanterm.hpp>
-#include <flanterm/backends/fb.hpp>
+#include <flanterm/flanterm.h>
+#include <flanterm/backends/fb.h>
 #include <fs/dev.hpp>
 #include <mm/common.hpp>
 #include <mm/mm.hpp>
@@ -28,8 +28,6 @@ ssize_t vt::driver::ioctl(tty::device *tty, size_t req, void *buf) {
         case TIOCGWINSZ: {
             tty::winsize *winsz = (tty::winsize *) buf;
             *winsz = (tty::winsize) {
-                .ws_row = (uint16_t) ft_ctx->rows,
-                .ws_col = (uint16_t) ft_ctx->cols,
                 .ws_xpixel = (uint16_t) fb->var->xres,
                 .ws_ypixel = (uint16_t) fb->var->yres
             };

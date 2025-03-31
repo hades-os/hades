@@ -150,7 +150,7 @@ sched::process *sched::fork(process *original, thread *caller, arch::irq_regs *r
     return proc;
 }
 
-int sched::do_futex(uintptr_t vaddr, int op, int expected, timespec *timeout) {
+int sched::do_futex(uintptr_t vaddr, int op, uint32_t expected, timespec *timeout) {
     return arch::do_futex(vaddr, op, expected, timeout);
 }
 

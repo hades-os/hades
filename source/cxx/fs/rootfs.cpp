@@ -17,7 +17,7 @@ weak_ptr<vfs::node> vfs::rootfs::lookup(shared_ptr<node> parent, frg::string_vie
 }
 
 ssize_t vfs::rootfs::write(shared_ptr<node> file, void *buf, size_t len, off_t offset) {
-    auto storage = (rootfs::storage *) file->private_data;
+    auto storage = file->data_as<rootfs::storage>();
     if (storage->length < len + offset) {
         void *old = storage->buf;
         storage->buf = kmalloc(len + offset);
@@ -30,7 +30,7 @@ ssize_t vfs::rootfs::write(shared_ptr<node> file, void *buf, size_t len, off_t o
 }
 
 ssize_t vfs::rootfs::read(shared_ptr<node> file, void *buf, size_t len, off_t offset) {
-    auto storage = (rootfs::storage *) file->private_data;
+    auto storage = file->data_as<rootfs::storage>();
     if (storage->length > len + offset) {
         memcpy(buf, (char *) storage->buf + offset, len);
         return len;
@@ -44,7 +44,7 @@ ssize_t vfs::rootfs::read(shared_ptr<node> file, void *buf, size_t len, off_t of
 
 ssize_t vfs::rootfs::create(shared_ptr<node> dst, path name, int64_t type, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto storage = frg::construct<rootfs::storage>(memory::mm::heap);
+    auto storage = smarter::allocate_shared<rootfs::storage>(memory::mm::heap);
     storage->buf = kmalloc(memory::page_size);
     storage->length = memory::page_size;
 
@@ -54,7 +54,7 @@ ssize_t vfs::rootfs::create(shared_ptr<node> dst, path name, int64_t type, int64
     new_file->meta->st_gid = gid;
     new_file->meta->st_mode = mode | S_IFREG;
 
-    new_file->private_data = (void *) storage;
+    new_file->as_data(storage);
     dst->children.push_back(new_file);
 
     return 0;
@@ -74,9 +74,8 @@ ssize_t vfs::rootfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t 
 }
 
 ssize_t vfs::rootfs::remove(shared_ptr<node> dest) {
-    auto storage = (rootfs::storage *) dest->private_data;
+    auto storage = dest->data_as<rootfs::storage>();
     kfree(storage->buf);
-    frg::destruct(memory::mm::heap, storage);
 
     return 0;
 }

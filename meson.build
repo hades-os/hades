@@ -45,8 +45,8 @@ main_sources = files(
 
     'source/cxx/driver/keyboard.cpp',
 
-    'source/cxx/flanterm/flanterm.cpp',
-    'source/cxx/flanterm/backends/fb.cpp',
+    'source/cxx/flanterm/flanterm.c',
+    'source/cxx/flanterm/backends/fb.c',
 
     'source/cxx/fs/cache.cpp',
     'source/cxx/fs/dev.cpp',
@@ -56,7 +56,7 @@ main_sources = files(
     'source/cxx/fs/vfs.cpp',
 
     'source/cxx/ipc/wire.cpp',
-    'source/cxx/ipc/port.cpp',
+    'source/cxx/ipc/mux.cpp',
     'source/cxx/ipc/link.cpp',
 
     'source/cxx/mm/ctx.cpp',
@@ -132,19 +132,12 @@ flags_ld = [
 	'-T', ld_script,
     '-nostdlib',
     '-mcmodel=kernel',
+    '-mno-red-zone',
     '-fno-pic',
     '-no-pie',
     '-Wl,-z,max-page-size=0x1000,-n',
     '-lgcc'
 ]
-
-crtbegin_obj_command = run_command(meson.get_compiler('cpp'),  flags_common + flags_c, '-print-file-name=crtbegin.o')
-crtbegin_obj = crtbegin_obj_command.stdout().strip()
-
-crtend_obj_command = run_command(meson.get_compiler('cpp'),  flags_common + flags_c, '-print-file-name=crtend.o')
-crtend_obj = crtend_obj_command.stdout().strip()
-
-crt_files = files(crtbegin_obj, crtend_obj)
 
 add_global_arguments(flags_common + flags_c, language: 'c')
 add_global_link_arguments(flags_ld, language: 'c')
@@ -156,7 +149,7 @@ lai_dependency = lai_proj.get_variable('dependency')
 
 make_elf = executable(
     'hades.elf', main_sources,
-    nasm_objects, objects: crt_files,
+    nasm_objects,
     dependencies: [lai_dependency],
     include_directories: [main_includes, freestnd_cpp_hdrs],
     link_depends: ld_script, install: true, build_by_default: false)

@@ -105,13 +105,12 @@ void vfs::devfs::append_device(device *dev, ssize_t major) {
                 panic("[DEVFS]: Unable to make device: %s", device_path.data());
             }
         
-            auto private_data = frg::construct<dev_priv>(memory::mm::heap);
+            auto private_data = smarter::allocate_shared<dev_priv>(memory::mm::heap);
             private_data->dev = dev;
             private_data->part = -1;
+            device_node->as_data(private_data);
         
-            device_node->private_data = private_data;
-        
-            devfs::filedev *filedev = (devfs::filedev *) private_data->dev;
+            devfs::filedev *filedev = (devfs::filedev *) dev;
             filedev->file = device_node;
         
             if (dev->cls == device_class::BLOCKDEV) {
@@ -152,7 +151,7 @@ weak_ptr<vfs::node> vfs::devfs::lookup(shared_ptr<node> parent, frg::string_view
     auto node = parent->find_child(name);
     if (!node) return {};
 
-    auto private_data = (dev_priv *) node->private_data;
+    auto private_data = node->data_as<dev_priv>();
     if (!private_data) return {};
 
     devfs::device *device = private_data->dev;
@@ -162,7 +161,7 @@ weak_ptr<vfs::node> vfs::devfs::lookup(shared_ptr<node> parent, frg::string_view
 }
 
 ssize_t vfs::devfs::on_open(shared_ptr<fd> fd, ssize_t flags) {
-    auto private_data = (dev_priv *) fd->desc->node->private_data;
+    auto private_data = fd->desc->node->data_as<dev_priv>();
     if (!private_data) return -ENOENT;
 
     devfs::filedev *device = (filedev *) private_data->dev;
@@ -172,7 +171,7 @@ ssize_t vfs::devfs::on_open(shared_ptr<fd> fd, ssize_t flags) {
 }
 
 ssize_t vfs::devfs::on_close(shared_ptr<fd>fd, ssize_t flags) {
-    auto private_data = (dev_priv *) fd->desc->node->private_data;
+    auto private_data = fd->desc->node->data_as<dev_priv>();
     if (!private_data) return -ENOENT;
 
     devfs::filedev *device = (filedev *) private_data->dev;
@@ -182,7 +181,7 @@ ssize_t vfs::devfs::on_close(shared_ptr<fd>fd, ssize_t flags) {
 }
 
 ssize_t vfs::devfs::read(shared_ptr<node> file, void *buf, size_t len, off_t offset) {
-    auto private_data = (dev_priv *) file->private_data;
+    auto private_data = file->data_as<dev_priv>();
     if (!private_data) return -ENOENT;
 
     devfs::filedev *device = (filedev *) private_data->dev;
@@ -197,7 +196,11 @@ ssize_t vfs::devfs::read(shared_ptr<node> file, void *buf, size_t len, off_t off
         }
 
         auto cache = blockdev->disk_cache;
-        cache->request_io(buf, offset, len, false);
+        auto res = cache->request_io(buf, offset, len, false);
+        if (res < 0) {
+            return -EIO;
+        }
+
         return len;
     }
 
@@ -205,7 +208,7 @@ ssize_t vfs::devfs::read(shared_ptr<node> file, void *buf, size_t len, off_t off
 }
 
 ssize_t vfs::devfs::write(shared_ptr<node> file, void *buf, size_t len, off_t offset) {
-    auto private_data = (dev_priv *) file->private_data;
+    auto private_data = file->data_as<dev_priv>();
     if (!private_data) return -ENOENT;
 
     devfs::filedev *device = (filedev *) private_data->dev;
@@ -220,7 +223,11 @@ ssize_t vfs::devfs::write(shared_ptr<node> file, void *buf, size_t len, off_t of
         }
 
         auto cache = blockdev->disk_cache;
-        cache->request_io(buf, offset, len, true);
+        auto res = cache->request_io(buf, offset, len, true);
+        if (res < 0) {
+            return -EIO;
+        }
+
         return len;
     }
 
@@ -228,7 +235,7 @@ ssize_t vfs::devfs::write(shared_ptr<node> file, void *buf, size_t len, off_t of
 }
 
 ssize_t vfs::devfs::ioctl(shared_ptr<node> file, size_t req, void *buf) {
-    auto private_data = (dev_priv *) file->private_data;
+    auto private_data = file->data_as<dev_priv>();
     if (!private_data) return -ENOENT;
 
     devfs::filedev *device = (filedev *) private_data->dev;
@@ -241,7 +248,7 @@ ssize_t vfs::devfs::ioctl(shared_ptr<node> file, size_t req, void *buf) {
 }
 
 void *vfs::devfs::mmap(shared_ptr<node> file, void *addr, size_t len, off_t offset) {
-    auto private_data = (dev_priv *) file->private_data;
+    auto private_data = file->data_as<dev_priv>();
     if (!private_data) return nullptr;
 
     devfs::filedev *device = (filedev *) private_data->dev;
@@ -263,7 +270,7 @@ void *vfs::devfs::mmap(shared_ptr<node> file, void *addr, size_t len, off_t offs
 }
 
 ssize_t vfs::devfs::poll(shared_ptr<node> file, sched::thread *thread) {
-    auto private_data = (dev_priv *) file->private_data;
+    auto private_data = file->data_as<dev_priv>();
     if (!private_data) return -ENOENT;
 
     devfs::filedev *device = (filedev *) private_data->dev;

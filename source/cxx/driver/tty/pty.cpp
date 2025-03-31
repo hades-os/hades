@@ -21,22 +21,6 @@ ssize_t tty::ptmx::on_open(shared_ptr<vfs::fd> fd, ssize_t flags) {
     tty::ptm *ptm = frg::construct<tty::ptm>(memory::mm::heap, vfs::devfs::mainbus, dtable::majors::PTM, -1, pts);
     tty::device *pts_tty = frg::construct<tty::device>(memory::mm::heap, vfs::devfs::mainbus, dtable::majors::PTS, -1, pts);
 
-    /*
-        vfs::node *ptm_node = frg::construct<vfs::node>(memory::mm::heap, fd->desc->node->get_fs(), "", fd->desc->node, 0, vfs::node::type::CHARDEV);
-        ptm_node->resolveable = false;
-        ptm_node->private_data = (void *) ptm;
-        ptm->file = ptm_node;
-
-        ptm->major = ptm_major;
-        ptm->minor = last_ptm;
-    */
-
-    /* 
-        pts_tty->driver = pts;
-        pts_tty->major = pts_major;
-        pts_tty->minor = slave_no;
-    */
-
     pts->tty = pts_tty;
     pts->master = ptm;
     pts->has_flush = true;

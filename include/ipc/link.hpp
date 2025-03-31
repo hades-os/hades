@@ -2,7 +2,10 @@
 #define LINK_HPP
 
 #include <cstddef>
-#include <ipc/port.hpp>
+#include <ipc/message.hpp>
+#include <ipc/wire.hpp>
+#include <util/lock.hpp>
+#include <util/ring.hpp>
 #include <util/function.hpp>
 
 namespace ipc {

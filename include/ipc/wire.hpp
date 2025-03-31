@@ -33,8 +33,6 @@ namespace ipc {
 
             frg::tuple<ssize_t, sched::thread *> wait(ssize_t event, bool allow_signals = false, sched::timespec *timeout = nullptr);
             void arise(ssize_t event);
-
-            void clear();
     };
 }
 

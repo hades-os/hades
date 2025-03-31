@@ -140,12 +140,12 @@ void sched::process_env::load_params(char **argv, char **envp) {
     params.envp = (char **) kmalloc(sizeof (char *) * params.envc);
 
     for (size_t i = 0; i < (size_t) params.argc; i++) {
-        params.argv[i] = (char *) kmalloc(strlen(argv[i] + 1));
+        params.argv[i] = (char *) kmalloc(strlen(argv[i]) + 1);
         strcpy(params.argv[i], argv[i]);
     }
 
     for (size_t i = 0; i < (size_t) params.envc; i++) {
-        params.envp[i] = (char *) kmalloc(strlen(envp[i] + 1));
+        params.envp[i] = (char *) kmalloc(strlen(envp[i]) + 1);
         strcpy(params.envp[i], envp[i]);
     }
 }

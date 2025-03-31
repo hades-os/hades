@@ -16,6 +16,7 @@ extern "C" {
         panic("[FRG | PANIC]: %s", cstring);
     }
 
+    void *__dso_handle = 0;
     void __cxa_pure_virtual() {
         panic("pure virtual");
     }
