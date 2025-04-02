@@ -1,3 +1,4 @@
+#include "frg/string.hpp"
 #include "frg/tuple.hpp"
 #include "fs/vfs.hpp"
 #include "mm/mm.hpp"
@@ -8,6 +9,7 @@
 #include <util/types.hpp>
 #include <cstdint>
 #include <fs/ext2.hpp>
+#include <utility>
 
 static log::subsystem logger = log::make_subsystem("EXT2");
 
@@ -156,12 +158,6 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
 
         parent->children.push_back(node);
 
-        /*
-        if (node->type == node::type::SYMLINK) {
-            if (read_symlink(&inode, (char **) (&node)))
-        }
-        */
-
        return node;
     }
 
@@ -249,12 +245,6 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
         meta->st_nlink = 1;
 
         dir->children.push_back(node);
-
-        /*
-        if (node->type == node::type::SYMLINK) {
-            if (read_symlink(&inode, (char **) (&node)))
-        }
-        */
 
        file = file->next;
     }
@@ -442,6 +432,23 @@ ssize_t vfs::ext2fs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t 
     return 0;
 }
 
+ssize_t vfs::ext2fs::readlink(shared_ptr<node> file) {
+    ext2fs::inode inode;
+    if (read_inode_entry(&inode, file->inum) == -1) {
+        return -EBADF;
+    }
+
+    char *buffer = (char *) kmalloc(8192);
+    int len = 0;
+
+    if ((len = read_symlink(&inode, buffer)) == -1) {
+        kfree(buffer);
+        return -ENAMETOOLONG;
+    }
+
+    file->link_target = std::move(vfs::path{buffer});
+}
+
 ssize_t vfs::ext2fs::unlink(shared_ptr<node> dst) {
     auto private_data = dst->data_as<data>();
     return free_inode(private_data->head->dent->inode_index);
@@ -489,18 +496,15 @@ int vfs::ext2fs::write_dirent(inode *dir, int dir_inode, const char *name, int i
     return 0;
 }
 
-inline size_t max_path_length = 8192;
-int vfs::ext2fs::read_symlink(inode *inode, char **path) {
-    *path = (char *) kmalloc(max_path_length);
-
+int vfs::ext2fs::read_symlink(inode *inode, char *path) {
     if (read_inode_size(inode) < 60) {
-        memcpy(*path, inode->blocks, 60);
-    } else if (read_inode(inode, *path, read_inode_size(inode), 0) == -1) {
-        kfree(*path);
+        memcpy(path, inode->blocks, 60);
+        return 60;
+    } else if (read_inode(inode, path, read_inode_size(inode), 0) == -1) {
         return -1;
     }
 
-    return 0;
+    return read_inode_size(inode);
 }
 
 frg::tuple<

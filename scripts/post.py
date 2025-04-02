@@ -35,6 +35,7 @@ def do_boot_disk():
 
     subprocess.run(["parted", "-s", str(image_path), "mklabel", "msdos"])
     subprocess.run(["parted", "-s", str(image_path), "mkpart", "primary", "2048s", '100%'])
+    subprocess.run(["parted", "-s", str(image_path), "set", "1", "boot", "on"])
 
     subprocess.run(["echfs-utils", "-m", "-p0", str(image_path), "quick-format", "512"])
     subprocess.run(["echfs-utils", "-m", "-p0", str(image_path), "import", str(Path(source_dir, "misc", "limine.cfg").resolve()), "limine.cfg"])
