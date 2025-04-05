@@ -38,24 +38,10 @@ constexpr int S_IRWXO = 07;
 constexpr int S_IROTH = 04;
 constexpr int S_IWOTH = 02;
 constexpr int S_IXOTH = 01;
+
 constexpr int S_ISUID = 04000;
 constexpr int S_ISGID = 02000;
 constexpr int S_ISVTX = 01000;
-
-constexpr int DEFAULT_MODE = S_IRWXU | S_IRWXG | S_IRWXO;
-
-constexpr int O_CREAT = 0x000010;
-constexpr int O_APPEND = 0x000008;
-constexpr int O_CLOEXEC = 0x004000;
-constexpr int O_EXCL = 0x000040;
-constexpr int O_DIRECTORY = 0x000020;
-constexpr int O_TRUNC = 0x000200;
-
-constexpr int O_ACCMODE = 0x0007;
-constexpr int O_EXEC = 1;
-constexpr int O_RDONLY = 2;
-constexpr int O_RDWR = 3;
-constexpr int O_WRONLY = 5;
 
 constexpr int S_IFMT     = 0x0f000;
 constexpr int S_IFBLK   = 0x06000;
@@ -66,13 +52,43 @@ constexpr int S_IFDIR   = 0x04000;
 constexpr int S_IFLNK   = 0x0a000;
 constexpr int S_IFSOCK = 0x0c000;
 
+constexpr int DEFAULT_MODE = S_IRWXU | S_IRWXG | S_IRWXO;
+
+constexpr int O_CREAT = 0x000010;
+constexpr int O_APPEND = 0x000008;
+constexpr int O_CLOEXEC = 0x004000;
+constexpr int O_EXCL = 0x000040;
+constexpr int O_DIRECTORY = 0x000020;
+constexpr int O_NOFOLLOW = 0x000100;
+constexpr int O_TRUNC = 0x000200;
 constexpr int O_NOCTTY = 0x000080;
+constexpr int O_NONBLOCK = 0x000400;
+constexpr int O_DSYNC = 0x000800;
+constexpr int O_RSYNC = 0x001000;
+constexpr int O_SYNC = 0x002000;
+constexpr int O_ACCMODE = 0x0007;
+constexpr int O_EXEC = 1;
+constexpr int O_RDONLY = 2;
+constexpr int O_RDWR = 3;
+constexpr int O_WRONLY = 5;
+constexpr int O_PATH = 0x008000;
+constexpr int O_LARGEFILE = 0x010000;
+constexpr int O_NOATIME = 0x020000;
+constexpr int O_ASYNC = 0x040000;
+constexpr int O_TMPFILE = 0x080000;
+constexpr int O_DIRECT = 0x100000;
 
 constexpr int AT_FDCWD = -100;
 constexpr int AT_EMPTY_PATH = 1;
-
 constexpr int AT_SYMLINK_FOLLOW = 2;
 constexpr int AT_SYMLINK_NOFOLLOW = 4;
+constexpr int AT_REMOVEDIR = 8;
+constexpr int AT_EACCESS = 512;
+constexpr int AT_NO_AUTOMOUNT = 1024;
+constexpr int AT_STATX_SYNC_AS_STAT = 0;
+constexpr int AT_STATX_FORCE_SYNC = 2048;
+constexpr int AT_STATX_DONT_SYNC = 4096;
+constexpr int AT_STATX_SYNC_TYPE = 6144;
 
 constexpr int SEEK_SET = 1;
 constexpr int SEEK_CUR = 2;
@@ -94,6 +110,11 @@ constexpr int F_SETLK = 8;
 constexpr int F_SETLKW = 9;
 constexpr int F_GETOWN = 10;
 constexpr int F_SETOWN = 11;
+
+constexpr int F_RDLCK = 1;
+constexpr int F_UNLCK = 2;
+constexpr int F_WRLCK = 3;
+constexpr int FD_CLOEXEC = 1;
 
 constexpr size_t DT_UNKNOWN = 0;
 constexpr size_t DT_FIFO = 1;

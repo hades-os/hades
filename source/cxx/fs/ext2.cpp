@@ -260,6 +260,8 @@ ssize_t vfs::ext2fs::read(shared_ptr<node> file, void *buf, size_t len, off_t of
 
     void *read_buffer = kmalloc(len);
     ssize_t bytes_read = read_inode(&inode, read_buffer, len, offset);
+
+    debug("Src %x, Dst: %x, name: %s", read_buffer, buf, file->name.data());
     ssize_t bytes_copied = arch::copy_to_user(buf, read_buffer, len);
 
     kfree(read_buffer);
@@ -447,6 +449,7 @@ ssize_t vfs::ext2fs::readlink(shared_ptr<node> file) {
     }
 
     file->link_target = std::move(vfs::path{buffer});
+    return 0;
 }
 
 ssize_t vfs::ext2fs::unlink(shared_ptr<node> dst) {
