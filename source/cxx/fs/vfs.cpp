@@ -1,5 +1,6 @@
 #include "arch/types.hpp"
 #include "fs/ext2.hpp"
+#include "fs/poll.hpp"
 #include "mm/common.hpp"
 #include <sys/sched/sched.hpp>
 #include "smarter/smarter.hpp"
@@ -16,6 +17,7 @@
 #include <mm/mm.hpp>
 #include <util/log/log.hpp>
 #include <util/string.hpp>
+#include <utility>
 
 shared_ptr<vfs::node> vfs::tree_root{};
 frg::hash_map<
@@ -532,6 +534,7 @@ ssize_t vfs::ioctl(shared_ptr<fd> fd, size_t req, void *buf) {
 }
 
 ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::timespec *timespec) {
+    auto poll_table = poll::create_table();
     frg::vector<shared_ptr<descriptor>, memory::mm::heap_allocator> desc_list{};
     for (size_t i = 0; i < nfds; i++) {
         auto pollfd = &fds[i];
@@ -544,58 +547,57 @@ ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::t
 
         auto desc = fd->desc;
         desc_list.push(desc);
+        poll_table->connect(desc->queue);
     }
 
-    while (true) {
-        for (size_t i = 0; i < desc_list.size(); i++) {
-            auto desc = desc_list[i];
+    for (size_t i = 0; i < desc_list.size(); i++) {
+        auto desc = desc_list[i];
 
-            shared_ptr<pipe> pipe{};
-            shared_ptr<node> file{};
+        shared_ptr<pipe> pipe{};
+        shared_ptr<node> file{};
 
-            ssize_t status = 0;
-            if (!desc->node) {
-                pipe = desc->pipe;
-                if (desc == pipe->write && pipe->read) {
-                    fds[i].revents = POLLERR & fds[i].revents;
-                    continue;
-                } else if (desc == pipe->read && pipe->write) {
-                    fds[i].revents = POLLHUP & fds[i].revents;
-                    continue;
-                }
+        if (!desc->node) {
+            pipe = desc->pipe;
+            if (desc == pipe->write && pipe->read) {
+                fds[i].revents = POLLERR & fds[i].revents;
+                continue;
+            } else if (desc == pipe->read && pipe->write) {
+                fds[i].revents = POLLHUP & fds[i].revents;
+                continue;
+            }
 
-                // TODO: find a more efficient way to do this0
-                while (__atomic_load_n(&pipe->data_written, __ATOMIC_RELAXED) == 0);
+            // TODO: find a more efficient way to do this0
+            while (__atomic_load_n(&pipe->data_written, __ATOMIC_RELAXED) == 0);
 
-                fds[i].revents = (POLLIN | POLLOUT) & fds[i].revents;
-                return 1;
-            } else {
-                file = desc->node;
+            fds[i].revents = (POLLIN | POLLOUT) & fds[i].revents;
+            return 1;
+        } else {
+            file = desc->node;
 
-                switch (file->type) {
-                    case node::type::CHARDEV: break;
-                    case node::type::SOCKET: break;
-                    case node::type::FIFO: break;
-                    default: {
-                        fds[i].revents = (POLLIN | POLLOUT) & fds[i].revents;
-                        return 1;
-                    }
-                }
-
-                if (!desc->node->fs.expired()) {
-                    auto fs = desc->node->fs.lock();
-                    status = fs->poll(file, arch::get_thread());
+            switch (file->type) {
+                case node::type::CHARDEV: break;
+                case node::type::SOCKET: break;
+                case node::type::FIFO: break;
+                default: {
+                    fds[i].revents = (POLLIN | POLLOUT) & fds[i].revents;
+                    return 1;
                 }
             }
 
-            if (status < 0) {
-                return -1;
+            if (!desc->node->fs.expired()) {
+                auto fs = desc->node->fs.lock();
+                if (fs->poll(desc)) {
+                    return -1;
+                }
             }
+        }
+    }
 
-            if (status & fds[i].events) {
-                fds[i].revents = status & fds[i].events;
-                return 1;
-            }
+    auto [waker, waker_event] = poll_table->wait(true, timespec);
+    for (size_t i = 0; i < desc_list.size(); i++) {
+        if (desc_list[i]->queue == waker) {
+            fds[i].revents = waker_event & fds[i].events;
+            return 1;
         }
     }
 
@@ -697,6 +699,8 @@ shared_ptr<vfs::fd_table> vfs::copy_table(shared_ptr<fd_table> table) {
         new_desc->pos = desc->pos;
         new_desc->info = desc->info;
 
+        desc->queue = poll::create_queue();
+
         new_desc->current_ent = 0;
         new_desc->dirent_list = frg::vector<dirent *, memory::mm::heap_allocator>();
 
@@ -793,6 +797,8 @@ shared_ptr<vfs::fd> vfs::make_fd(shared_ptr<vfs::node> node, shared_ptr<vfs::fd_
     desc->pos= 0;
 
     desc->info = nullptr;
+
+    desc->queue = poll::create_queue();
 
     desc->current_ent = 0;
     desc->dirent_list = frg::vector<dirent *, memory::mm::heap_allocator>();

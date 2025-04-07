@@ -124,7 +124,7 @@ void trace(arch::irq_regs *r) {
 
         parsed++;
         if (!rbp || parsed == max_frames) {
-            break;
+        break;
         }
     }
 }
@@ -140,10 +140,10 @@ extern "C" {
         asm volatile("movq %%cr2, %0" : "=r"(cr2));
 
         if (r->int_no == 14) {
-            if (x86::handle_pf(r)) {
+            if (x86::handle_pf(r) || x86::handle_user_exception(r)) {
                 x86::write_cr3(cr3);
                 goto end_isr;
-            }
+            }         
         }
 
         if (r->int_no < 32) {

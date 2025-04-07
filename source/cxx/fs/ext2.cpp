@@ -40,15 +40,6 @@ bool vfs::ext2fs::load() {
     frag_size = 1024 << superblock->frag_size;
     bgd_count = util::ceil(superblock->block_count, superblock->blocks_per_group);
 
-    kmsg(logger,
-        "ext2fs: inode count: %u, block count: %u, blocks per group: %u, block size: %u, bgd count: %u",
-
-            superblock->inode_count,
-            superblock->block_count,
-            superblock->blocks_per_group,
-            block_size,
-            bgd_count);
-
     ext2fs::inode inode;
     if (read_inode_entry(&inode, 2) == -1) {
         kmsg(logger, "error reading root inode");
@@ -71,7 +62,16 @@ bool vfs::ext2fs::load() {
     auto [_, head] = read_dirents(&inode);
     root->as_data(smarter::allocate_shared<data>(memory::mm::heap, head));
 
-    return true;;
+    kmsg(logger,
+        "ext2fs: inode count: %u, block count: %u, blocks per group: %u, block size: %u, bgd count: %u",
+
+            superblock->inode_count,
+            superblock->block_count,
+            superblock->blocks_per_group,
+            block_size,
+            bgd_count);
+
+    return true;
 }
 
 weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_view name) {
@@ -260,8 +260,6 @@ ssize_t vfs::ext2fs::read(shared_ptr<node> file, void *buf, size_t len, off_t of
 
     void *read_buffer = kmalloc(len);
     ssize_t bytes_read = read_inode(&inode, read_buffer, len, offset);
-
-    debug("Src %x, Dst: %x, name: %s", read_buffer, buf, file->name.data());
     ssize_t bytes_copied = arch::copy_to_user(buf, read_buffer, len);
 
     kfree(read_buffer);

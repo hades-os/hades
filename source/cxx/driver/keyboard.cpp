@@ -8,8 +8,6 @@
 #include <cstddef>
 #include <cstdint>
 
-ipc::wire kb::wire{};
-
 static bool is_shift;
 static bool is_shift_locked;
 static bool is_ctrl;
@@ -218,7 +216,7 @@ void kb::irq_handler(arch::irq_regs *r) {
         }
 
         notify_kbd:
-            kb::wire.arise(evtable::KB_PRESS);
+            tty::active_tty->handle_kbd();
     }
 }
 

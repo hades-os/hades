@@ -2,6 +2,7 @@
 #include "driver/part.hpp"
 #include "frg/string.hpp"
 #include "fs/cache.hpp"
+#include "fs/poll.hpp"
 #include "mm/common.hpp"
 #include "mm/mm.hpp"
 #include "smarter/smarter.hpp"
@@ -269,14 +270,14 @@ void *vfs::devfs::mmap(shared_ptr<node> file, void *addr, size_t len, off_t offs
     //return device->mmap(file, addr, len, offset);
 }
 
-ssize_t vfs::devfs::poll(shared_ptr<node> file, sched::thread *thread) {
-    auto private_data = file->data_as<dev_priv>();
+ssize_t vfs::devfs::poll(shared_ptr<descriptor> file) {
+    auto private_data = file->node->data_as<dev_priv>();
     if (!private_data) return -ENOENT;
 
     devfs::filedev *device = (filedev *) private_data->dev;
     if (!device) return -ENOENT;
 
-    return device->poll(thread);
+    return device->poll(file->queue);
 }
 
 ssize_t vfs::devfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
@@ -288,5 +289,13 @@ ssize_t vfs::devfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t f
     new_dir->meta->st_mode = S_IFDIR | mode;
 
     dst->children.push_back(new_dir);
+    return 0;
+}
+
+ssize_t vfs::devfs::chardev::arise(ssize_t event) {
+    for (auto queue: queues) {
+        queue->arise(event);
+    }
+
     return 0;
 }

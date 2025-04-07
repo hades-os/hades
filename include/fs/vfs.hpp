@@ -1,6 +1,7 @@
 #ifndef VFS_HPP
 #define VFS_HPP
 
+#include "fs/poll.hpp"
 #include "smarter/smarter.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -64,6 +65,8 @@ namespace vfs {
     };
 
     struct fd;
+    struct descriptor;
+
     struct node {
         private:
             void init(ssize_t inum) {
@@ -244,7 +247,7 @@ namespace vfs {
                 return -ENOTSUP;
             }
 
-            virtual ssize_t poll(shared_ptr<node> file, sched::thread *thread) {
+            virtual ssize_t poll(shared_ptr<descriptor> file) {
                 return -ENOTSUP;
             }
 
@@ -289,6 +292,8 @@ namespace vfs {
         size_t pos;
 
         shared_ptr<node::statinfo> info;
+
+        shared_ptr<poll::queue> queue;
 
         int current_ent;
         frg::vector<dirent *, memory::mm::heap_allocator> dirent_list;

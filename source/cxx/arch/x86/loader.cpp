@@ -49,13 +49,13 @@ bool sched::process_env::load_elf(const char *path, shared_ptr<vfs::fd> fd) {
     if (has_interp) {
         if (fd->table.expired()) {
             kfree(interp_path);
-            return -1;
+            return false;
         }
 
         fd = vfs::open(nullptr, interp_path, fd->table.lock(), 0, 0, 0, 0);
         if (!fd) {
             kfree(interp_path);
-            return -1;
+            return false;
         }
 
         interp.ctx = proc->mem_ctx;

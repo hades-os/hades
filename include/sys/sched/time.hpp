@@ -10,10 +10,6 @@ namespace ipc {
     struct wire;
 }
 
-namespace mux {
-    struct drain;
-}
-
 namespace sched {    
     class thread;
 
@@ -71,7 +67,6 @@ namespace sched {
     struct timer {
         timespec spec;
         ipc::wire *wire;
-        mux::drain *drain;
     };
 
     extern timespec clock_rt;

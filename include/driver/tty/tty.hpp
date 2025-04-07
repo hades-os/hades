@@ -2,7 +2,9 @@
 #define TTY_HPP
 
 #include "driver/tty/termios.hpp"
+#include "fs/poll.hpp"
 #include "fs/vfs.hpp"
+#include "ipc/wire.hpp"
 #include "util/lock.hpp"
 #include "util/ring.hpp"
 #include "util/types.hpp"
@@ -52,6 +54,9 @@ namespace tty {
 
     void echo_char(device *tty, char c);
     struct device: vfs::devfs::chardev {
+        private:
+            ipc::wire wire;
+        public:
             util::spinlock lock;
             int ref;
 
@@ -60,8 +65,6 @@ namespace tty {
             sched::session *sess;
             sched::process_group *fg;
             tty::termios termios;
-
-            // TODO: change visibility
 
             util::spinlock in_lock;
             util::ring<char> in;
@@ -74,6 +77,7 @@ namespace tty {
 
             device(vfs::devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux): 
                     vfs::devfs::chardev(bus, major, minor, aux),
+                    wire(), lock(),
                     termios(), in_lock(), in(max_chars), out_lock(),
                     out(output_size), canon_lock(), canon(max_canon_lines) {
                 driver = (tty::driver *) aux;
@@ -96,6 +100,7 @@ namespace tty {
             };
 
             void handle_signal(char c);
+            void handle_kbd();
 
             ssize_t read_canon(void* buf, size_t len);
             ssize_t read_raw(void *buf, size_t len);
@@ -107,7 +112,7 @@ namespace tty {
             ssize_t read(void *buf, size_t count, size_t offset) override;
             ssize_t write(void *buf, size_t count, size_t offset) override;
             ssize_t ioctl(size_t req, void *buf) override;
-            ssize_t poll(sched::thread *thread) override;
+            ssize_t poll(shared_ptr<poll::queue> queue) override;
     };
 
     struct self: vfs::devfs::chardev {

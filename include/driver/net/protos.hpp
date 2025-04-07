@@ -7,6 +7,10 @@
 #include <driver/net/types.hpp>
 
 namespace net  {
+    struct protocol {
+
+    };
+
     namespace arp {
         void arp_send(net::device *dev, net::mac dest_mac, uint32_t dest_ip);
         void arp_handle(net::device *dev, void *pkt);
