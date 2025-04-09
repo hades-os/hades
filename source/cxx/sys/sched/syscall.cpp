@@ -445,12 +445,12 @@ void syscall_sigreturn(arch::irq_regs *r) {
 
     auto ctx = &current_task->sig_ctx;
 
-    util::lock_guard ctx_guard{ctx->lock};
+    ctx->lock.lock();
 
     ctx->sigdelivered |= SIGMASK(current_task->ucontext.signum);
     ctx->wire.arise(evtable::SIGNAL);
 
-    ctx_guard.~lock_guard();
+    ctx->lock.unlock();
 
     auto regs = &current_task->ucontext.ctx.reg;
     current_task->ctx.reg = *regs;

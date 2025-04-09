@@ -145,10 +145,8 @@ extern "C" {
         sched::init();
 
         auto kern_thread = sched::create_thread(kern_task, (uint64_t) pmm::stack(4), vmm::boot, 0);
-        kmsg(logger, "Kern thread tid: %d", kern_thread->tid);
 
-        kern_thread->start();
-        
+        kern_thread->start();        
         while (true) {
             asm volatile("pause");
         }

@@ -9,18 +9,18 @@
 #include <util/lock.hpp>
 
 void ipc::wire::wait_for_wake(sched::thread *thread) {
-    util::lock_guard guard{lock};
+    lock.lock();
     threads.append(thread);
-    guard.~lock_guard();
+    lock.unlock();
 
     arch::stop_thread(thread);
 
     arch::irq_on();
     while (thread->state == sched::thread::BLOCKED && !thread->pending_signal) arch::tick();
 
-    util::lock_guard reguard{lock};
+    lock.lock();
     threads.erase(thread);
-    reguard.~lock_guard();
+    lock.unlock();
 }
 
 frg::tuple<ssize_t, sched::thread *> 

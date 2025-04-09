@@ -138,7 +138,7 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
                 }
 
                 if (c == termios.c_cc[VEOL] || c == termios.c_cc[VEOF]) {
-                    in_guard.~lock_guard();
+                    in_guard.release();
                     goto acquire_chars;
                 }
 
@@ -161,7 +161,7 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
                 }
             }
 
-            in_guard.~lock_guard();
+            in_guard.release();
         }
 
     goto acquire_chars;
@@ -196,7 +196,7 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
             echo_char(this, *chars_ptr++);
         }
 
-        out_guard.~lock_guard();
+        out_guard.release();
         if (driver && driver->has_flush)
             driver->flush(this);
 
@@ -231,7 +231,7 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
             echo_char(this, *chars_ptr++);
         }
 
-        out_guard.~lock_guard();
+        out_guard.release();
         if (driver && driver->has_flush)
             driver->flush(this);
 

@@ -73,6 +73,7 @@ namespace sched {
 
     frg::tuple<tid_t, thread *> pick_task();
     void swap_task(arch::irq_regs *r);
+    void balance_tasks();
 
     struct futex {
         util::spinlock lock;

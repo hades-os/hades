@@ -358,8 +358,7 @@ frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int op
         return {0, 0};
     }
 
-    guard.~lock_guard();
-
+    guard.release();
     process *proc = nullptr;
     pid_t return_pid = 0;
     int exit_status = 0;

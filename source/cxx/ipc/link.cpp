@@ -3,7 +3,7 @@
 #include <ipc/link.hpp>
 
 size_t ipc::link::request(ssize_t req, util::function<void(size_t)> exec_callback) {
-    util::lock_guard guard{lock};
+    lock.lock();
 
     size_t id = lastId++;
     queue.push({
@@ -16,7 +16,7 @@ size_t ipc::link::request(ssize_t req, util::function<void(size_t)> exec_callbac
         .len = 0
     });
 
-    guard.~lock_guard();
+    lock.unlock();
     exec_callback(id);
 
     wire.arise(evtable::NEW_MESSAGE);
@@ -38,7 +38,7 @@ bool ipc::link::sync_wait(ssize_t req, size_t id, bool allow_signals, sched::tim
         queue.push(msg);
 
         wait:
-            guard.~lock_guard();
+            guard.release();
             auto [evt, sender] = wire.wait(evtable::NEW_MESSAGE, allow_signals, timeout);
             if (evt < 0) {
                 if (allow_signals) return false;
@@ -59,7 +59,7 @@ ipc::message
         }
 
         wait:
-            guard.~lock_guard();
+            guard.release();
             auto [evt, sender] = wire.wait(evtable::NEW_MESSAGE, allow_signals, timeout);
             if (evt < 0) {
                 if (allow_signals) return {-1};
@@ -68,7 +68,7 @@ ipc::message
 }
 
 void ipc::link::reply(ssize_t req, size_t id, void *data, size_t len) {
-    util::lock_guard guard{lock};
+    lock.lock();
 
     queue.push({
         .event = req,
@@ -80,6 +80,6 @@ void ipc::link::reply(ssize_t req, size_t id, void *data, size_t len) {
         .len = len
     });
 
-    guard.~lock_guard();
+    lock.unlock();
     wire.arise(evtable::NEW_MESSAGE);
 }

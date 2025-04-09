@@ -5,6 +5,7 @@
 #include "frg/intrusive.hpp"
 #include "frg/list.hpp"
 #include "frg/rbtree.hpp"
+#include "sys/sched/time.hpp"
 #include "util/types.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -61,13 +62,24 @@ namespace x86 {
     constexpr size_t initialStackSize = 16;
 
     enum ipi_events {
-        INIT_TASK,
         START_TASK,
         STOP_TASK,
         KILL_TASK,
 
         GIVE_OWNERSHIP
     };
+
+    struct thread_comparator {
+        bool operator() (sched::thread& a, sched::thread& b) {
+            return a.uptime < b.uptime;
+        };
+    };
+
+    using run_tree = frg::rbtree<
+        sched::thread,
+        &sched::thread::hook,
+        thread_comparator
+    >;
 
     struct [[gnu::packed]] processor {
         uintptr_t kstack;
@@ -91,22 +103,11 @@ namespace x86 {
         sched::process *current_process;
         vmm::vmm_ctx *ctx;
 
-        struct thread_comparator {
-            bool operator() (sched::thread& a, sched::thread& b) {
-                return a.uptime < b.uptime;
-            };
-        };
+        x86::run_tree *run_tree{};
 
-        using run_tree_t = frg::rbtree<
-            sched::thread,
-            &sched::thread::hook,
-            thread_comparator
-        >;
+        uint64_t last_balance;
 
-        run_tree_t *run_tree{};
-        util::spinlock *run_lock;
-
-        processor(size_t processor_id, run_tree_t *run_tree, util::spinlock *run_lock) : processor_id(processor_id), run_tree(run_tree), run_lock(run_lock) { }
+        processor(size_t processor_id, x86::run_tree *run_tree) : processor_id(processor_id), run_tree(run_tree) { }
     };
 
     extern frg::vector<x86::processor *, memory::mm::heap_allocator> cpus;
@@ -126,8 +127,6 @@ namespace x86 {
     int get_errno();
 
     void install_handlers();
-    void init_smp();
-
     void stop_all_cpus();
 };
 

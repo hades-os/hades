@@ -118,13 +118,13 @@ int sched::signal::do_kill(pid_t pid, int sig) {
 
 int sched::signal::wait_signal(thread *task, sigset_t sigmask, sched::timespec *time) {
     auto ctx = &task->sig_ctx;
-    util::lock_guard ctx_guard{ctx->lock};
+    ctx->lock.lock();
 
     for (size_t i = 1; i <= SIGNAL_MAX; i++) {
         if (sigmask & SIGMASK(i)) ctx->sigdelivered &= ~SIGMASK(i);
     }
 
-    ctx_guard.~lock_guard();
+    ctx->lock.unlock();
     for (;;) {
         for (size_t i = 1; i <= SIGNAL_MAX; i++) {
             if (ctx->sigdelivered & SIGMASK(i)) {
