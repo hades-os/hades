@@ -15,6 +15,7 @@ extern "C" {
     size_t strncasecmp(const char *s1, const char *s2, size_t n);
     size_t strcmp(const char *s1, const char *s2);
     size_t strlen(const char *s);
+    size_t strnlen(const char *s, size_t max);
     char *strcpy(const char *dst, const char *src);
 }
 

@@ -87,6 +87,17 @@ namespace util {
 
         return true;
     }
+
+    inline size_t pow2_ceil(size_t a) {
+        a--;
+        a |= a >> 1;
+        a |= a >> 2;
+        a |= a >> 4;
+        a |= a >> 8;
+        a |= a >> 16;
+        a++;
+        return a;
+    }
 };
 
 #endif

@@ -24,8 +24,8 @@ namespace util {
             }
 
             void await() {
-                lock();
-                unlock();
+                while(__atomic_test_and_set(&this->_lock, __ATOMIC_ACQUIRE));
+                __atomic_clear(&this->_lock, __ATOMIC_RELEASE);
             }
 
             void unlock() {

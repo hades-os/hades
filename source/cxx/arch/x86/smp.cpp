@@ -52,8 +52,6 @@ static log::subsystem logger = log::make_subsystem("SMP");
 static util::spinlock cpuBootupLock{};
 extern "C" {
     void processorEntry(stivale::boot::info::processor *entry_ctx) {
-        cpuBootupLock.lock();
-
         auto *cpu = (x86::processor *) entry_ctx->extra_argument;
         x86::wrmsr(x86::MSR_GS_BASE, cpu);
 
@@ -68,7 +66,7 @@ extern "C" {
 
         kmsg(logger, "[CPU %u online]", x86::get_cpu());
 
-        cpuBootupLock.unlock();
+        cpuBootupLock.unlock_noirq();
         apic::lapic::set_timer(1);
         while (true) {
             asm volatile("pause");
@@ -106,6 +104,11 @@ static inline void processorPanic(arch::irq_regs *r) {
 
 static inline void processorMessage(arch::irq_regs *r) {
     switch(x86::get_locals()->ipi_event) {
+        case  x86::INIT_TASK: {
+            x86::init_thread((sched::thread *) x86::get_locals()->ipi_data);
+            break;
+        }
+
         case x86::START_TASK: {
             x86::start_thread((sched::thread *) x86::get_locals()->ipi_data);
             break;
@@ -122,10 +125,11 @@ static inline void processorMessage(arch::irq_regs *r) {
         }
 
         case x86::GIVE_OWNERSHIP: {
-            auto task = (sched::thread *) x86::get_locals()->ipi_data;
             auto run_tree = x86::get_locals()->run_tree;
+            auto task = (sched::thread *) x86::get_locals()->ipi_data;
 
-            run_tree->remove(task);
+            task->ctx.cpu = x86::get_cpu();
+            run_tree->insert(task);
             break;
         }
     }
@@ -151,6 +155,8 @@ void x86::init_smp() {
         processor->kstack = (size_t) pmm::stack(x86::initialStackSize);
         processor->ctx = vmm::boot;
         cpus.push_back(processor);
+
+        cpuBootupLock.lock_noirq();
 
         stivale_cpu->extra_argument = (size_t) processor;
         stivale_cpu->target_stack = processor->kstack;

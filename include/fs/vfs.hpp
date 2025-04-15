@@ -1,6 +1,7 @@
 #ifndef VFS_HPP
 #define VFS_HPP
 
+#include "driver/net/types.hpp"
 #include "fs/poll.hpp"
 #include "smarter/smarter.hpp"
 #include <cstddef>
@@ -16,6 +17,7 @@
 #include <util/log/log.hpp>
 #include <util/types.hpp>
 #include <util/errors.hpp>
+#include <utility>
 
 namespace sched {
     class process;
@@ -29,7 +31,7 @@ namespace vfs {
 
     using path = frg::string<memory::mm::heap_allocator>;
     using pathlist = frg::vector<frg::string_view, memory::mm::heap_allocator>;
-    
+
     struct path_hasher {
         unsigned int operator() (frg::string_view path) {
             return frg::CStringHash{}(path.data());
@@ -79,7 +81,7 @@ namespace vfs {
                     }
                 }
 
-                this->meta = smarter::allocate_shared<statinfo>(memory::mm::heap);                
+                this->meta = smarter::allocate_shared<statinfo>(memory::mm::heap);
             }
 
         public:
@@ -113,13 +115,13 @@ namespace vfs {
                 blkcnt_t st_blkcnt;
             };
 
-            node(weak_ptr<filesystem> fs, path name, weak_ptr<node> parent, ssize_t flags, ssize_t type, ssize_t inum = -1) : fs(fs), name(name),
+            node(weak_ptr<filesystem> fs, path name, weak_ptr<node> parent, ssize_t flags, ssize_t type, ssize_t inum = -1) : fs(fs), name(std::move(name)),
                 delete_on_close(false), parent(parent), children(), flags(flags), type(type), lock() {
                 init(inum);
             };
 
             node(std::nullptr_t, path name, std::nullptr_t, ssize_t flags, ssize_t type, ssize_t inum = -1):
-                fs(), name(name), delete_on_close(false), parent(), children(), flags(flags), type(type), lock() {
+                fs(), name(std::move(name)), delete_on_close(false), parent(), children(), flags(flags), type(type), lock() {
                 init(inum);
             }
 
@@ -172,7 +174,7 @@ namespace vfs {
                     }
 
                     return false;
-                }                
+                }
             }
 
             weak_ptr<filesystem> fs;
@@ -187,7 +189,7 @@ namespace vfs {
             frg::vector<shared_ptr<node>, memory::mm::heap_allocator> children;
 
             shared_ptr<void *> data;
-            
+
             ssize_t inum;
             ssize_t flags;
             ssize_t type;
@@ -203,7 +205,7 @@ namespace vfs {
             shared_ptr<node> root;
             weak_ptr<node> device;
 
-            shared_ptr<filesystem> selfPtr;
+            shared_ptr<filesystem> self;
             path relpath;
 
             filesystem(shared_ptr<node> root, weak_ptr<node> device):
@@ -282,17 +284,102 @@ namespace vfs {
             }
     };
 
+    struct network;
+    struct socket;
+
+    struct network {
+        shared_ptr<network> self;
+        
+        virtual shared_ptr<socket> create(int type, int protocol) {
+            return {};
+        };
+
+        virtual ssize_t close(shared_ptr<socket> socket) {
+            return -ENOTSUP;
+        }
+
+        virtual ssize_t poll(shared_ptr<descriptor> file) {
+            return -ENOTSUP;
+        }
+
+        virtual ssize_t sockopt(shared_ptr<socket> socket, bool set, int level, int optname, void *optval) {
+            return -ENOTSUP;
+        }
+
+        virtual ssize_t bind(shared_ptr<socket> socket, net::sockaddr_storage *addr, net::socklen_t addr_len) {
+            return -ENOTSUP;
+        }
+
+        virtual ssize_t listen(shared_ptr<socket> socket, int backlog) {
+            return -ENOTSUP;
+        }
+
+        virtual shared_ptr<socket> accept(shared_ptr<socket> socket, net::sockaddr_storage *addr, net::socklen_t addr_len, int flags) {
+            return {};
+        }
+
+        virtual ssize_t connect(shared_ptr<socket> socket, net::sockaddr_storage *addr, net::socklen_t addr_len) {
+            return -ENOTSUP;
+        }
+
+        virtual ssize_t shutdown(shared_ptr<socket> socket, int how) {
+            return -ENOTSUP;
+        }
+
+        virtual ssize_t sendto(shared_ptr<socket> socket, void *buf, size_t len, net::sockaddr_storage *addr, net::socklen_t addr_len, int flags) {
+            return  -ENOTSUP;
+        }
+
+        virtual ssize_t sendmsg(shared_ptr<socket> socket, net::msghdr *hdr, int flags) {
+            return -ENOTSUP;
+        }
+
+        virtual ssize_t recvfrom(shared_ptr<socket> socket, void *buf, size_t len, net::sockaddr_storage *addr, net::socklen_t addr_len, int flags) {
+            return  -ENOTSUP;
+        }
+
+        virtual ssize_t recvmsg(shared_ptr<socket> socket, net::msghdr *hdr, int flags) {
+            return -ENOTSUP;
+        }
+    };
+
+    struct socket {
+        weak_ptr<network> network;
+        shared_ptr<node> fs_node;
+
+        path name;
+        path peername;
+
+        shared_ptr<void *> data;
+        util::spinlock lock;
+
+        socket(weak_ptr<vfs::network> network):
+            network(network), fs_node(),
+            name(), peername(),
+            lock() {}
+
+        template<typename T>
+        shared_ptr<T> data_as() {
+            return smarter::reinterpret_pointer_cast<T>(this->data);
+        }
+
+        template<typename T>
+        void as_data(shared_ptr<T> data) {
+            this->data = smarter::reinterpret_pointer_cast<void *>(data);
+        }
+    };
+
     // TODO: sockets
     struct pipe;
     struct descriptor {
         shared_ptr<vfs::node> node;
         shared_ptr<vfs::pipe> pipe;
+        shared_ptr<vfs::socket> socket;
 
         size_t ref;
         size_t pos;
 
         shared_ptr<node::statinfo> info;
-
         shared_ptr<poll::queue> queue;
 
         int current_ent;
@@ -305,7 +392,7 @@ namespace vfs {
 
         void *buf;
         size_t len;
-        
+
         bool data_written;
     };
 
@@ -320,11 +407,11 @@ namespace vfs {
 
         fd(): lock() {};
     };
-    
+
     struct fd_table {
         util::spinlock lock;
         frg::hash_map<
-            int, shared_ptr<fd>, 
+            int, shared_ptr<fd>,
             frg::hash<int>, memory::mm::heap_allocator
         > fd_list;
         size_t last_fd;
@@ -352,8 +439,8 @@ namespace vfs {
     ssize_t read(shared_ptr<fd> fd, void *buf, size_t len);
     ssize_t write(shared_ptr<fd> fd, void *buf, size_t len);
     ssize_t pread(shared_ptr<fd> fd, void *buf, size_t len, off_t offset);
-    ssize_t pwrite(shared_ptr<fd> fd, void *buf, size_t len, off_t offset);    
-    
+    ssize_t pwrite(shared_ptr<fd> fd, void *buf, size_t len, off_t offset);
+
     ssize_t ioctl(shared_ptr<fd> fd, size_t req, void *buf);
     void *mmap(shared_ptr<fd> fd, void *addr, off_t off, size_t len);
 
@@ -365,12 +452,25 @@ namespace vfs {
         uid_t uid, gid_t gid);
     ssize_t mkdir(shared_ptr<node> base, frg::string_view dirpath, int64_t flags, mode_t mode,
         uid_t uid, gid_t gid);
-    
+
     ssize_t rename(shared_ptr<node> old_base, frg::string_view oldpath, shared_ptr<node> new_base, frg::string_view newpath, int64_t flags);
     ssize_t link(shared_ptr<node> from_base, frg::string_view from, shared_ptr<node> to_base, frg::string_view to, bool is_symlink);
     ssize_t unlink(shared_ptr<node> base, frg::string_view filepath);
     ssize_t rmdir(shared_ptr<node> base, frg::string_view dirpath);
     pathlist readdir(shared_ptr<node> base, frg::string_view dirpath);
+
+    shared_ptr<fd> create_socket(shared_ptr<network> network, int type, int protocol);
+    ssize_t close_socket(shared_ptr<fd> fd, int how);
+    ssize_t sockopt(shared_ptr<fd> fd, bool set, int level, int optname, void *optval);
+    ssize_t bind(shared_ptr<fd> fd, net::sockaddr_storage *addr, net::socklen_t addr_len);
+    ssize_t listen(shared_ptr<fd> fd, int backlog);
+    ssize_t accept(shared_ptr<fd> fd, net::sockaddr_storage *addr, net::socklen_t addr_len, int flags);
+    ssize_t connect(shared_ptr<fd> fd, net::sockaddr_storage *addr, net::socklen_t addr_len);
+
+    ssize_t sendto(shared_ptr<fd> fd, void *buf, size_t len, net::sockaddr_storage *addr, net::socklen_t addr_len, int flags);
+    ssize_t sendmsg(shared_ptr<fd> fd, net::msghdr *hdr, int flags);
+    ssize_t recvfrom(shared_ptr<fd> fd, void *buf, size_t len, net::sockaddr_storage *addr, net::socklen_t addr_len, int flags);
+    ssize_t recvmsg(shared_ptr<fd> fd, net::msghdr *hdr, int flags);
 
     // fs use only
     mode_t type2mode(int64_t type);

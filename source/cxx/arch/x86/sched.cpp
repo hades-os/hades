@@ -100,7 +100,7 @@ void x86::init_bsp() {
 
     processor->kstack = (size_t) pmm::stack(x86::initialStackSize);
     processor->ctx = vmm::boot;
-    processor->last_balance = sched::timespec::ms(0);
+    processor->last_balance = 0;
 
     x86::wrmsr(x86::MSR_GS_BASE, processor);
     x86::cpus.push_back(processor);
@@ -120,7 +120,7 @@ void x86::init_bsp() {
 }
 
 void x86::init_ap() {
-    x86::get_locals()->last_balance = sched::timespec::ms(0);
+    x86::get_locals()->last_balance = 0;
     init_syscalls();
     init_sse();
     init_idle();
@@ -163,23 +163,47 @@ void x86::cleanup_vmm_ctx(sched::process *process) {
     vmm::destroy(old_ctx);
 }
 
+x86::processor *x86::least_loaded_cpu() {
+    x86::processor *lowest_load = nullptr;
+    for (size_t i = 0; i < x86::cpus.size(); i++) {
+        if (lowest_load) {
+            if (lowest_load->load_average > x86::cpus[i]->load_average) lowest_load = x86::cpus[i];
+        } else {
+            lowest_load = x86::cpus[i];
+        }
+    }
+
+    return lowest_load;
+}
+
 void arch::init_thread(sched::thread *task) {
-    x86::init_thread(task);
+    auto lowest_load = x86::least_loaded_cpu();
+
+    if (lowest_load->processor_id == x86::get_cpu()) 
+        x86::init_thread(task);
+    else 
+        x86::message_processor(lowest_load->processor_id, x86::ipi_events::INIT_TASK, task);
 }
 
 void arch::start_thread(sched::thread *task) {
-    if (task->ctx.cpu == x86::get_cpu())  x86::start_thread(task);
-    else x86::message_processor(task->ctx.cpu, x86::ipi_events::START_TASK, task);
+    if (task->ctx.cpu == x86::get_cpu()) 
+        x86::start_thread(task);
+    else 
+        x86::message_processor(task->ctx.cpu, x86::ipi_events::START_TASK, task);
 }
 
 void arch::stop_thread(sched::thread *task) {
-    if (task->ctx.cpu == x86::get_cpu()) x86::stop_thread(task);
-    else x86::message_processor(task->ctx.cpu, x86::ipi_events::STOP_TASK, task);
+    if (task->ctx.cpu == x86::get_cpu()) 
+        x86::stop_thread(task);
+    else 
+        x86::message_processor(task->ctx.cpu, x86::ipi_events::STOP_TASK, task);
 }
 
 void arch::kill_thread(sched::thread *task) {
-    if (task->ctx.cpu == x86::get_cpu()) x86::kill_thread(task);
-    else x86::message_processor(task->ctx.cpu, x86::ipi_events::KILL_TASK, task);
+    if (task->ctx.cpu == x86::get_cpu()) 
+        x86::kill_thread(task);
+    else 
+        x86::message_processor(task->ctx.cpu, x86::ipi_events::KILL_TASK, task);
 }
 
 void x86::init_thread(sched::thread *task) {
@@ -430,6 +454,30 @@ tid_t arch::allocate_tid() {
     return last_tid++;
 }
 
+size_t calc_total_tasks() {
+    auto run_tree = x86::get_locals()->run_tree;
+    size_t total_tasks = 0;
+
+    auto current = run_tree->first();
+    while (current) {
+        total_tasks++;
+        current = run_tree->successor(current);
+    }
+
+    return total_tasks;
+}
+
+// Exponential moving average load average, ripped from Linux
+
+constexpr size_t exp = 2014;
+constexpr size_t fixed_precision = 11;
+constexpr size_t fixed_one = (1 << fixed_precision);
+void x86::calc_average_load(x86::processor *cpu) {
+    cpu->load_average *= exp;
+    cpu->load_average += (calc_total_tasks() * fixed_one) * (fixed_one - exp);
+    cpu->load_average >>= fixed_precision;
+}
+
 frg::tuple<tid_t, sched::thread *> sched::pick_task() {
     sched::balance_tasks();
 
@@ -444,11 +492,34 @@ frg::tuple<tid_t, sched::thread *> sched::pick_task() {
     return {-1, arch::get_idle()};
 }
 
-constexpr size_t BALANCE_INTERVAL = 5;
+constexpr size_t BALANCE_INTERVAL = 1;
+constexpr size_t AVERAGE_INTERVAL = 60;
+constexpr size_t BALANCE_THRESHOLD = 500;
 void sched::balance_tasks() {
-    if (clock_mono > x86::get_locals()->last_balance + timespec::ms(BALANCE_INTERVAL * MILLIS_PER_SEC)) {
-        debug("Called balancer");
+    x86::calc_average_load(x86::get_locals());
+    if (clock_mono.tv_sec > x86::get_locals()->last_balance + BALANCE_INTERVAL) {
+        if (x86::get_locals()->load_average > BALANCE_THRESHOLD) {
+            auto least_loaded = x86::least_loaded_cpu();
+            auto run_tree = x86::get_locals()->run_tree;
+            auto task = run_tree->last();
+            while (task) {
+                if (task->ctx.privilege == 3) break;
+                task = run_tree->successor(task);
+            }
 
-        x86::get_locals()->last_balance = clock_mono;
+            if (least_loaded->processor_id != x86::get_cpu() &&
+                (task && task->ctx.privilege == 3)) {
+                run_tree->remove(task);
+                x86::message_processor(least_loaded->processor_id, x86::GIVE_OWNERSHIP, task);                
+            }
+        }
+
+        x86::get_locals()->last_balance = clock_mono.tv_sec;
     }
+
+    if (clock_mono.tv_sec > x86::get_locals()->last_average + AVERAGE_INTERVAL) {
+        debug("CPU Load Average: %d", x86::get_locals()->load_average);
+        x86::get_locals()->last_average = clock_mono.tv_sec;
+        x86::get_locals()->load_average = 0;
+    }    
 }

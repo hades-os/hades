@@ -142,7 +142,7 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
         }
 
         auto inode_index = file->dent->inode_index;
-        auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, selfPtr, name, parent, 0, node_type, inode_index);
+        auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, parent, 0, node_type, inode_index);
         auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
 
         node->meta = meta;
@@ -229,7 +229,7 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
         // filesystem *fs, path name, node *parent, ssize_t flags, ssize_t type, ssize_t inum = -1
 
         auto inode_index = file->dent->inode_index;
-        auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, selfPtr, file->name, dir, 0, node_type, inode_index);
+        auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, file->name, dir, 0, node_type, inode_index);
         auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
 
         node->meta = meta;
@@ -371,7 +371,7 @@ ssize_t vfs::ext2fs::create(shared_ptr<node> dst, path name, int64_t type, int64
         return -1;
     }
 
-    auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, selfPtr, name, dst, flags, type, inum);
+    auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, type, inum);
     auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
 
     meta->st_ino = inum;
@@ -414,7 +414,7 @@ ssize_t vfs::ext2fs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t 
         return -1;
     }
 
-    auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, selfPtr, name, dst, flags, node::type::DIRECTORY, inum);
+    auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, node::type::DIRECTORY, inum);
     auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
 
     meta->st_ino = inum;

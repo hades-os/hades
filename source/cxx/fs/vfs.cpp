@@ -775,10 +775,9 @@ shared_ptr<vfs::node>  vfs::make_recursive(shared_ptr<node> base, frg::string_vi
     shared_ptr<node> next = smarter::allocate_shared<node>(memory::mm::heap, base->fs, view.data() + view.find_last('/') + 1, current_node, 0, type);
     next->meta->st_uid = current_node->meta->st_uid;
     next->meta->st_gid = current_node->meta->st_gid;
-    next->meta->st_mode = (current_node->meta->st_mode & (~S_IFDIR)) | type2mode(type);
+    next->meta->st_mode = (current_node->meta->st_mode & (~S_IFDIR)) | type2mode(type) | mode;
 
     current_node->children.push_back(next);
-
     return next;
 }
 
@@ -1167,7 +1166,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                     auto root = smarter::allocate_shared<node>(memory::mm::heap, nullptr, "/", nullptr, 0, node::type::DIRECTORY);
                     auto fs = smarter::allocate_shared<rootfs>(memory::mm::heap, root);
 
-                    fs->selfPtr = fs;
+                    fs->self = fs;
                     root->fs = fs;
                     tree_root = root;
                     mounts["/"] = fs;
@@ -1189,7 +1188,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
 
                     auto fs = smarter::allocate_shared<devfs>(memory::mm::heap, dst);
 
-                    fs->selfPtr = fs;
+                    fs->self = fs;
                     dst->fs = fs;
 
                     mounts[strip_leading(dstpath)] = fs;
@@ -1219,7 +1218,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                     }
 
                     auto fs = smarter::allocate_shared<ext2fs>(memory::mm::heap, dst, src);
-                    fs->selfPtr = fs;
+                    fs->self = fs;
                     if (!fs->load()) {
                         return -EINVAL;
                     }

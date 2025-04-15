@@ -282,7 +282,7 @@ ssize_t vfs::devfs::poll(shared_ptr<descriptor> file) {
 
 ssize_t vfs::devfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto new_dir = smarter::allocate_shared<vfs::node>(memory::mm::heap, selfPtr, name, dst, flags, node::type::DIRECTORY);
+    auto new_dir = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, node::type::DIRECTORY);
 
     new_dir->meta->st_uid = uid;
     new_dir->meta->st_gid = gid;

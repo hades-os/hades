@@ -31,7 +31,4 @@ void pit::init() {
     size_t vector = arch::alloc_vector();
     arch::install_vector(vector, pit_tick_handler);
     arch::route_irq(0, vector);
-
-    sched::clock_mono = { .tv_sec = 0, .tv_nsec = 0 };
-    sched::clock_rt = { .tv_sec = 0, .tv_nsec = 0 };
 }

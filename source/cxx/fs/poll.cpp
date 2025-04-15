@@ -14,13 +14,13 @@ void poll::queue::arise(ssize_t event) {
     util::lock_guard guard{lock};
 
     for (auto table: tables) {
-        table->arise(event, selfPtr);
+        table->arise(event, self);
     }
 }
 
 poll::queue::~queue() {
     for (auto table: tables) {
-        table->disconnect(selfPtr);
+        table->disconnect(self);
     }
 }
 
@@ -78,7 +78,7 @@ void poll::table::connect(shared_ptr<queue> queue) {
     util::lock_guard queue_guard{queue->lock};
 
     queues.push(queue);
-    queue->tables.push(selfPtr);
+    queue->tables.push(self);
 }
 
 void poll::table::disconnect(shared_ptr<queue> queue) {
@@ -86,7 +86,7 @@ void poll::table::disconnect(shared_ptr<queue> queue) {
     util::lock_guard queue_guard{queue->lock};
 
     queues.erase(queue);
-    queue->tables.erase(selfPtr);
+    queue->tables.erase(self);
 }
 
 poll::table::~table() {
@@ -97,14 +97,14 @@ poll::table::~table() {
 
 shared_ptr<poll::table> poll::create_table() {
     auto table = smarter::allocate_shared<poll::table>(memory::mm::heap);
-    table->selfPtr = table;
+    table->self = table;
 
     return table;
 }
 
 shared_ptr<poll::queue> poll::create_queue() {
     auto queue = smarter::allocate_shared<poll::queue>(memory::mm::heap);
-    queue->selfPtr = queue;
+    queue->self = queue;
 
     return queue;
 }

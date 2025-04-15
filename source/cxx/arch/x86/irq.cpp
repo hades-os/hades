@@ -64,7 +64,7 @@ void arch::init_irqs() {
     x86::hook_irqs();
 }
 
-size_t last_handler = x86::IRQ0;
+size_t last_handler = x86::IRQ0 + 1;
 x86::irq_handler handlers[224] = {};
 
 x86::irq_ptr x86_ptr = {};
