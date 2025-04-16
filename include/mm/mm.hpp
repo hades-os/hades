@@ -4,6 +4,7 @@
 #include <new>
 #include <cstddef>
 #include <mm/common.hpp>
+#include <type_traits>
 
 namespace mm {
     struct allocator {
@@ -17,7 +18,7 @@ namespace mm {
     allocator heap();
     allocator slab(size_t object_size);
 
-    template<typename T>
+    template<auto object, class T=std::decay<decltype(*object)>>
     allocator slab() {
         return slab(sizeof(T));
     }

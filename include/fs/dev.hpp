@@ -118,7 +118,7 @@ namespace vfs {
             };
 
             struct device {
-                frg::vector<device *, memory::mm::heap_allocator> bus_devices;
+                frg::vector<device *, mm::allocator> bus_devices;
                 devfs::busdev *bus;
 
                 ssize_t major;
@@ -143,7 +143,7 @@ namespace vfs {
                 protected:
                     virtual ssize_t arise(ssize_t event) = 0;
                 public:
-                    frg::vector<shared_ptr<poll::queue>, memory::mm::heap_allocator> queues;
+                    frg::vector<shared_ptr<poll::queue>, mm::allocator> queues;
                     shared_ptr<node> file;
 
                     virtual ssize_t on_open(shared_ptr<fd> fd, ssize_t flags) = 0;
@@ -170,9 +170,9 @@ namespace vfs {
                         size_t begin;
                         partition(size_t blocks, size_t begin) : blocks(blocks), begin(begin) { };
                     };
-                    frg::vector<partition, memory::mm::heap_allocator> part_list;
+                    frg::vector<partition, mm::allocator> part_list;
 
-                    frg::vector<filesystem *, memory::mm::heap_allocator> fs_list;
+                    frg::vector<filesystem *, mm::allocator> fs_list;
 
                     size_t blocks;
                     size_t block_size;
@@ -230,7 +230,7 @@ namespace vfs {
             static void probe();
 
             struct device_list {
-                frg::vector<device *, memory::mm::heap_allocator> list;
+                frg::vector<device *, mm::allocator> list;
                 size_t last_index;
 
                 device_list(): list(), last_index(0) {}
@@ -240,7 +240,7 @@ namespace vfs {
                 size_t,
                 device_list,
                 frg::hash<size_t>,
-                memory::mm::heap_allocator>
+                mm::allocator>
             device_map{frg::hash<size_t>()};
 
             static void append_device(device *dev, ssize_t major);

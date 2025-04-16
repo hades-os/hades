@@ -28,14 +28,14 @@ section .rodata
 	align 16
 	gdt_start:
 		.null_descriptor: ; 0x0
-			dw 0xFFFF
+			dw 0x0000
 			dw 0x0000
 			db 0x00
 			db 00000000b
 			db 00000000b
 			db 0x00
 			
-		.kernel_code_64: ; 0x8 K CS
+		.kernel_code: ; 0x8 K CS
 			dw 0xFFFF
 			dw 0x0000
 			db 0x00
@@ -50,21 +50,21 @@ section .rodata
 			db 10010010b
 			db 11000000b
 			db 0x00
-		.user_code_64: ; 0x1B CS
+		.user_code: ; 0x1B CS
 			dw 0xFFFF
 			dw 0x0000
 			db 0x00
 			db 11111010b
 			db 10100000b
 			db 0x00
-		.user_data_64: ; 0x23 SS
+		.user_data: ; 0x23 SS
 			dw 0xFFFF
 			dw 0x0000
 			db 0x00
 			db 11110010b
 			db 11000000b
 			db 0x00
-		.tss_64:
+		.tss:
 			dq 0x0
 			dq 0x0
 	

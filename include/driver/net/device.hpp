@@ -19,11 +19,11 @@ namespace net {
 
     class device {
         public:
-            frg::hash_map<uint32_t, uint8_t *, frg::hash<uint32_t>, memory::mm::heap_allocator> arp_table;
-            frg::vector<net::route, memory::mm::heap_allocator> ipv4_routing_table;
+            frg::hash_map<uint32_t, uint8_t *, frg::hash<uint32_t>, mm::allocator> arp_table;
+            frg::vector<net::route, mm::allocator> ipv4_routing_table;
 
             frg::hash_map<uint32_t, ipc::wire, 
-                frg::hash<uint32_t>,  memory::mm::heap_allocator> pending_arps;
+                frg::hash<uint32_t>,  mm::allocator> pending_arps;
 
             // TODO: IP Fragmemtation
             net::mac mac;

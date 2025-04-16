@@ -25,7 +25,7 @@ namespace net {
                 frg::string_view,
                 weak_ptr<vfs::socket>,
                 vfs::path_hasher,
-                memory::mm::heap_allocator
+                mm::allocator
             > abstract_names;
 
             enum state {

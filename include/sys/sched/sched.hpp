@@ -206,9 +206,9 @@ namespace sched {
 
             vmm::vmm_ctx *mem_ctx;
 
-            frg::vector<thread *, memory::mm::heap_allocator> threads;
-            frg::vector<process *, memory::mm::heap_allocator> children;
-            frg::vector<process *, memory::mm::heap_allocator> zombies;            
+            frg::vector<thread *, mm::allocator> threads;
+            frg::vector<process *, mm::allocator> children;
+            frg::vector<process *, mm::allocator> zombies;            
             shared_ptr<vfs::fd_table> fds;
             shared_ptr<vfs::node> cwd;
 
@@ -276,7 +276,7 @@ namespace sched {
             bool is_orphan;
 
             session *sess;
-            frg::vector<process *, memory::mm::heap_allocator> procs;
+            frg::vector<process *, mm::allocator> procs;
             size_t process_count;
 
             process_group(process *leader): pgid(leader->pid), leader_pid(leader->pid), is_orphan(false), sess(nullptr), procs(), process_count(1) {
@@ -303,7 +303,7 @@ namespace sched {
             pid_t sid;
             pid_t leader_pgid;
             process *leader;
-            frg::vector<process_group *, memory::mm::heap_allocator> groups;
+            frg::vector<process_group *, mm::allocator> groups;
             size_t group_count;
 
             tty::device *tty;

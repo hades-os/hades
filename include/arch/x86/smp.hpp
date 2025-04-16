@@ -113,7 +113,7 @@ namespace x86 {
         processor(size_t processor_id, x86::run_tree *run_tree) : processor_id(processor_id), run_tree(run_tree) { }
     };
 
-    extern frg::vector<x86::processor *, memory::mm::heap_allocator> cpus;
+    extern frg::vector<x86::processor *, mm::allocator> cpus;
 
     void message_processor(ssize_t processor_id, size_t ipi_event, void *ipi_data);
     void calc_average_load(x86::processor *cpu);

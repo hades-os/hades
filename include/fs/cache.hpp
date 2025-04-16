@@ -21,7 +21,7 @@ namespace cache {
         private:
             util::spinlock lock;
 
-            frg::rcu_radixtree<uintptr_t, memory::mm::heap_allocator> address_tree;
+            frg::rcu_radixtree<uintptr_t, mm::allocator> address_tree;
             vfs::devfs::blockdev *backing_device;
 
             frg::tuple<ssize_t, void*> write_page(size_t offset );
@@ -50,7 +50,7 @@ namespace cache {
 
             bool syncing;
 
-            frg::vector<shared_ptr<request>, memory::mm::heap_allocator> requests;
+            frg::vector<shared_ptr<request>, mm::allocator> requests;
         public:
             ssize_t request_io(void *buffer, size_t offset, size_t len, bool rw);
 
