@@ -4,6 +4,7 @@
 #include "arch/x86/types.hpp"
 #include "frg/allocation.hpp"
 #include "ipc/evtable.hpp"
+#include "mm/slab.hpp"
 #include "util/lock.hpp"
 #include <fs/vfs.hpp>
 #include <mm/common.hpp>
@@ -43,6 +44,10 @@ static bool has_recursive_access(shared_ptr<vfs::node> target, uid_t effective_u
 
 // TODO: execveat
 void syscall_exec(arch::irq_regs *r) {
+    auto process = arch::get_process();
+    auto current_task = arch::get_thread();
+    auto allocator = process->allocator;
+
     char *in_path = (char *) r->rdi;
     char **in_argv = (char **) r->rsi;
     char **in_envp = (char **) r->rdx;
@@ -61,39 +66,36 @@ void syscall_exec(arch::irq_regs *r) {
         }
     }
 
-    char *path = (char *) kmalloc(strlen(in_path) + 1);
-    char **argv = (char **) kmalloc(sizeof(char *) * (argc + 1));
-    char **envp = (char **) kmalloc(sizeof(char *) * (envc + 1));
+    char *path = (char *) allocator.allocate(strlen(in_path) + 1);
+    char **argv = (char **) allocator.allocate(sizeof(char *) * (argc + 1));
+    char **envp = (char **) allocator.allocate(sizeof(char *) * (envc + 1));
     strcpy(path, in_path);
 
     for (size_t i = 0; i < envc; i++) {
-        envp[i] = (char *) kmalloc(strlen(in_envp[i]));
+        envp[i] = (char *) allocator.allocate(strlen(in_envp[i]));
         strcpy(envp[i], in_envp[i]);
     }
 
     for (size_t i = 0; i < argc; i++) {
-        argv[i] = (char *) kmalloc(strlen(in_argv[i]));
+        argv[i] = (char *) allocator.allocate(strlen(in_argv[i]));
         strcpy(argv[i], in_argv[i]);
     }    
-
-    auto process = arch::get_process();
-    auto current_task = arch::get_thread();
 
     auto fd = vfs::open(nullptr, path, process->fds, 0, 0, 0, 0);
     if (!fd) {
         arch::set_errno(EBADF);
 
         for (size_t i = 0; i < envc; i++) {
-            kfree(envp[i]);
+            allocator.deallocate(envp[i]);
         }
 
         for (size_t i = 0; i < argc; i++) {
-            kfree(argv[i]);
+            allocator.deallocate(argv[i]);
         }    
 
-        kfree(path);
-        kfree(argv);
-        kfree(envp);
+        allocator.deallocate(path);
+        allocator.deallocate(argv);
+        allocator.deallocate(envp);
 
         r->rax = -1;
         return;
@@ -117,7 +119,7 @@ void syscall_exec(arch::irq_regs *r) {
         };
 
         arch::kill_thread(task);
-        frg::destruct(memory::mm::heap, task);
+        frg::destruct(mm::slab<sched::thread>(), task);
     }
 
     process->main_thread = current_task;
@@ -135,16 +137,16 @@ void syscall_exec(arch::irq_regs *r) {
     auto res = process->env.load_elf(path, fd);
     if (!res) {
         for (size_t i = 0; i < envc; i++) {
-            kfree(envp[i]);
+            allocator.deallocate(envp[i]);
         }
 
         for (size_t i = 0; i < argc; i++) {
-            kfree(argv[i]);
+            allocator.deallocate(argv[i]);
         }    
 
-        kfree(path);
-        kfree(argv);
-        kfree(envp);
+        allocator.deallocate(path);
+        allocator.deallocate(argv);
+        allocator.deallocate(envp);
 
         r->rax = -1;
         return;
@@ -186,16 +188,16 @@ void syscall_exec(arch::irq_regs *r) {
     }
 
     for (size_t i = 0; i < envc; i++) {
-        kfree(envp[i]);
+        allocator.deallocate(envp[i]);
     }
 
     for (size_t i = 0; i < argc; i++) {
-        kfree(argv[i]);
+        allocator.deallocate(argv[i]);
     }    
 
-    kfree(path);
-    kfree(argv);
-    kfree(envp);
+    allocator.deallocate(path);
+    allocator.deallocate(argv);
+    allocator.deallocate(envp);
 
     current_task->state = sched::thread::READY;
     process->did_exec = true;
@@ -382,7 +384,7 @@ void syscall_setpgid(arch::irq_regs *r) {
         if (old_group->process_count == 0) {
             old_group->sess->remove_group(old_group);
             sched::remove_process_group(old_group->pgid);
-            frg::destruct(memory::mm::heap, old_group);            
+            frg::destruct(mm::slab<sched::process_group>(), old_group);            
         }
     }
 
@@ -423,7 +425,7 @@ void syscall_setsid(arch::irq_regs *r) {
         if (old_group->process_count == 0) {
             old_group->sess->remove_group(old_group);
             sched::remove_process_group(old_group->pgid);
-            frg::destruct(memory::mm::heap, old_group);            
+            frg::destruct(mm::slab<sched::process_group>(), old_group);            
         }
     }
 

@@ -9,6 +9,8 @@
 #include <mm/vmm.hpp>
 #include <util/log/log.hpp>
 #include <util/io.hpp>
+#include "mm/boot.hpp"
+#include "mm/slab.hpp"
 
 int64_t *refs = nullptr;
 uint64_t refs_len = 0;
@@ -19,13 +21,15 @@ util::spinlock vmm_lock{};
 static log::subsystem logger = log::make_subsystem("VM");
 // API Functions
 void vmm::init() {
+    auto allocator = mm::slab<int64_t>();
+
     refs_len = pmm::nr_pages * sizeof(int64_t);
-    refs = (int64_t *) kmalloc(refs_len);
+    refs = (int64_t *) allocator.allocate(refs_len);
     for (size_t i = 0; i < pmm::nr_pages; i++) {
         refs[i] = -1;
     }
 
-    boot = frg::construct<vmm_ctx>(memory::mm::heap);
+    boot = frg::construct<vmm_ctx>(allocator);
     boot->page_map = new_pagemap();
     boot->setup_hole();
 
@@ -54,7 +58,7 @@ void vmm::init() {
 }
 
 vmm::vmm_ctx *vmm::create() {
-    auto new_ctx = frg::construct<vmm_ctx>(memory::mm::heap);
+    auto new_ctx = frg::construct<vmm_ctx>(mm::slab<vmm_ctx>());
 
     new_ctx->page_map = new_pagemap();
     new_ctx->setup_hole();
@@ -65,7 +69,7 @@ vmm::vmm_ctx *vmm::create() {
 
 void vmm::destroy(vmm_ctx *ctx) {
     boot->swap_in();
-
     ctx->~vmm_ctx();
-    frg::destruct(memory::mm::heap, ctx);
+ 
+    frg::destruct(mm::slab<vmm_ctx>(), ctx);
 }

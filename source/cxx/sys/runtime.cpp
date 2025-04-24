@@ -5,8 +5,10 @@
 #include <sys/runtime.hpp>
 #include <util/log/log.hpp>
 #include <util/log/panic.hpp>
+#include "mm/boot.hpp"
 
 static log::subsystem logger = log::make_subsystem("FRG");
+static boot::allocator allocator = mm::boot();
 extern "C" {
 	void FRG_INTF(log)(const char *cstring) {
         kmsg(logger, cstring);
@@ -43,13 +45,13 @@ extern "C" {
 }
 
 void operator delete(void *ptr) {
-    kfree(ptr);
+    allocator.deallocate(ptr);
 }
 
 void operator delete(void *ptr, size_t _) {
-    kfree(ptr);
+    allocator.deallocate(ptr);
 }
 
 void *operator new(size_t size) {
-    return kmalloc(size);
+    return allocator.allocate(size);
 }

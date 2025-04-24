@@ -79,8 +79,6 @@ namespace sched {
 
     extern timespec clock_rt;
     extern timespec clock_mono;
-
-    extern frg::vector<sched::timer, mm::allocator> timers;
 }
 
 #endif

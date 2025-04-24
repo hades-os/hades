@@ -1,7 +1,9 @@
 #ifndef VMM_HPP
 #define VMM_HPP
 
+#include "mm/arena.hpp"
 #include "mm/common.hpp"
+#include "mm/mm.hpp"
 #include <cstddef>
 #include <stdint.h>
 #include <stddef.h>
@@ -107,6 +109,8 @@ namespace vmm {
             vmm_ctx_map page_map;
 
             mapping::mapping_perms flags_to_perms(map_flags flags);
+
+            arena::allocator allocator;
         public:
             util::spinlock lock;
 

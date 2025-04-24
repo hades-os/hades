@@ -3,8 +3,10 @@
 #include "frg/string.hpp"
 #include "fs/cache.hpp"
 #include "fs/poll.hpp"
+#include "mm/boot.hpp"
 #include "mm/common.hpp"
 #include "mm/mm.hpp"
+#include "mm/slab.hpp"
 #include "smarter/smarter.hpp"
 #include "util/log/log.hpp"
 #include "util/log/panic.hpp"
@@ -21,7 +23,7 @@ vfs::devfs::rootbus *vfs::devfs::mainbus = nullptr;
 void vfs::devfs::rootbus::attach(ssize_t major, void *aux) {
     switch(major) {
         case dtable::majors::PCI: {
-            pcibus *pci_bus = frg::construct<pcibus>(memory::mm::heap, this, 0);
+            pcibus *pci_bus = frg::construct<pcibus>(mm::slab<pcibus>(), this, 0);
 
             bus_devices.push_back(pci_bus);
             pci_bus->minor = bus_devices.size() - 1;
@@ -56,7 +58,7 @@ void vfs::devfs::init() {
 }
 
 void vfs::devfs::probe() {
-    mainbus = frg::construct<rootbus>(memory::mm::heap);
+    mainbus = frg::construct<rootbus>(mm::slab<rootbus>());
     mainbus->enumerate();
 }
 
@@ -106,7 +108,7 @@ void vfs::devfs::append_device(device *dev, ssize_t major) {
                 panic("[DEVFS]: Unable to make device: %s", device_path.data());
             }
         
-            auto private_data = smarter::allocate_shared<dev_priv>(memory::mm::heap);
+            auto private_data = smarter::allocate_shared<dev_priv>(mm::slab<dev_priv>());
             private_data->dev = dev;
             private_data->part = -1;
             device_node->as_data(private_data);
@@ -277,12 +279,12 @@ ssize_t vfs::devfs::poll(shared_ptr<descriptor> file) {
     devfs::filedev *device = (filedev *) private_data->dev;
     if (!device) return -ENOENT;
 
-    return device->poll(file->queue);
+    return device->poll(file->producer);
 }
 
 ssize_t vfs::devfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto new_dir = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, node::type::DIRECTORY);
+    auto new_dir = smarter::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, node::type::DIRECTORY);
 
     new_dir->meta->st_uid = uid;
     new_dir->meta->st_gid = gid;
@@ -293,8 +295,8 @@ ssize_t vfs::devfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t f
 }
 
 ssize_t vfs::devfs::chardev::arise(ssize_t event) {
-    for (auto queue: queues) {
-        queue->arise(event);
+    for (auto producer: outputs) {
+        producer->arise(event);
     }
 
     return 0;

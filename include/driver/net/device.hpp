@@ -3,6 +3,7 @@
 
 #include "fs/dev.hpp"
 #include "ipc/wire.hpp"
+#include "mm/arena.hpp"
 #include "util/types.hpp"
 #include <frg/hash_map.hpp>
 #include <frg/rcu_radixtree.hpp>
@@ -19,11 +20,13 @@ namespace net {
 
     class device {
         public:
-            frg::hash_map<uint32_t, uint8_t *, frg::hash<uint32_t>, mm::allocator> arp_table;
-            frg::vector<net::route, mm::allocator> ipv4_routing_table;
+            arena::allocator allocator;
+
+            frg::hash_map<uint32_t, uint8_t *, frg::hash<uint32_t>, arena::allocator> arp_table;
+            frg::vector<net::route, arena::allocator> ipv4_routing_table;
 
             frg::hash_map<uint32_t, ipc::wire, 
-                frg::hash<uint32_t>,  mm::allocator> pending_arps;
+                frg::hash<uint32_t>,  arena::allocator> pending_arps;
 
             // TODO: IP Fragmemtation
             net::mac mac;
@@ -43,7 +46,7 @@ namespace net {
             virtual uint32_t route(uint32_t dest) = 0;
             virtual void send(const void *buf, size_t len) = 0;
 
-            device(): arp_table(frg::hash<uint32_t>()), ipv4_routing_table(), pending_arps(frg::hash<uint32_t>()) {}
+            device(): allocator(), arp_table(frg::hash<uint32_t>(), allocator), ipv4_routing_table(allocator), pending_arps(frg::hash<uint32_t>(), allocator) {}
     };
 }
 

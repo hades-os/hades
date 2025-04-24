@@ -1,6 +1,8 @@
 #include "driver/dtable.hpp"
 #include "driver/video/vesa.hpp"
+#include "fs/poll.hpp"
 #include "ipc/evtable.hpp"
+#include "mm/slab.hpp"
 #include "util/lock.hpp"
 #include "util/types.hpp"
 #include <arch/types.hpp>
@@ -19,7 +21,7 @@ size_t self_major = 5;
 size_t self_minor = 0;
 
 void tty::self::init() {
-    auto self = frg::construct<tty::self>(memory::mm::heap, vfs::devfs::mainbus, dtable::majors::SELF_TTY, -1, nullptr);
+    auto self = frg::construct<tty::self>(mm::slab<tty::self>(), vfs::devfs::mainbus, dtable::majors::SELF_TTY, -1, nullptr);
     vfs::devfs::append_device(self, dtable::majors::SELF_TTY);
 }
 
@@ -123,11 +125,11 @@ ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     // TODO: nonblock support in vfs
     out_lock.lock();
 
-    char *chars = (char *) kmalloc(count);
+    char *chars = (char *) allocator.allocate(count);
     char *chars_ptr = chars;
     auto copied = arch::copy_from_user(chars, buf, count);
     if (copied < count) {
-        kfree(chars);
+        allocator.deallocate(chars);
         out_lock.unlock();
         return count - copied;
     }
@@ -144,7 +146,7 @@ ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     out_lock.unlock();
     driver->flush(this);
 
-    kfree(chars);
+    allocator.deallocate(chars);
     return bytes;
 }
 
@@ -249,8 +251,8 @@ ssize_t tty::device::ioctl(size_t req, void *buf) {
     }
 }
 
-ssize_t tty::device::poll(shared_ptr<poll::queue> queue) {
-    queues.push(queue);
+ssize_t tty::device::poll(shared_ptr<poll::producer> producer) {
+    outputs.push(producer);
     return POLLOUT;
 }
 

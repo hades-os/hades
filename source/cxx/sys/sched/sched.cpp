@@ -3,6 +3,7 @@
 #include "frg/rcu_radixtree.hpp"
 #include "frg/variant.hpp"
 #include "ipc/evtable.hpp"
+#include "mm/slab.hpp"
 #include "util/types.hpp"
 #include <arch/types.hpp>
 #include <cstddef>
@@ -27,18 +28,15 @@ void sched::init() {
 }
 
 sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege, bool assign_tid) {
-    return frg::construct<thread>(memory::mm::heap,(uintptr_t) pmm::stack(x86::initialStackSize), rsp,
+    return frg::construct<thread>(mm::slab<thread>(),(uintptr_t) pmm::stack(x86::initialStackSize), rsp,
         (uintptr_t) pmm::stack(x86::initialStackSize), ctx,
         main, rsp, privilege,
         assign_tid);
 }
 
 sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege) {
-    process *proc = frg::construct<process>(memory::mm::heap);
+    process *proc = frg::construct<process>(mm::slab<process>());
 
-    proc->threads = frg::vector<thread *, mm::allocator>();
-    proc->children = frg::vector<process *, mm::allocator>();
-    proc->zombies = frg::vector<process *, mm::allocator>();
     proc->fds = vfs::make_table();
 
     proc->main_thread = create_thread(main, rsp, ctx, privilege);
@@ -81,30 +79,27 @@ sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, 
 }
 
 sched::process_group *sched::create_process_group(process *leader) {
-    auto group = frg::construct<sched::process_group>(memory::mm::heap, leader);
+    auto group = frg::construct<sched::process_group>(mm::slab<process_group>(), leader);
     add_process_group(group);
 
     return group;
 }
 
 sched::session *sched::create_session(process *leader, process_group *group) {
-    auto sess = frg::construct<sched::session>(memory::mm::heap, leader, group);
+    auto sess = frg::construct<sched::session>(mm::slab<session>(), leader, group);
     add_session(sess);
 
     return sess;
 }
 
 sched::thread *sched::fork(thread *original, vmm::vmm_ctx *ctx, arch::irq_regs *r) {
-    return frg::construct<thread>(memory::mm::heap, original, ctx, r,
+    return frg::construct<thread>(mm::slab<thread>(), original, ctx, r,
         (uintptr_t) pmm::stack(x86::initialStackSize), (uintptr_t) pmm::stack(x86::initialStackSize));
 }
 
 sched::process *sched::fork(process *original, thread *caller, arch::irq_regs *r) {
-    process *proc = frg::construct<process>(memory::mm::heap);
+    process *proc = frg::construct<process>(mm::slab<process>());
 
-    proc->threads = frg::vector<thread *, mm::allocator>();
-    proc->children = frg::vector<process *, mm::allocator>();
-    proc->zombies = frg::vector<process *, mm::allocator>();
     proc->fds = vfs::copy_table(original->fds);
     proc->cwd = original->cwd;
 
@@ -182,7 +177,7 @@ void sched::process::kill(int exit_code) {
         };
 
         arch::kill_thread(task);
-        frg::destruct(memory::mm::heap, task);
+        frg::destruct(mm::slab<sched::thread>(), task);
     }
 
     arch::cleanup_vmm_ctx(this);
@@ -213,7 +208,7 @@ void sched::process::kill(int exit_code) {
                 group->sess->remove_group(group);
                 remove_process_group(group->pgid);
     
-                frg::destruct(memory::mm::heap, group);
+                frg::destruct(mm::slab<process_group>(), group);
             } else {
                 bool is_orphan = true;
                 for (size_t i = 0; i < group->procs.size(); i++) {
@@ -257,7 +252,7 @@ void sched::process::kill(int exit_code) {
             sess->groups.clear();
     
             remove_session(sess->sid);
-            frg::destruct(memory::mm::heap, sess);
+            frg::destruct(mm::slab<session>(), sess);
         }
     }
 
@@ -322,8 +317,8 @@ void reap_process(sched::process *zombie) {
     auto task = zombie->main_thread;
     sched::remove_process(zombie->pid);
 
-    frg::destruct(memory::mm::heap, task);
-    frg::destruct(memory::mm::heap, zombie);
+    frg::destruct(mm::slab<sched::thread>(), task);
+    frg::destruct(mm::slab<sched::process>(), zombie);
 }
 
 frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int options) {

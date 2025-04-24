@@ -1,4 +1,5 @@
 #include <driver/bus/pci.hpp>
+#include "util/io.hpp"
 
 static constexpr auto CONFIG_PORT = 0xCF8;
 static constexpr auto DATA_PORT   = 0xCFC;

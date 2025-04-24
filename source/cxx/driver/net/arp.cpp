@@ -12,7 +12,7 @@
 log::subsystem netlog = log::make_subsystem("NET");
 void net::arp::arp_send(net::device *dev, net::mac dest_mac, uint32_t dest_ip) {
     size_t eth_pkt_len = sizeof(net::eth) + sizeof(net::pkt::arp_eth_ipv4);
-    char *eth_pkt = (char *) kmalloc(eth_pkt_len);
+    char *eth_pkt = (char *) dev->allocator.allocate(eth_pkt_len);
 
     net::eth *eth_hdr = (net::eth *) eth_pkt;
     memcpy(eth_hdr->dest, dest_mac, net::eth_alen);
@@ -36,7 +36,7 @@ void net::arp::arp_send(net::device *dev, net::mac dest_mac, uint32_t dest_ip) {
     arp_pkt->dest_ip = htonl(dest_ip);
 
     dev->send(eth_pkt, eth_pkt_len);
-    kfree(eth_pkt);
+    dev->allocator.deallocate(eth_pkt);
 }
 
 void net::arp::arp_handle(net::device *dev, void *pkt) {
@@ -76,10 +76,10 @@ void net::arp::arp_handle(net::device *dev, void *pkt) {
             if (dev->arp_table.contains(src_ip)) {
                 uint8_t *old_mac = dev->arp_table[src_ip];
                 dev->arp_table.remove(src_ip);
-                kfree(old_mac);
+                dev->allocator.deallocate(old_mac);
             }
 
-            uint8_t *arp_mac = (uint8_t *) kmalloc(net::eth_alen);
+            uint8_t *arp_mac = (uint8_t *) dev->allocator.allocate(net::eth_alen);
             memcpy(arp_mac, src_mac, net::eth_alen);
 
             dev->arp_table.insert(src_ip, arp_mac);
@@ -107,7 +107,7 @@ void net::arp::arp_handle(net::device *dev, void *pkt) {
 
 void net::arp::arp_probe(net::device *dev, uint32_t ip) {
     size_t eth_pkt_len = sizeof(net::eth) + sizeof(net::pkt::arp_eth_ipv4);
-    char *eth_pkt = (char *) kmalloc(eth_pkt_len);
+    char *eth_pkt = (char *) dev->allocator.allocate(eth_pkt_len);
 
     net::eth *eth_hdr = (net::eth *) eth_pkt;
     memcpy(eth_hdr->dest, net::broadcast_mac, net::eth_alen);
@@ -131,7 +131,7 @@ void net::arp::arp_probe(net::device *dev, uint32_t ip) {
     arp_pkt->dest_ip = htonl(ip);
 
     dev->send(eth_pkt, eth_pkt_len);
-    kfree(eth_pkt);
+    dev->allocator.deallocate(eth_pkt);
 }
 
 void net::arp::arp_wait(net::device *dev, uint32_t ip) {

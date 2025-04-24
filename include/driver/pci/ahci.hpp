@@ -11,7 +11,7 @@ namespace pci {
         private:
             pci::device *device;
     
-            frg::vector<::ahci::device *, mm::allocator> devices;
+            frg::vector<::ahci::device *, arena::allocator> devices;
         public:
             struct matcher: vfs::devfs::matcher {
                 vfs::devfs::device *match(vfs::devfs::busdev *bus, void *aux) override;
@@ -27,7 +27,7 @@ namespace pci {
             shared_ptr<vfs::devfs::bus_dma> get_dma(size_t size) override;
 
             ahcibus(vfs::devfs::busdev *bus,
-                pci::device *device): vfs::devfs::busdev(bus, dtable::majors::AHCIBUS, -1, nullptr), device(device), devices() {};
+                pci::device *device): vfs::devfs::busdev(bus, dtable::majors::AHCIBUS, -1, nullptr), device(device), devices(allocator) {};
     };    
 }
 

@@ -10,10 +10,10 @@
 
 sched::timespec sched::clock_rt{};
 sched::timespec sched::clock_mono{};
-frg::vector<sched::timer, mm::allocator> sched::timers{};
+static frg::vector<sched::timer, boot::allocator> timers{};
 
 void arch::add_timer(sched::timer timer) {
-    sched::timers.push_back(timer);
+    timers.push_back(timer);
 }
 
 void arch::tick_clock(long nanos) {
@@ -22,13 +22,13 @@ void arch::tick_clock(long nanos) {
     sched::clock_rt = sched::clock_rt + interval;
     sched::clock_mono = sched::clock_mono + interval;
 
-    for (auto timer = sched::timers.begin(); timer != sched::timers.end();) {
+    for (auto timer = timers.begin(); timer != timers.end();) {
         timer->spec = timer->spec - interval;
         if (timer->spec.tv_nsec == 0 && timer->spec.tv_sec == 0) {
             if (timer->wire)
                 timer->wire->arise(evtable::TIME_WAKE);
 
-            timer = sched::timers.erase(timer);
+            timer = timers.erase(timer);
         } else {
             ++timer;
         }

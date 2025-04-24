@@ -7,6 +7,7 @@
 #include "frg/string.hpp"
 #include "fs/vfs.hpp"
 #include "ipc/wire.hpp"
+#include "mm/arena.hpp"
 
 namespace net {
     struct sockaddr_un {
@@ -25,7 +26,7 @@ namespace net {
                 frg::string_view,
                 weak_ptr<vfs::socket>,
                 vfs::path_hasher,
-                mm::allocator
+                arena::allocator
             > abstract_names;
 
             enum state {
@@ -37,8 +38,7 @@ namespace net {
                 size_t state;
                 ipc::wire wire;
 
-                
-
+            
                 data(): state(state::CLOSED), wire() {}
             };
         public:

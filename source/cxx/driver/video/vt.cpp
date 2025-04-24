@@ -1,4 +1,5 @@
 #include "driver/dtable.hpp"
+#include "mm/slab.hpp"
 #include "util/lock.hpp"
 #include <cstddef>
 #include <driver/video/vt.hpp>
@@ -39,10 +40,10 @@ ssize_t vt::driver::ioctl(tty::device *tty, size_t req, void *buf) {
             is_enabled = (uintptr_t) buf;
             if (is_enabled) {
                 if (!fb_save) {
-                    fb_save = frg::construct<fb::fb_info>(memory::mm::heap);
-                    fb_save->var = frg::construct<fb::fb_var_screeninfo>(memory::mm::heap);
-                    fb_save->fix = frg::construct<fb::fb_fix_screeninfo>(memory::mm::heap);
-                    
+                    fb_save = frg::construct<fb::fb_info>(allocator);
+                    fb_save->var = frg::construct<fb::fb_var_screeninfo>(allocator);
+                    fb_save->fix = frg::construct<fb::fb_fix_screeninfo>(allocator);
+
                     *fb_save->var = *fb->var;
                     *fb_save->fix = *fb->fix;
 
@@ -50,11 +51,11 @@ ssize_t vt::driver::ioctl(tty::device *tty, size_t req, void *buf) {
                 }
 
                 flanterm_write(ft_ctx, "\e[?251", 6);
-                memcpy((void *) fb_save->fix->smem_start, (void *) fb->fix->smem_start, 
+                memcpy((void *) fb_save->fix->smem_start, (void *) fb->fix->smem_start,
                                      fb->fix->smem_len);
             } else {
                 if (fb_save) {
-                    memcpy((void *) fb->fix->smem_start, (void *) fb_save->fix->smem_start, 
+                    memcpy((void *) fb->fix->smem_start, (void *) fb_save->fix->smem_start,
                      fb->fix->smem_len);
                 }
 
@@ -98,14 +99,14 @@ ssize_t vt::driver::ioctl(tty::device *tty, size_t req, void *buf) {
 }
 
 void vt::init(stivale::boot::tags::framebuffer info) {
-    vt::driver *driver = frg::construct<vt::driver>(memory::mm::heap);
+    vt::driver *driver = frg::construct<vt::driver>(mm::slab<vt::driver>());
 
     driver->has_flush = true;
     driver->has_ioctl = true;
 
-    driver->fb = frg::construct<fb::fb_info>(memory::mm::heap);
-    driver->fb->fix = frg::construct<fb::fb_fix_screeninfo>(memory::mm::heap);
-    driver->fb->var = frg::construct<fb::fb_var_screeninfo>(memory::mm::heap);
+    driver->fb = frg::construct<fb::fb_info>(driver->allocator);
+    driver->fb->fix = frg::construct<fb::fb_fix_screeninfo>(driver->allocator);
+    driver->fb->var = frg::construct<fb::fb_var_screeninfo>(driver->allocator);
 
     driver->fb->fix->smem_start = (uint64_t) info.addr + memory::x86::virtualBase;
     driver->fb->fix->line_length = info.pitch;
@@ -113,14 +114,14 @@ void vt::init(stivale::boot::tags::framebuffer info) {
     driver->fb->var->yres = info.height;
 
     driver->ft_ctx = flanterm_fb_init(
-        kmalloc, kfree_sz,
+        NULL, NULL,
         (uint32_t *) (info.addr + memory::x86::virtualBase),
         info.width, info.height, info.pitch,
         info.red_mask_size, info.red_mask_shift,
         info.green_mask_size, info.green_mask_shift,
         info.red_mask_size, info.red_mask_shift,
         NULL,
-        NULL, NULL, 
+        NULL, NULL,
         NULL, NULL,
         NULL, NULL,
         NULL, 0, 0, 1,
@@ -129,7 +130,7 @@ void vt::init(stivale::boot::tags::framebuffer info) {
     );
 
     for (size_t i = 0; i < vt_ttys; i++) {
-        auto tty = frg::construct<tty::device>(memory::mm::heap, vfs::devfs::mainbus, dtable::majors::VT, -1, driver);
+        auto tty = frg::construct<tty::device>(mm::slab<tty::device>(), vfs::devfs::mainbus, dtable::majors::VT, -1, driver);
         vfs::devfs::append_device(tty, dtable::majors::VT);
     }
 }

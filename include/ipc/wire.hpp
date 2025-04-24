@@ -3,6 +3,7 @@
 
 #include "frg/hash_map.hpp"
 #include "mm/mm.hpp"
+#include "mm/slab.hpp"
 #include <cstddef>
 #include <util/lock.hpp>
 #include <frg/vector.hpp>
@@ -16,7 +17,7 @@ namespace sched {
 namespace ipc {
     struct  wire {
         private:
-            frg::vector<sched::thread *, mm::allocator> threads;
+            frg::vector<sched::thread *, slab::allocator> threads;
 
             ssize_t latest_event;
             sched::thread *latest_waker;
@@ -25,7 +26,7 @@ namespace ipc {
 
             void wait_for_wake(sched::thread *);
         public:
-            wire(): threads(), lock() {}
+            wire(): threads(mm::slab<sched::thread *>()), lock() {}
 
             wire(wire&& other): threads(std::move(other.threads)),
                 latest_event(std::move(other.latest_event)), latest_waker(std::move(other.latest_waker)),

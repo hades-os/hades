@@ -4,6 +4,7 @@
 #include "mm/common.hpp"
 #include "mm/mm.hpp"
 #include "mm/pmm.hpp"
+#include "mm/slab.hpp"
 #include "smarter/smarter.hpp"
 #include "util/types.hpp"
 #include <cstddef>
@@ -522,7 +523,7 @@ void pcibus::attach(ssize_t major, void *aux) {
         case dtable::majors::PCI: {
             auto info = (pci::attach_args *) aux;
 
-            pcibus *secondary_bus = frg::construct<pcibus>(memory::mm::heap, this,
+            pcibus *secondary_bus = frg::construct<pcibus>(mm::slab<pcibus>(), this,
                 pci::get_secondary_bus(info->bus, info->slot, info->func));
 
             bus_devices.push_back(secondary_bus);
@@ -604,7 +605,7 @@ void pcibus::enumerate() {
 }
 
 shared_ptr<vfs::devfs::bus_dma> pcibus::get_dma(size_t size) {
-    return smarter::allocate_shared<pci_dma>(memory::mm::heap,
+    return smarter::allocate_shared<pci_dma>(mm::slab<pci_dma>(),
         size);
 }
 

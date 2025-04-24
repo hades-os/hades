@@ -880,7 +880,7 @@ void syscall_readdir(arch::irq_regs *r) {
     if ((node->children.size() >= fd->desc->current_ent) && node->children.size() != fd->desc->dirent_list.size()) {
         for (auto dirent: fd->desc->dirent_list) {
             if (dirent == nullptr) continue;
-            frg::destruct(memory::mm::heap, dirent);
+            frg::destruct(fd->desc->allocator, dirent);
         }
 
         fd->desc->dirent_list.clear();
@@ -895,7 +895,7 @@ void syscall_readdir(arch::irq_regs *r) {
                 return;
             }
 
-            auto entry = frg::construct<dirent>(memory::mm::heap);
+            auto entry = frg::construct<dirent>(fd->desc->allocator);
             make_dirent(node, child, entry);
             fd->desc->dirent_list.push(entry);
         }

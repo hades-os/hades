@@ -1,3 +1,4 @@
+#include "mm/slab.hpp"
 #include "smarter/smarter.hpp"
 #include "util/types.hpp"
 #include <cstddef>
@@ -20,7 +21,7 @@ ssize_t vfs::rootfs::write(shared_ptr<node> file, void *buf, size_t len, off_t o
     auto storage = file->data_as<rootfs::storage>();
     if (storage->length < len + offset) {
         void *old = storage->buf;
-        storage->buf = kmalloc(len + offset);
+        storage->buf = allocator.allocate(len + offset);
         memcpy(storage->buf, old, storage->length);
         storage->length = len + offset;
     }
@@ -44,11 +45,11 @@ ssize_t vfs::rootfs::read(shared_ptr<node> file, void *buf, size_t len, off_t of
 
 ssize_t vfs::rootfs::create(shared_ptr<node> dst, path name, int64_t type, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto storage = smarter::allocate_shared<rootfs::storage>(memory::mm::heap);
-    storage->buf = kmalloc(memory::page_size);
+    auto storage = smarter::allocate_shared<rootfs::storage>(mm::slab<rootfs::storage>());
+    storage->buf = allocator.allocate(memory::page_size);
     storage->length = memory::page_size;
 
-    auto new_file = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, type);
+    auto new_file = smarter::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, type);
 
     new_file->meta->st_uid = uid;
     new_file->meta->st_gid = gid;
@@ -62,7 +63,7 @@ ssize_t vfs::rootfs::create(shared_ptr<node> dst, path name, int64_t type, int64
 
 ssize_t vfs::rootfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto new_dir = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, node::type::DIRECTORY);
+    auto new_dir = smarter::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, node::type::DIRECTORY);
 
     new_dir->meta->st_uid = uid;
     new_dir->meta->st_gid = gid;
@@ -75,7 +76,7 @@ ssize_t vfs::rootfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t 
 
 ssize_t vfs::rootfs::remove(shared_ptr<node> dest) {
     auto storage = dest->data_as<rootfs::storage>();
-    kfree(storage->buf);
+    allocator.deallocate(storage->buf);
 
     return 0;
 }

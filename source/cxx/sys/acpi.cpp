@@ -7,6 +7,7 @@
 #include <util/string.hpp>
 #include <util/log/log.hpp>
 #include <util/log/panic.hpp>
+#include "mm/boot.hpp"
 
 #define member(structType, elementType, structPtr, memberName) \
   ((elementType*)(((char*)(structPtr)) + offsetof(structType, memberName)))
@@ -21,9 +22,9 @@ bool use_x_dsdt = false;
 
 namespace acpi {
     namespace madt {
-        frg::vector<ioapic *, mm::allocator> ioapics{};
-        frg::vector<iso *, mm::allocator> isos{};
-        frg::vector<nmi *, mm::allocator> nmis{};
+        frg::vector<ioapic *, boot::allocator> ioapics(mm::boot());
+        frg::vector<iso *, boot::allocator> isos(mm::boot());
+        frg::vector<nmi *, boot::allocator> nmis(mm::boot());
     };
 
     acpi::sdt *tables[22];

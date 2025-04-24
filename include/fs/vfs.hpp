@@ -3,6 +3,7 @@
 
 #include "driver/net/types.hpp"
 #include "fs/poll.hpp"
+#include "mm/arena.hpp"
 #include "smarter/smarter.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -29,8 +30,8 @@ namespace vfs {
     class filesystem;
     class manager;
 
-    using path = frg::string<memory::mm::heap_allocator>;
-    using pathlist = frg::vector<frg::string_view, memory::mm::heap_allocator>;
+    using path = frg::string<arena::allocator>;
+    using pathlist = frg::vector<frg::string_view, arena::allocator>;
 
     struct path_hasher {
         unsigned int operator() (frg::string_view path) {
@@ -81,7 +82,7 @@ namespace vfs {
                     }
                 }
 
-                this->meta = smarter::allocate_shared<statinfo>(mm::slab());
+                this->meta = smarter::allocate_shared<statinfo>(mm::slab<statinfo>());
             }
 
         public:
@@ -116,12 +117,12 @@ namespace vfs {
             };
 
             node(weak_ptr<filesystem> fs, path name, weak_ptr<node> parent, ssize_t flags, ssize_t type, ssize_t inum = -1) : fs(fs), name(std::move(name)),
-                delete_on_close(false), parent(parent), children(), flags(flags), type(type), lock() {
+                delete_on_close(false), parent(parent), allocator(), children(allocator), flags(flags), type(type), lock() {
                 init(inum);
             };
 
             node(std::nullptr_t, path name, std::nullptr_t, ssize_t flags, ssize_t type, ssize_t inum = -1):
-                fs(), name(std::move(name)), delete_on_close(false), parent(), children(), flags(flags), type(type), lock() {
+                fs(), name(std::move(name)), delete_on_close(false), parent(), allocator(), children(allocator), flags(flags), type(type), lock() {
                 init(inum);
             }
 
@@ -186,7 +187,11 @@ namespace vfs {
             bool delete_on_close;
 
             weak_ptr<node> parent;
-            frg::vector<shared_ptr<node>, memory::mm::heap_allocator> children;
+
+            arena::allocator allocator;
+            
+            // TODO: lc-rs tree instead of vector
+            frg::vector<shared_ptr<node>, arena::allocator> children;
 
             shared_ptr<void *> data;
 
@@ -344,7 +349,7 @@ namespace vfs {
     };
 
     struct socket {
-        weak_ptr<network> network;
+        weak_ptr<vfs::network> network;
         shared_ptr<node> fs_node;
 
         path name;
@@ -353,10 +358,12 @@ namespace vfs {
         shared_ptr<void *> data;
         util::spinlock lock;
 
+        arena::allocator allocator;
+
         socket(weak_ptr<vfs::network> network):
             network(network), fs_node(),
             name(), peername(),
-            lock() {}
+            lock(), allocator() {}
 
         template<typename T>
         shared_ptr<T> data_as() {
@@ -380,15 +387,21 @@ namespace vfs {
         size_t pos;
 
         shared_ptr<node::statinfo> info;
-        shared_ptr<poll::queue> queue;
+        shared_ptr<poll::producer> producer;
+
+        arena::allocator allocator;
 
         int current_ent;
-        frg::vector<dirent *, memory::mm::heap_allocator> dirent_list;
+        frg::vector<dirent *, arena::allocator> dirent_list;
+
+        descriptor(): allocator(), dirent_list(allocator) {}
     };
 
     struct pipe {
         shared_ptr<descriptor> read;
         shared_ptr<descriptor> write;
+
+        arena::allocator allocator;
 
         void *buf;
         size_t len;
@@ -410,13 +423,14 @@ namespace vfs {
 
     struct fd_table {
         util::spinlock lock;
+        arena::allocator allocator;
         frg::hash_map<
             int, shared_ptr<fd>,
-            frg::hash<int>, memory::mm::heap_allocator
+            frg::hash<int>, arena::allocator
         > fd_list;
         size_t last_fd;
 
-        fd_table(): lock(), fd_list(frg::hash<int>()) {}
+        fd_table(): lock(), allocator(), fd_list(frg::hash<int>(), allocator) {}
     };
 
     static size_t zero = 0;

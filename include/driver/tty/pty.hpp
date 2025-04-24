@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <driver/tty/tty.hpp>
 #include <util/lock.hpp>
+#include "mm/arena.hpp"
 
 namespace tty {
     struct ptm;
@@ -32,6 +33,8 @@ namespace tty {
             util::spinlock in_lock;
             util::ring<char> in;
             pts *slave;
+
+            arena::allocator allocator;
         public:
             friend struct ptmx;
             friend struct pts;
@@ -43,9 +46,11 @@ namespace tty {
 
             ptm(vfs::devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux): 
                 chardev(bus, major, minor, aux),
-                in_lock(), in(max_chars) {
+                in_lock(), in(max_chars),
+                allocator() {
                 slave = (pts *) aux;
             };
+
             ssize_t read(void *buf, size_t len, size_t offset) override;
             ssize_t write(void *buf, size_t len, size_t offset) override; 
             ssize_t ioctl(size_t req, void *buf) override;        

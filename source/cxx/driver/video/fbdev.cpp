@@ -3,11 +3,12 @@
 #include "fs/vfs.hpp"
 #include "mm/common.hpp"
 #include "mm/mm.hpp"
+#include "mm/slab.hpp"
 #include <util/stivale.hpp>
 #include <driver/video/fbdev.hpp>
 
 void fb::init(stivale::boot::tags::framebuffer *info) {
-    auto device = frg::construct<fb::device>(memory::mm::heap, vfs::devfs::mainbus, dtable::majors::FB, -1, nullptr);
+    auto device = frg::construct<fb::device>(mm::slab<fb::device>(), vfs::devfs::mainbus, dtable::majors::FB, -1, nullptr);
 
     device->width = info->width;
     device->height = info->height;
@@ -18,8 +19,8 @@ void fb::init(stivale::boot::tags::framebuffer *info) {
     device->major = major;
     device->minor = 0;
 
-    device->linux_compat.fix = frg::construct<fb_fix_screeninfo>(memory::mm::heap);
-    device->linux_compat.var = frg::construct<fb_var_screeninfo>(memory::mm::heap);
+    device->linux_compat.fix = frg::construct<fb_fix_screeninfo>(device->allocator);
+    device->linux_compat.var = frg::construct<fb_var_screeninfo>(device->allocator);
     
     *device->linux_compat.fix = (fb_fix_screeninfo) {
         .id = { 0 },

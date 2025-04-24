@@ -1,6 +1,7 @@
 #ifndef ROOTFS_HPP
 #define ROOTFS_HPP
 
+#include "mm/arena.hpp"
 #include "util/types.hpp"
 #include <cstddef>
 #include <frg/hash.hpp>
@@ -16,9 +17,10 @@ namespace vfs {
                 size_t length;
             };
 
+            arena::allocator allocator;
         public:
             rootfs(shared_ptr<node> root):
-                vfs::filesystem(root, {}){}
+                vfs::filesystem(root, {}), allocator() {}
 
             weak_ptr<node> lookup(shared_ptr<node> parent, frg::string_view name) override;
             

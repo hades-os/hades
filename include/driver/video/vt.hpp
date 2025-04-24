@@ -6,6 +6,7 @@
 #include <driver/video/fbdev.hpp>
 #include <util/stivale.hpp>
 #include <cstddef>
+#include "mm/arena.hpp"
 
 namespace vt {
     constexpr size_t vt_ttys = 2;
@@ -39,6 +40,8 @@ namespace vt {
 
         fb::fb_info *fb;
         fb::fb_info *fb_save;
+
+        arena::allocator allocator;
 
         ssize_t ioctl(tty::device *tty, size_t req, void *buf) override;
         void flush(tty::device *tty) override;

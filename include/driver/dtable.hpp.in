@@ -3,8 +3,10 @@
 
 #include <cstddef>
 #include <fs/dev.hpp>
+#include <frg/allocation.hpp>
 #include <driver/matchers.hpp>
 #include <driver/majtable.hpp>
+#include <mm/boot.hpp>
 
 // match_data is bus-specific
 

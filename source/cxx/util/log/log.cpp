@@ -15,6 +15,7 @@
 #define NANOPRINTF_USE_BINARY_FORMAT_SPECIFIERS 1
 #define NANOPRINTF_USE_WRITEBACK_FORMAT_SPECIFIERS 0
 #define NANOPRINTF_IMPLEMENTATION
+
 #include <util/log/nanoprintf.h>
 
 static constexpr auto num_buf_len = 48;

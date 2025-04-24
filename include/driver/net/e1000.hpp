@@ -154,7 +154,7 @@ namespace e1000 {
             bool is_e1000e;
             bool has_eeprom;
 
-            frg::vector<shared_ptr<vfs::devfs::bus_dma>, mm::allocator> rx_desc_dma;
+            frg::vector<shared_ptr<vfs::devfs::bus_dma>, arena::allocator> rx_desc_dma;
             shared_ptr<vfs::devfs::bus_dma> rx_dma;
             shared_ptr<vfs::devfs::bus_dma> tx_dma;
 
@@ -194,7 +194,7 @@ namespace e1000 {
 
             device(vfs::devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux):
                 vfs::devfs::device(bus, major, minor, aux, vfs::devfs::device_class::OTHER), net::device(),
-                rx_desc_dma(),
+                rx_desc_dma(net::device::allocator),
 
                 rx_dma(bus->get_dma(sizeof(rx_desc) * rx_max)),
                 tx_dma(bus->get_dma(sizeof(tx_desc) * tx_max))
