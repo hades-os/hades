@@ -605,7 +605,7 @@ void pcibus::enumerate() {
 }
 
 shared_ptr<vfs::devfs::bus_dma> pcibus::get_dma(size_t size) {
-    return smarter::allocate_shared<pci_dma>(mm::slab<pci_dma>(),
+    return prs::allocate_shared<pci_dma>(mm::slab<pci_dma>(),
         size);
 }
 

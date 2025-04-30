@@ -10,7 +10,7 @@
 
 sched::timespec sched::clock_rt{};
 sched::timespec sched::clock_mono{};
-static frg::vector<sched::timer, boot::allocator> timers{};
+static frg::vector<sched::timer, arena::allocator> timers{};
 
 void arch::add_timer(sched::timer timer) {
     timers.push_back(timer);

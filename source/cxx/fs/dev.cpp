@@ -3,7 +3,6 @@
 #include "frg/string.hpp"
 #include "fs/cache.hpp"
 #include "fs/poll.hpp"
-#include "mm/boot.hpp"
 #include "mm/common.hpp"
 #include "mm/mm.hpp"
 #include "mm/slab.hpp"
@@ -108,7 +107,7 @@ void vfs::devfs::append_device(device *dev, ssize_t major) {
                 panic("[DEVFS]: Unable to make device: %s", device_path.data());
             }
         
-            auto private_data = smarter::allocate_shared<dev_priv>(mm::slab<dev_priv>());
+            auto private_data = prs::allocate_shared<dev_priv>(mm::slab<dev_priv>());
             private_data->dev = dev;
             private_data->part = -1;
             device_node->as_data(private_data);
@@ -284,7 +283,7 @@ ssize_t vfs::devfs::poll(shared_ptr<descriptor> file) {
 
 ssize_t vfs::devfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto new_dir = smarter::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, node::type::DIRECTORY);
+    auto new_dir = prs::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, node::type::DIRECTORY);
 
     new_dir->meta->st_uid = uid;
     new_dir->meta->st_gid = gid;

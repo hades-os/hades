@@ -6,7 +6,7 @@
 #include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <util/stivale.hpp>
-#include "mm/boot.hpp"
+#include "mm/arena.hpp"
 
 namespace acpi {
     struct [[gnu::packed]] sdt {
@@ -70,9 +70,9 @@ namespace acpi {
             uint32_t flags;
         };
 
-        extern frg::vector<ioapic *, boot::allocator> ioapics;
-        extern frg::vector<iso *, boot::allocator> isos;
-        extern frg::vector<nmi *, boot::allocator> nmis;
+        extern frg::vector<ioapic *, arena::allocator> ioapics;
+        extern frg::vector<iso *, arena::allocator> isos;
+        extern frg::vector<nmi *, arena::allocator> nmis;
 
         inline madt::header *_madt{};
         extern void init();

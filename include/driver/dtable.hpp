@@ -6,7 +6,7 @@
 #include <frg/allocation.hpp>
 #include <driver/matchers.hpp>
 #include <driver/majtable.hpp>
-#include <mm/boot.hpp>
+#include <mm/arena.hpp>
 
 // match_data is bus-specific
 
@@ -17,18 +17,19 @@ namespace dtable {
         ssize_t major;
         vfs::devfs::matcher *matcher;
     };
-
+    
+    static arena::allocator allocator{};
     static entry entries[] = {
-        { .match_data = {MATCH_ANY, MATCH_ANY, 0x1, 0x6, 0x1}, .major = majors::AHCIBUS, .matcher = frg::construct<pci::ahcibus::matcher>(mm::boot())},
-        { .match_data = {0}, .major=majors::AHCI, .matcher = frg::construct<ahci::matcher>(mm::boot())},
-        { .match_data = {0x8086, 0x100e, MATCH_ANY, MATCH_ANY, MATCH_ANY}, .major = majors::NET, .matcher = frg::construct<pci::net::matcher>(mm::boot())},
-        { .match_data = {0}, .major=majors::FB, .matcher = frg::construct<fb::matcher>(mm::boot())},
-        { .match_data = {0}, .major=majors::KB, .matcher = frg::construct<kb::matcher>(mm::boot())},
-        { .match_data = {0}, .major=majors::PTM, .matcher = frg::construct<tty::ptm::matcher>(mm::boot())},
-        { .match_data = {0}, .major=majors::PTS, .matcher = frg::construct<tty::pts::matcher>(mm::boot())},
-        { .match_data = {0}, .major=majors::PTMX, .matcher = frg::construct<tty::ptmx::matcher>(mm::boot())},
-        { .match_data = {0}, .major=majors::SELF_TTY, .matcher = frg::construct<tty::self::matcher>(mm::boot())},
-        { .match_data = {0}, .major=majors::VT, .matcher = frg::construct<vt::matcher>(mm::boot())}
+        { .match_data = {MATCH_ANY, MATCH_ANY, 0x1, 0x6, 0x1}, .major = majors::AHCIBUS, .matcher = frg::construct<pci::ahcibus::matcher>(allocator)},
+        { .match_data = {0}, .major=majors::AHCI, .matcher = frg::construct<ahci::matcher>(allocator)},
+        { .match_data = {0x8086, 0x100e, MATCH_ANY, MATCH_ANY, MATCH_ANY}, .major = majors::NET, .matcher = frg::construct<pci::net::matcher>(allocator)},
+        { .match_data = {0}, .major=majors::FB, .matcher = frg::construct<fb::matcher>(allocator)},
+        { .match_data = {0}, .major=majors::KB, .matcher = frg::construct<kb::matcher>(allocator)},
+        { .match_data = {0}, .major=majors::PTM, .matcher = frg::construct<tty::ptm::matcher>(allocator)},
+        { .match_data = {0}, .major=majors::PTS, .matcher = frg::construct<tty::pts::matcher>(allocator)},
+        { .match_data = {0}, .major=majors::PTMX, .matcher = frg::construct<tty::ptmx::matcher>(allocator)},
+        { .match_data = {0}, .major=majors::SELF_TTY, .matcher = frg::construct<tty::self::matcher>(allocator)},
+        { .match_data = {0}, .major=majors::VT, .matcher = frg::construct<vt::matcher>(allocator)}
     };
 
     vfs::devfs::matcher *lookup_by_data(int *match_data, size_t len);

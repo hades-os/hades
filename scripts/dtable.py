@@ -25,14 +25,14 @@ with open("dtable") as tbl_file:
 
             name = values[8]
 
-            entries.append(f"        {{ .match_data = {{{vend}, {dev}, {cls}, {subcls}, {progif}}}, .major = majors::{name}, .matcher = frg::construct<{matcher}>(mm::boot())}}")
+            entries.append(f"        {{ .match_data = {{{vend}, {dev}, {cls}, {subcls}, {progif}}}, .major = majors::{name}, .matcher = frg::construct<{matcher}>(allocator)}}")
             majors.append(f"        constexpr size_t {name} = {major};")
         elif bus == "none":
             matcher = values[1]
             major = int(values[2], base=16)
             name = values[3]
 
-            entries.append(f"        {{ .match_data = {{0}}, .major=majors::{name}, .matcher = frg::construct<{matcher}>(mm::boot())}}")
+            entries.append(f"        {{ .match_data = {{0}}, .major=majors::{name}, .matcher = frg::construct<{matcher}>(allocator)}}")
             majors.append(f"        constexpr size_t {name} = {major};")
         elif bus == "major":
             major = int(values[1], base=16)

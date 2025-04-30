@@ -46,7 +46,7 @@ SECTIONS {
 
         . = ALIGN(4K);
         __boot_heap_start = .;
-        . += 128K;
+        . += 512K;
         __boot_heap_end = .;
    }
 }

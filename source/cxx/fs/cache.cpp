@@ -6,6 +6,7 @@
 #include "mm/common.hpp"
 #include "mm/slab.hpp"
 #include "mm/vmm.hpp"
+#include "prs/list.hpp"
 #include "smarter/smarter.hpp"
 #include "sys/sched/sched.hpp"
 #include "sys/sched/time.hpp"
@@ -19,13 +20,10 @@
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
 
-static frg::intrusive_list<
+static prs::list<
     cache::holder,
-    frg::locate_member<
-        cache::holder,
-        frg::default_list_hook<cache::holder>,
-        &cache::holder::hook>
-    >
+    &cache::holder::hook
+>
 caches{};
 
 static bool syncing = true;
@@ -107,7 +105,7 @@ ssize_t cache::holder::request_page(void *buffer, size_t offset, size_t buffer_l
         return false;
     }
 
-    shared_ptr<holder::request> req = smarter::allocate_shared<holder::request>(mm::slab<holder::request>());
+    shared_ptr<holder::request> req = prs::allocate_shared<holder::request>(mm::slab<holder::request>());
 
     req->offset = offset;
     req->page_offset = page_offset;

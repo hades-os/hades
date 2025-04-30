@@ -64,7 +64,6 @@ main_sources = files(
     'source/cxx/mm/vmm.cpp',
 
     'source/cxx/mm/arena.cpp',
-    'source/cxx/mm/boot.cpp',
     'source/cxx/mm/slab.cpp',
 
     'source/cxx/sys/sched/management.cpp',
@@ -136,7 +135,7 @@ flags_ld = [
     '-nostdlib',
     '-mcmodel=kernel',
     '-mno-red-zone',
-    '-fno-pic',
+    '-fno-PIC',
     '-no-pie',
     '-Wl,-z,max-page-size=0x1000,-n',
     '-lgcc'

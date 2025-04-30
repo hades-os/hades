@@ -9,7 +9,6 @@
 #include <mm/vmm.hpp>
 #include <util/log/log.hpp>
 #include <util/io.hpp>
-#include "mm/boot.hpp"
 #include "mm/slab.hpp"
 
 int64_t *refs = nullptr;

@@ -21,9 +21,9 @@ shared_ptr<vfs::socket> net::unix::create(int type, int protocol) {
         case SOCK_DGRAM:;
         case SOCK_STREAM:;
         case SOCK_SEQPACKET:
-            auto socket = smarter::allocate_shared<vfs::socket>(mm::slab<vfs::socket>(),
+            auto socket = prs::allocate_shared<vfs::socket>(mm::slab<vfs::socket>(),
                 self);
-            auto data = smarter::allocate_shared<unix::data>(socket->allocator);
+            auto data = prs::allocate_shared<unix::data>(socket->allocator);
             socket->as_data(data);
 
             return socket;

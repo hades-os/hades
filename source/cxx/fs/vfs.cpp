@@ -25,7 +25,7 @@ static frg::hash_map<
     frg::string_view,
     shared_ptr<vfs::filesystem>,
     vfs::path_hasher,
-    boot::allocator
+    arena::allocator
 > mounts{vfs::path_hasher()};
 
 shared_ptr<vfs::filesystem> stored_devfs{};
@@ -674,7 +674,7 @@ ssize_t vfs::create(shared_ptr<node> base, frg::string_view filepath, shared_ptr
 }
 
 shared_ptr<vfs::fd_table> vfs::make_table() {
-    auto table = smarter::allocate_shared<fd_table>(mm::slab<fd_table>());
+    auto table = prs::allocate_shared<fd_table>(mm::slab<fd_table>());
     table->last_fd = 0;
 
     return table;
@@ -688,8 +688,8 @@ shared_ptr<vfs::fd_table> vfs::copy_table(shared_ptr<fd_table> table) {
         if (!fd) continue;
         auto desc = fd->desc;
 
-        auto new_desc = smarter::allocate_shared<descriptor>(mm::slab<descriptor>());
-        auto new_fd = smarter::allocate_shared<vfs::fd>(mm::slab<vfs::fd>());
+        auto new_desc = prs::allocate_shared<descriptor>(mm::slab<descriptor>());
+        auto new_fd = prs::allocate_shared<vfs::fd>(mm::slab<vfs::fd>());
 
         new_desc->node = desc->node;
         new_desc->pipe = desc->pipe;
@@ -756,7 +756,7 @@ shared_ptr<vfs::node>  vfs::make_recursive(shared_ptr<node> base, frg::string_vi
                 if (child->type != node::type::DIRECTORY) return nullptr;
                 current_node = child;
             } else {
-                shared_ptr<node> next = smarter::allocate_shared<node>(mm::slab<node>(), base->fs, c.data(), current_node, 0, node::type::DIRECTORY);
+                shared_ptr<node> next = prs::allocate_shared<node>(mm::slab<node>(), base->fs, c.data(), current_node, 0, node::type::DIRECTORY);
 
                 next->meta->st_uid = current_node->meta->st_uid;
                 next->meta->st_gid = current_node->meta->st_gid;
@@ -770,7 +770,7 @@ shared_ptr<vfs::node>  vfs::make_recursive(shared_ptr<node> base, frg::string_vi
         view = view.sub_string(pos + 1);
     }
 
-    shared_ptr<node> next = smarter::allocate_shared<node>(mm::slab<node>(), base->fs, view.data() + view.find_last('/') + 1, current_node, 0, type);
+    shared_ptr<node> next = prs::allocate_shared<node>(mm::slab<node>(), base->fs, view.data() + view.find_last('/') + 1, current_node, 0, type);
     next->meta->st_uid = current_node->meta->st_uid;
     next->meta->st_gid = current_node->meta->st_gid;
     next->meta->st_mode = (current_node->meta->st_mode & (~S_IFDIR)) | type2mode(type) | mode;
@@ -784,8 +784,8 @@ shared_ptr<vfs::filesystem> vfs::device_fs() {
 }
 
 shared_ptr<vfs::fd> vfs::make_fd(shared_ptr<vfs::node> node, shared_ptr<vfs::fd_table> table, int64_t flags, mode_t mode) {
-    auto desc = smarter::allocate_shared<vfs::descriptor>(mm::slab<vfs::descriptor>());
-    auto fd = smarter::allocate_shared<vfs::fd>(mm::slab<vfs::fd>());
+    auto desc = prs::allocate_shared<vfs::descriptor>(mm::slab<vfs::descriptor>());
+    auto fd = prs::allocate_shared<vfs::fd>(mm::slab<vfs::fd>());
 
     desc->node = node;
     desc->pipe = nullptr;
@@ -844,14 +844,14 @@ vfs::fd_pair vfs::open_pipe(shared_ptr<fd_table> table, ssize_t flags) {
     auto read = make_fd(nullptr, table, flags, O_RDONLY);
     auto write = make_fd(nullptr, table, flags, O_WRONLY);
 
-    auto pipe = smarter::allocate_shared<vfs::pipe>(mm::slab<vfs::pipe>());
+    auto pipe = prs::allocate_shared<vfs::pipe>(mm::slab<vfs::pipe>());
     pipe->read = read->desc;
     pipe->write = write->desc;
     pipe->len = memory::page_size;
     pipe->buf = pipe->allocator.allocate(memory::page_size);
     pipe->data_written = false;
 
-    auto stat = smarter::allocate_shared<node::statinfo>(mm::slab<node::statinfo>());
+    auto stat = prs::allocate_shared<node::statinfo>(mm::slab<node::statinfo>());
     stat->st_size = 0;
     stat->st_mode = S_IFIFO | S_IWUSR | S_IRUSR;
 
@@ -884,7 +884,7 @@ shared_ptr<vfs::fd> vfs::dup(shared_ptr<vfs::fd> fd, bool cloexec, ssize_t new_n
             close(new_fd);
         }
 
-        new_fd = smarter::allocate_shared<vfs::fd>(mm::slab<vfs::fd>());
+        new_fd = prs::allocate_shared<vfs::fd>(mm::slab<vfs::fd>());
         new_fd->desc = fd->desc;
         new_fd->table = fd->table;
         if (new_num >= 0) {
@@ -1058,7 +1058,7 @@ ssize_t vfs::link(shared_ptr<node> from_base, frg::string_view from, shared_ptr<
         return -EINVAL;
     }
 
-    auto link_dst = smarter::allocate_shared<node>(mm::slab<node>(), src->fs, dst_name, dst_parent, 0, src->type, src->inum);
+    auto link_dst = prs::allocate_shared<node>(mm::slab<node>(), src->fs, dst_name, dst_parent, 0, src->type, src->inum);
     auto err = dst_fs->link(src, link_dst, dst_name, false);
     if (err < 0) {
         return err;
@@ -1160,8 +1160,8 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                     }
 
                     // weak_ptr<filesystem> fs, path name, weak_ptr<node> parent, ssize_t flags, ssize_t type
-                    auto root = smarter::allocate_shared<node>(mm::slab<node>(), nullptr, "/", nullptr, 0, node::type::DIRECTORY);
-                    auto fs = smarter::allocate_shared<rootfs>(mm::slab<rootfs>(), root);
+                    auto root = prs::allocate_shared<node>(mm::slab<node>(), nullptr, "/", nullptr, 0, node::type::DIRECTORY);
+                    auto fs = prs::allocate_shared<rootfs>(mm::slab<rootfs>(), root);
 
                     fs->self = fs;
                     root->fs = fs;
@@ -1183,7 +1183,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                         return -EINVAL;
                     }
 
-                    auto fs = smarter::allocate_shared<devfs>(mm::slab<devfs>(), dst);
+                    auto fs = prs::allocate_shared<devfs>(mm::slab<devfs>(), dst);
 
                     fs->self = fs;
                     dst->fs = fs;
@@ -1214,7 +1214,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                         return -EINVAL;
                     }
 
-                    auto fs = smarter::allocate_shared<ext2fs>(mm::slab<ext2fs>(), dst, src);
+                    auto fs = prs::allocate_shared<ext2fs>(mm::slab<ext2fs>(), dst, src);
                     fs->self = fs;
                     if (!fs->load()) {
                         return -EINVAL;
