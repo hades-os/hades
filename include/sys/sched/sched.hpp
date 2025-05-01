@@ -4,13 +4,13 @@
 #include "arch/types.hpp"
 #include "frg/list.hpp"
 #include "mm/arena.hpp"
+#include "prs/rbtree.hpp"
 #include <arch/x86/types.hpp>
 #include <ipc/wire.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <frg/hash.hpp>
 #include <frg/hash_map.hpp>
-#include <frg/rbtree.hpp>
 #include <frg/vector.hpp>
 #include <fs/vfs.hpp>
 #include <mm/mm.hpp>
@@ -135,7 +135,7 @@ namespace sched {
             pid_t pid;
 
             ipc::wire wire;
-            frg::rbtree_hook hook;
+            prs::rbtree_hook hook;
 
             void start();
             void stop();

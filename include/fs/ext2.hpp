@@ -117,8 +117,8 @@ namespace vfs {
             };
 
             arena::allocator allocator;
-
             unique_ptr<ext2fs::super, arena::allocator> superblock;
+
             uint64_t block_size;
             uint64_t frag_size;
             uint64_t bgd_count;
@@ -166,7 +166,7 @@ namespace vfs {
         public:
             ext2fs(shared_ptr<node> root, weak_ptr<node> device):
                 vfs::filesystem(root, device), 
-                allocator(), superblock(prs::make_unique<ext2fs::super>(mm::slab<ext2fs::super>())) {}
+                allocator(), superblock(prs::make_unique<ext2fs::super>(allocator)) {}
 
             bool load() override;
 

@@ -63,7 +63,8 @@ namespace slab {
             using mm::allocator::deallocate;
             using mm::allocator::free;
 
-            allocator(size_t object_size, cache *base_cache): mm::allocator(), object_size(object_size), base_cache(base_cache) {}
+            allocator(size_t object_size, cache *base_cache): 
+                mm::allocator(), object_size(object_size), base_cache(base_cache) {}
             allocator(const allocator& other):
                 mm::allocator(),
                 object_size(other.object_size), base_cache(other.base_cache) {}

@@ -1,5 +1,6 @@
 #include "arch/types.hpp"
 #include "fs/cache.hpp"
+#include "prs/assert.hpp"
 #include "util/lock.hpp"
 #include <driver/video/vesa.hpp>
 #include <util/log/qemu.hpp>
@@ -119,22 +120,35 @@ void debug(const char *fmt, ...) {
 
 }
 
-void panic(const char *fmt, ...) {
+static void do_panic(const char *fmt, va_list args) {
     arch::irq_off();
     arch::stop_all_cpus();
     
     util::lock_guard guard{log_lock};
 
     cache::halt_sync();
-    npf_pprintf(&write_log, nullptr, "[PANIC]: Not syncing");
 
+    npf_pprintf(&write_log, nullptr, "[PANIC]: Not syncing");
+    npf_vpprintf(&write_log, nullptr, fmt, args);
+    write_log('\n', nullptr);
+    
+    arch::stall_cpu();    
+}
+
+void panic(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
 
-    npf_vpprintf(&write_log, nullptr, fmt, args);
-    write_log('\n', nullptr);
+    do_panic(fmt, args);
 
     va_end(args);
-    
-    arch::stall_cpu();    
+}
+
+void prs::panic(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+
+    do_panic(fmt, args);
+
+    va_end(args);
 }

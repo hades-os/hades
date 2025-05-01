@@ -8,7 +8,7 @@ namespace prs {
     inline void assert(bool cond, 
         std::source_location location = std::source_location::current()) {
         if (!cond)
-            panic("%s: %s: Assertion failed!", location.file_name(), location.line());
+            panic("%s: line %d: Assertion failed!", location.file_name(), location.line());
     }
 }
 

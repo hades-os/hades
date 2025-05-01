@@ -15,8 +15,7 @@ namespace prs {
     struct unique_ptr {
         private:
             T *ptr;
-            D deleter;
-            Allocator alloc;
+            D _deleter;
         public:
             template<typename U>
             friend struct shared_ptr;
@@ -31,33 +30,33 @@ namespace prs {
                 {}
 
             explicit unique_ptr(pointer p, Allocator alloc) noexcept:
-                ptr(p), deleter(alloc) {}
+                ptr(p), _deleter(alloc) {}
 
             unique_ptr(pointer p,
                 typename std::conditional<std::is_reference<deleter_type>::value,
                     deleter_type, const deleter_type&>::type d) noexcept:
-                ptr(p), deleter(d) {}
+                ptr(p), _deleter(d) {}
 
             unique_ptr(pointer p,
                 typename std::remove_reference<deleter_type>::type&& d) noexcept:
-                ptr(p), deleter(std::move(d)) {}
+                ptr(p), _deleter(std::move(d)) {}
 
             unique_ptr(unique_ptr&& other) noexcept:
-                ptr(other.release(), std::forward<deleter_type>(other.deleter)) {}
+                ptr(other.release()), _deleter(other.deleter()) {}
 
             template<typename U, typename E>
             unique_ptr(unique_ptr<U, E>&& other) noexcept:
-                ptr(other.release(), std::forward<deleter_type>(other.deleter)) {}
+                ptr(other.release()), _deleter(other.deleter()) {}
 
             ~unique_ptr() noexcept {
                 if(ptr)
-                    deleter(ptr);
+                    _deleter(ptr);
             }
 
             unique_ptr& operator=(unique_ptr&& other) noexcept {
                 reset(other.release());
-                auto& _deleter = this->deleter;
-                _deleter = other.deleter;
+                auto& _deleter = this->deleter();
+                _deleter = other.deleter();
 
                 return *this;
             }
@@ -65,8 +64,8 @@ namespace prs {
             template<typename U, typename E>
             unique_ptr& operator=(unique_ptr<U, E>&& other) noexcept {
                 reset(other.release());
-                auto& _deleter = this->deleter;
-                _deleter = other.deleter;
+                auto& _deleter = this->deleter();
+                _deleter = other.deleter();
 
                 return *this;
             }
@@ -90,6 +89,14 @@ namespace prs {
                 return ptr;
             }
 
+            deleter_type& deleter() noexcept {
+                return _deleter;
+            }
+
+            const deleter_type& deleter() const noexcept {
+                return _deleter;
+            }
+
             explicit operator bool() const noexcept {
                 return (ptr != nullptr);
             }
@@ -103,18 +110,18 @@ namespace prs {
 
             void reset(pointer p) noexcept {
                 auto& _ptr = ptr;
-                auto& _deleter = deleter;
+                auto& _deleter = deleter();
                 if (ptr)
-                    deleter(ptr);
+                    _deleter(ptr);
 
                 ptr = p;
             }
 
             void reset() noexcept {
                 auto& _ptr = ptr;
-                auto& _deleter = deleter;
+                auto& _deleter = deleter();
                 if (ptr)
-                    deleter(ptr);
+                    _deleter(ptr);
 
                 ptr = pointer{};
             }

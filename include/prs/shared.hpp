@@ -36,14 +36,16 @@ namespace prs {
             D deleter;
             Allocator alloc;
 
-            std::atomic_long _use_count{1};
-            std::atomic_long _weak_count{1};
+            std::atomic_long _use_count;
+            std::atomic_long _weak_count;
         public:
             control(T *p, Allocator alloc):
-                ptr(p), deleter(alloc), alloc(std::move(alloc)) {}
+                ptr(p), deleter(alloc), alloc(std::move(alloc)),
+                _use_count(1), _weak_count(1) {}
 
             control(T *p, D d, Allocator alloc):
-                ptr(p), deleter(d), alloc(std::move(alloc)) {}
+                ptr(p), deleter(d), alloc(std::move(alloc)),
+                _use_count(1), _weak_count(1) {}
 
             ~control()
                 {}
