@@ -40,10 +40,10 @@ namespace poll {
             weak_ptr<vfs::descriptor> desc;
             producer_context ctx;
 
-            frg::vector<shared_ptr<table>, arena::allocator> tables;
+            frg::vector<shared_ptr<table>, prs::allocator> tables;
             util::spinlock lock;
         public:
-            producer(weak_ptr<vfs::descriptor> desc): desc(desc), tables(arena::allocator()), lock() {}
+            producer(weak_ptr<vfs::descriptor> desc): desc(desc), tables(arena::create_resource()), lock() {}
             ~producer();
 
             producer(producer&& other): tables(std::move(other.tables)), lock() {}
@@ -63,11 +63,11 @@ namespace poll {
                 ssize_t events;
             };
 
-            arena::allocator allocator;
+            arena::arena_resource *resource;
 
-            frg::vector<event, arena::allocator> events;
+            frg::vector<event, prs::allocator> events;
+            frg::vector<shared_ptr<producer>, prs::allocator> producers;
 
-            frg::vector<shared_ptr<producer>, arena::allocator> producers;
             shared_ptr<producer> latest_producer;
             ssize_t latest_event;
 
@@ -77,12 +77,12 @@ namespace poll {
 
             void arise(ssize_t event, shared_ptr<producer> waker);
         public:
-            table(): self(), allocator(),
-                events(allocator), producers(allocator), wire(), lock() {}
+            table(): self(), resource(arena::create_resource()),
+                events(resource), producers(resource), wire(), lock() {}
             ~table();
 
             frg::tuple<shared_ptr<producer>, ssize_t> wait(bool allow_signals, sched::timespec *timeout);
-            frg::vector<event, arena::allocator> &get_events() {
+            frg::vector<event, prs::allocator> &get_events() {
                 return events;
             }
 

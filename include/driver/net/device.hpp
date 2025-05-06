@@ -20,13 +20,13 @@ namespace net {
 
     class device {
         public:
-            arena::allocator allocator;
+            arena::arena_resource *resource;
 
-            frg::hash_map<uint32_t, uint8_t *, frg::hash<uint32_t>, arena::allocator> arp_table;
-            frg::vector<net::route, arena::allocator> ipv4_routing_table;
+            frg::hash_map<uint32_t, uint8_t *, frg::hash<uint32_t>, prs::allocator> arp_table;
+            frg::vector<net::route, prs::allocator> ipv4_routing_table;
 
             frg::hash_map<uint32_t, ipc::wire, 
-                frg::hash<uint32_t>,  arena::allocator> pending_arps;
+                frg::hash<uint32_t>,  prs::allocator> pending_arps;
 
             // TODO: IP Fragmemtation
             net::mac mac;
@@ -46,7 +46,9 @@ namespace net {
             virtual uint32_t route(uint32_t dest) = 0;
             virtual void send(const void *buf, size_t len) = 0;
 
-            device(): allocator(), arp_table(frg::hash<uint32_t>(), allocator), ipv4_routing_table(allocator), pending_arps(frg::hash<uint32_t>(), allocator) {}
+            device(): 
+                resource(arena::create_resource()), arp_table(frg::hash<uint32_t>(), resource), 
+                ipv4_routing_table(resource), pending_arps(frg::hash<uint32_t>(), resource) {}
     };
 }
 

@@ -10,9 +10,9 @@
 #include <util/lock.hpp>
 
 constexpr size_t slab_max_objects = 512;
-slab::cache *root_cache;
+slab::slab_resource *root_resource;
 
-slab::slab *slab::cache::create_slab() {
+slab::slab *slab::slab_resource::create_slab() {
     slab *new_slab = (slab *) pmm::alloc(pages_per_slab);
 
     new_slab->bitmap = (uint8_t *) ((uintptr_t) new_slab + sizeof(slab));
@@ -30,7 +30,7 @@ slab::slab *slab::cache::create_slab() {
     return new_slab;
 }
 
-bool slab::cache::move_slab(slab **new_head, slab **old_head, slab *old) {
+bool slab::slab_resource::move_slab(slab **new_head, slab **old_head, slab *old) {
     if (!old || !old_head)
         return false;
 
@@ -58,7 +58,7 @@ bool slab::cache::move_slab(slab **new_head, slab **old_head, slab *old) {
     return true;      
 }
 
-slab::slab *slab::cache::get_by_pointer(slab *head, void *ptr) {
+slab::slab *slab::slab_resource::get_by_pointer(slab *head, void *ptr) {
     slab *current = head;
     while (current) {
         if (current->buffer <= ptr && (void *) ((uintptr_t) current->buffer + object_size * current->total_objects) > ptr) {
@@ -99,7 +99,7 @@ bool slab::slab::deallocate(void *ptr) {
     return false;
 }
 
-bool slab::cache::deallocate(void *ptr) {
+bool slab::slab_resource::do_deallocate(void *ptr) {
     // TODO: free empty slabs, memory pressure maybe?
 
     slab *slab;
@@ -112,7 +112,7 @@ bool slab::cache::deallocate(void *ptr) {
     return false;
 }
 
-void *slab::cache::allocate() {
+void *slab::slab_resource::do_allocate() {
     util::lock_guard guard{lock};
 
     slab *slab = nullptr;
@@ -136,7 +136,7 @@ void *slab::cache::allocate() {
     return addr;
 }
 
-bool slab::cache::has_object(slab *head, void *ptr) {
+bool slab::slab_resource::has_object(slab *head, void *ptr) {
     if (!head)
         return false;
 
@@ -154,7 +154,7 @@ bool slab::cache::has_object(slab *head, void *ptr) {
     return false;
 }
 
-bool slab::cache::has_object(void *ptr) {
+bool slab::slab_resource::has_object(void *ptr) {
     if (has_object(head_partial, ptr))
         return true;
     
@@ -164,8 +164,8 @@ bool slab::cache::has_object(void *ptr) {
     return false;
 }
 
-slab::cache *slab::get_by_size(size_t object_size) {
-    cache *current = root_cache;
+slab::slab_resource *slab::slab_resource::get_by_size(size_t object_size) {
+    slab_resource *current = root_resource;
     while (current) {
         if (current->object_size == object_size)
             return current;
@@ -176,45 +176,46 @@ slab::cache *slab::get_by_size(size_t object_size) {
     return nullptr;
 }
 
-slab::cache *slab::create(size_t object_size) {
-    cache tmp{};
+slab::slab_resource *slab::slab_resource::create(size_t object_size) {
+    slab_resource tmp{};
 
     tmp.pages_per_slab = util::ceil(object_size * slab_max_objects + sizeof(slab) + slab_max_objects, memory::page_size);
     tmp.object_size = object_size;
     
     slab *root = tmp.create_slab();
-    cache *new_cache = (cache *) root->buffer;
+    slab_resource *new_cache = (slab_resource *) root->buffer;
 
     new_cache->pages_per_slab = tmp.pages_per_slab;
     new_cache->object_size = object_size;
 
     root->owner = new_cache;
-    root->buffer = (void *) ((uintptr_t) root->buffer + sizeof(cache));
-    root->free_objects -= util::ceil(object_size,sizeof(cache));
+    root->buffer = (void *) ((uintptr_t) root->buffer + sizeof(slab_resource));
+    root->free_objects -= util::ceil(object_size,sizeof(slab_resource));
     root->total_objects = root->free_objects;
 
     new_cache->head_empty = root;
-    new_cache->next = root_cache;
+    new_cache->next = root_resource;
 
-    root_cache = new_cache;
-
+    root_resource = new_cache;
     return new_cache;
 }
 
-void *slab::allocator::allocate(size_t, size_t _) const {
-    if (!base_cache)
-        base_cache = create(object_size);
-
-    return base_cache->allocate();
+void *slab::slab_resource::allocate(size_t, size_t) {
+    return do_allocate();
 }
 
-void slab::allocator::deallocate(void *ptr) const {
+void slab::slab_resource::deallocate(void *ptr) {
     if (!ptr)
         return;
     
-    base_cache->deallocate(ptr);
+    do_deallocate(ptr);
 }
 
-slab::allocator mm::slab(size_t object_size) {
-    return slab::allocator(object_size, slab::get_by_size(object_size));
+slab::slab_resource *slab::create_resource(size_t object_size) {
+    auto resource = slab_resource::get_by_size(object_size);
+    if (!resource) {
+        return slab_resource::create(object_size);
+    }
+
+    return resource;
 }

@@ -26,6 +26,7 @@ namespace prs {
                 alloc(std::move(other.alloc)) {}
 
             void operator()(T *ptr) override {
+                ptr->~T();
                 alloc.free(ptr);
             }
     };    

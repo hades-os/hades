@@ -2,11 +2,12 @@
 #define DTABLE_HPP
 
 #include <cstddef>
-#include <fs/dev.hpp>
-#include <frg/allocation.hpp>
 #include <driver/matchers.hpp>
 #include <driver/majtable.hpp>
+#include <fs/dev.hpp>
+#include <frg/allocation.hpp>
 #include <mm/arena.hpp>
+#include <prs/allocator.hpp>
 
 // match_data is bus-specific
 
@@ -18,7 +19,9 @@ namespace dtable {
         vfs::devfs::matcher *matcher;
     };
     
-    static arena::allocator allocator{};
+    static prs::allocator allocator{
+        arena::create_resource()
+    };
     static entry entries[] = {
 @@DTABLE_ENTRIES@@
     };
