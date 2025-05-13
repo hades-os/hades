@@ -187,13 +187,11 @@ namespace vfs {
 
             bool delete_on_close;
 
-            weak_ptr<node> parent;
-
-            arena::allocator allocator;
-            
             // TODO: lc-rs tree instead of vector
-            frg::vector<shared_ptr<node>, arena::allocator> children;
-
+            weak_ptr<node> parent;
+            shared_ptr<node> lc;
+            shared_ptr<node> rs;
+    
             shared_ptr<void *> data;
 
             ssize_t inum;
@@ -395,7 +393,7 @@ namespace vfs {
         int current_ent;
         frg::vector<dirent *, prs::allocator> dirent_list;
 
-        descriptor(): allocator(slab::create_resource<dirent>()), dirent_list(allocator) {}
+        descriptor(): allocator(slab::create_resource()), dirent_list(allocator) {}
     };
 
     struct pipe {

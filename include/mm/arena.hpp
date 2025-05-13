@@ -14,7 +14,7 @@
 
 namespace arena {
     struct arena_resource;
-    static arena_resource *create_resource();
+    arena_resource *create_resource();
 
     struct arena_resource: public prs::memory_resource {
         private:
