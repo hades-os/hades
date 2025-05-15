@@ -3,6 +3,7 @@
 
 #include "fs/dev.hpp"
 #include "mm/common.hpp"
+#include "prs/allocator.hpp"
 #include "util/types.hpp"
 #include <driver/net/device.hpp>
 #include <driver/net/types.hpp>
@@ -154,7 +155,7 @@ namespace e1000 {
             bool is_e1000e;
             bool has_eeprom;
 
-            frg::vector<shared_ptr<vfs::devfs::bus_dma>, arena::allocator> rx_desc_dma;
+            frg::vector<shared_ptr<vfs::devfs::bus_dma>, prs::allocator> rx_desc_dma;
             shared_ptr<vfs::devfs::bus_dma> rx_dma;
             shared_ptr<vfs::devfs::bus_dma> tx_dma;
 

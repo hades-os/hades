@@ -4,6 +4,7 @@
 #include "fs/dev.hpp"
 #include "ipc/wire.hpp"
 #include "mm/arena.hpp"
+#include "prs/allocator.hpp"
 #include "util/types.hpp"
 #include <frg/hash_map.hpp>
 #include <frg/rcu_radixtree.hpp>
@@ -20,7 +21,7 @@ namespace net {
 
     class device {
         public:
-            arena::arena_resource *resource;
+            prs::allocator allocator;
 
             frg::hash_map<uint32_t, uint8_t *, frg::hash<uint32_t>, prs::allocator> arp_table;
             frg::vector<net::route, prs::allocator> ipv4_routing_table;
@@ -47,8 +48,9 @@ namespace net {
             virtual void send(const void *buf, size_t len) = 0;
 
             device(): 
-                resource(arena::create_resource()), arp_table(frg::hash<uint32_t>(), resource), 
-                ipv4_routing_table(resource), pending_arps(frg::hash<uint32_t>(), resource) {}
+                allocator(arena::create_resource()),
+                arp_table(frg::hash<uint32_t>(), allocator), 
+                ipv4_routing_table(allocator), pending_arps(frg::hash<uint32_t>(), allocator) {}
     };
 }
 

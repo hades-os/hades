@@ -22,9 +22,9 @@ bool use_x_dsdt = false;
 
 namespace acpi {
     namespace madt {
-        frg::vector<ioapic *, arena::allocator> ioapics(arena::allocator{});
-        frg::vector<iso *, arena::allocator> isos(arena::allocator{});
-        frg::vector<nmi *, arena::allocator> nmis(arena::allocator{});
+        frg::vector<ioapic *, prs::allocator> ioapics(arena::create_resource());
+        frg::vector<iso *, prs::allocator> isos(arena::create_resource());
+        frg::vector<nmi *, prs::allocator> nmis(arena::create_resource());
     };
 
     acpi::sdt *tables[22];

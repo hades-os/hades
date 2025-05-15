@@ -67,11 +67,13 @@ static void run_init() {
 }
 
 static void show_splash(shared_ptr<vfs::fd_table> table) {
-    arena::allocator allocator{};
+    prs::allocator allocator{
+        arena::create_resource()
+    };
 
     auto splash_fd = vfs::open(nullptr, "/home/racemus/hades.bmp", table, 0, O_RDONLY, 0, 0);
 
-    auto info = frg::construct<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
+    auto info = frg::construct<vfs::node::statinfo>(slab::create_resource());
     vfs::stat(nullptr, "/home/racemus/hades.bmp", info, 0);
      
     auto buffer = allocator.allocate(info->st_size);

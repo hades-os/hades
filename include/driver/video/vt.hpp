@@ -41,7 +41,7 @@ namespace vt {
         fb::fb_info *fb;
         fb::fb_info *fb_save;
 
-        arena::allocator allocator;
+        prs::allocator allocator;
 
         ssize_t ioctl(tty::device *tty, size_t req, void *buf) override;
         void flush(tty::device *tty) override;

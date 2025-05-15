@@ -8,7 +8,9 @@
 #include "mm/arena.hpp"
 
 static log::subsystem logger = log::make_subsystem("FRG");
-static arena::allocator allocator{};
+static prs::allocator allocator{
+    arena::create_resource()
+};
 extern "C" {
 	void FRG_INTF(log)(const char *cstring) {
         kmsg(logger, cstring);
@@ -48,6 +50,7 @@ extern "C" {
     }
 }
 
+/*
 void operator delete(void *ptr) {
     allocator.deallocate(ptr);
 }
@@ -59,3 +62,5 @@ void operator delete(void *ptr, size_t _) {
 void *operator new(size_t size) {
     return allocator.allocate(size);
 }
+
+*/

@@ -70,9 +70,9 @@ namespace acpi {
             uint32_t flags;
         };
 
-        extern frg::vector<ioapic *, arena::allocator> ioapics;
-        extern frg::vector<iso *, arena::allocator> isos;
-        extern frg::vector<nmi *, arena::allocator> nmis;
+        extern frg::vector<ioapic *, prs::allocator> ioapics;
+        extern frg::vector<iso *, prs::allocator> isos;
+        extern frg::vector<nmi *, prs::allocator> nmis;
 
         inline madt::header *_madt{};
         extern void init();

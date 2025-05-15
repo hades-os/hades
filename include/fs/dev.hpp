@@ -119,16 +119,18 @@ namespace vfs {
             };
 
             struct device {
-                arena::allocator allocator;
+                prs::allocator allocator;
 
-                frg::vector<device *, arena::allocator> bus_devices;
+                frg::vector<device *, prs::allocator> bus_devices;
                 devfs::busdev *bus;
 
                 ssize_t major;
                 ssize_t minor;
 
                 device_class cls;
-                device(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux, device_class cls): allocator(), bus_devices(allocator), bus(bus), major(major), minor(minor), cls(cls) {};
+                device(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux, device_class cls): 
+                    allocator(arena::create_resource()), 
+                    bus_devices(allocator), bus(bus), major(major), minor(minor), cls(cls) {};
 
                 // virtual void *mmap(node *file, void *addr, size_t len, size_t offset) { return nullptr; }
             };
@@ -146,7 +148,7 @@ namespace vfs {
                 protected:
                     virtual ssize_t arise(ssize_t event) = 0;
                 public:
-                    frg::vector<shared_ptr<poll::producer>, arena::allocator> outputs;
+                    frg::vector<shared_ptr<poll::producer>, prs::allocator> outputs;
                         shared_ptr<node> file;
 
                     virtual ssize_t on_open(shared_ptr<fd> fd, ssize_t flags) = 0;
@@ -174,8 +176,8 @@ namespace vfs {
                         partition(size_t blocks, size_t begin) : blocks(blocks), begin(begin) { };
                     };
                     
-                    frg::vector<partition, arena::allocator> part_list;
-                    frg::vector<filesystem *, arena::allocator> fs_list;
+                    frg::vector<partition, prs::allocator> part_list;
+                    frg::vector<filesystem *, prs::allocator> fs_list;
 
                     size_t blocks;
                     size_t block_size;
@@ -193,7 +195,9 @@ namespace vfs {
 
                     virtual ssize_t force_dismount() override { return -ENOTSUP; }
 
-                    blockdev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux): filedev(bus, major, minor, aux, devfs::device_class::BLOCKDEV) {}
+                    blockdev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux): 
+                        filedev(bus, major, minor, aux, devfs::device_class::BLOCKDEV),
+                        part_list(allocator), fs_list(allocator) {}
             };
 
             struct chardev: filedev {
@@ -233,18 +237,18 @@ namespace vfs {
             static void probe();
 
             struct device_list {
-                frg::vector<device *, arena::allocator> list;
+                frg::vector<device *, prs::allocator> list;
                 size_t last_index;
 
-                device_list(): list(), last_index(0) {}
+                device_list(): list(arena::create_resource()), last_index(0) {}
             };
 
             inline static frg::hash_map<
                 size_t,
                 device_list,
                 frg::hash<size_t>,
-                arena::allocator>
-            device_map{frg::hash<size_t>()};
+                prs::allocator>
+            device_map{frg::hash<size_t>(), arena::create_resource()};
 
             static void append_device(device *dev, ssize_t major);
             static void remove_device(device *dev, ssize_t major);

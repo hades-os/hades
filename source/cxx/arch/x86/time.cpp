@@ -1,4 +1,5 @@
 #include "ipc/evtable.hpp"
+#include "mm/arena.hpp"
 #include "mm/mm.hpp"
 #include <arch/x86/smp.hpp>
 #include <cstddef>
@@ -10,7 +11,9 @@
 
 sched::timespec sched::clock_rt{};
 sched::timespec sched::clock_mono{};
-static frg::vector<sched::timer, arena::allocator> timers{};
+static frg::vector<sched::timer, prs::allocator> timers{
+    arena::create_resource()
+};
 
 void arch::add_timer(sched::timer timer) {
     timers.push_back(timer);

@@ -1,6 +1,7 @@
 #include "arch/x86/hpet.hpp"
 #include "arch/x86/pit.hpp"
 #include "ipc/evtable.hpp"
+#include "mm/arena.hpp"
 #include "mm/mm.hpp"
 #include "mm/slab.hpp"
 #include "sys/sched/time.hpp"
@@ -382,7 +383,11 @@ int arch::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *
     return x86::do_futex(vaddr, op, expected, timeout);
 }
 
-static frg::hash_map<uint64_t, sched::futex *, frg::hash<uint64_t>, arena::allocator> futex_list{frg::hash<uint64_t>()};
+static frg::hash_map<uint64_t, sched::futex *, frg::hash<uint64_t>, prs::allocator> 
+    futex_list{
+        frg::hash<uint64_t>(),
+        arena::create_resource()
+    };
 ssize_t x86::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *timeout) {
     auto process = x86::get_process();
 
@@ -403,7 +408,7 @@ ssize_t x86::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespe
 
             sched::futex *futex;
             if (!futex_list.contains(paddr)) {
-                futex = frg::construct<sched::futex>(mm::slab<sched::futex>(), paddr);
+                futex = frg::construct<sched::futex>(slab::create_resource(), paddr);
                 futex_list[paddr] = futex;
             } else {
                 futex = futex_list[paddr];

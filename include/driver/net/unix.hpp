@@ -26,7 +26,7 @@ namespace net {
                 frg::string_view,
                 weak_ptr<vfs::socket>,
                 vfs::path_hasher,
-                arena::allocator
+                prs::allocator
             > abstract_names;
 
             enum state {
@@ -37,7 +37,6 @@ namespace net {
             struct data {
                 size_t state;
                 ipc::wire wire;
-
             
                 data(): state(state::CLOSED), wire() {}
             };
@@ -56,7 +55,7 @@ namespace net {
             ssize_t recvfrom(shared_ptr<vfs::socket> socket, void *buf, size_t len, net::sockaddr_storage *addr, net::socklen_t addr_len, int flags) override;
             ssize_t recvmsg(shared_ptr<vfs::socket> socket, net::msghdr *hdr, int flags) override;
 
-        unix(): abstract_names(vfs::path_hasher()) {}
+        unix(): abstract_names(vfs::path_hasher(), arena::create_resource()) {}
     };
 }
 

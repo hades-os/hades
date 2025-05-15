@@ -34,7 +34,7 @@ namespace tty {
             util::ring<char> in;
             pts *slave;
 
-            arena::allocator allocator;
+            prs::allocator allocator;
         public:
             friend struct ptmx;
             friend struct pts;
@@ -47,7 +47,7 @@ namespace tty {
             ptm(vfs::devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux): 
                 chardev(bus, major, minor, aux),
                 in_lock(), in(max_chars),
-                allocator() {
+                allocator(arena::create_resource()) {
                 slave = (pts *) aux;
             };
 
