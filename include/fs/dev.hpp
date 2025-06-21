@@ -1,7 +1,6 @@
 #ifndef DEVFS_HPP
 #define DEVFS_HPP
 
-#include "frg/string.hpp"
 #include "fs/poll.hpp"
 #include "mm/arena.hpp"
 #include "mm/common.hpp"
@@ -10,7 +9,6 @@
 #include <frg/hash.hpp>
 #include <frg/hash_map.hpp>
 #include <frg/tuple.hpp>
-#include <frg/vector.hpp>
 #include <fs/vfs.hpp>
 #include <mm/mm.hpp>
 #include <util/errors.hpp>
@@ -47,6 +45,8 @@ namespace vfs {
                 matcher(bool has_file, bool single, const char *base_name, const char *subdir,
                         bool alpha_names, size_t start_index):
                     has_file(has_file), single(single), base_name(base_name), subdir(subdir), alpha_names(alpha_names), start_index(0) {}
+                
+                virtual ~matcher() {}
             };
 
             struct bus_space {
@@ -59,7 +59,7 @@ namespace vfs {
 
                     bus_space(bus_addr_t addr, bus_size_t size, bool linear)
                         : addr(addr), size(size), linear(linear) {}
-                    ~bus_space() {}
+                    virtual ~bus_space() {}
 
                     virtual bool is_linear() = 0;
 
@@ -109,7 +109,7 @@ namespace vfs {
                     bus_size_t len;
                 public:
                 bus_dma(bus_size_t len):len(len) {}
-                ~bus_dma() {};
+                virtual ~bus_dma() {};
 
                 virtual bus_addr_t vaddr() = 0;
                 virtual bus_addr_t paddr() = 0;
@@ -121,7 +121,7 @@ namespace vfs {
             struct device {
                 prs::allocator allocator;
 
-                frg::vector<device *, prs::allocator> bus_devices;
+                prs::vector<device *, prs::allocator> bus_devices;
                 devfs::busdev *bus;
 
                 ssize_t major;
@@ -142,13 +142,14 @@ namespace vfs {
                 virtual shared_ptr<bus_dma> get_dma(size_t size) { return nullptr; }
 
                 busdev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux): device(bus, major, minor, aux, devfs::device_class::BUS) { }
+                virtual ~busdev() {}
             };
 
             struct filedev: device {
                 protected:
                     virtual ssize_t arise(ssize_t event) = 0;
                 public:
-                    frg::vector<shared_ptr<poll::producer>, prs::allocator> outputs;
+                    prs::vector<shared_ptr<poll::producer>, prs::allocator> outputs;
                         shared_ptr<node> file;
 
                     virtual ssize_t on_open(shared_ptr<fd> fd, ssize_t flags) = 0;
@@ -163,6 +164,7 @@ namespace vfs {
                     virtual ssize_t force_dismount() = 0;
 
                     filedev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux, device_class cls): device(bus, major, minor, aux, cls), outputs(allocator) {};
+                    virtual ~filedev() {}
             };
 
             struct blockdev: filedev {
@@ -176,8 +178,8 @@ namespace vfs {
                         partition(size_t blocks, size_t begin) : blocks(blocks), begin(begin) { };
                     };
                     
-                    frg::vector<partition, prs::allocator> part_list;
-                    frg::vector<filesystem *, prs::allocator> fs_list;
+                    prs::vector<partition, prs::allocator> part_list;
+                    prs::vector<filesystem *, prs::allocator> fs_list;
 
                     size_t blocks;
                     size_t block_size;
@@ -198,6 +200,7 @@ namespace vfs {
                     blockdev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux): 
                         filedev(bus, major, minor, aux, devfs::device_class::BLOCKDEV),
                         part_list(allocator), fs_list(allocator) {}
+                    virtual ~blockdev() {}
             };
 
             struct chardev: filedev {
@@ -216,6 +219,7 @@ namespace vfs {
                     virtual ssize_t force_dismount() override { return -ENOTSUP; }
 
                     chardev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux): filedev(bus, major, minor, aux, devfs::device_class::CHARDEV) {}
+                    virtual ~chardev() {}
             };
 
             struct dev_priv {
@@ -237,7 +241,7 @@ namespace vfs {
             static void probe();
 
             struct device_list {
-                frg::vector<device *, prs::allocator> list;
+                prs::vector<device *, prs::allocator> list;
                 size_t last_index;
 
                 device_list(): list(arena::create_resource()), last_index(0) {}
@@ -253,10 +257,15 @@ namespace vfs {
             static void append_device(device *dev, ssize_t major);
             static void remove_device(device *dev, ssize_t major);
 
-            devfs(shared_ptr<node> root):
-                vfs::filesystem(root, {}) { };
+            /*
+            filesystem(shared_ptr<ns::mount> ns, weak_ptr<filesystem> self,
+                shared_ptr<node> root, weak_ptr<node> device):            
+            */
+            devfs(shared_ptr<ns::mount> ns,
+                shared_ptr<node> root):
+                vfs::filesystem(ns, root, {}) { };
 
-            weak_ptr<node> lookup(shared_ptr<node> parent, frg::string_view name) override;
+            weak_ptr<node> lookup(shared_ptr<node> parent, prs::string_view name) override;
 
             ssize_t on_open(shared_ptr<fd> fd, ssize_t flags) override;
             ssize_t on_close(shared_ptr<fd> fd, ssize_t flags) override;
@@ -266,7 +275,7 @@ namespace vfs {
             ssize_t ioctl(shared_ptr<node> file, size_t req, void *buf) override;
             void *mmap(shared_ptr<node> file, void *addr, size_t len, off_t offset) override;
             ssize_t poll(shared_ptr<descriptor> file) override;
-            ssize_t mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
+            ssize_t mkdir(shared_ptr<node> dst, prs::string_view name, int64_t flags, mode_t mode,
                 uid_t uid, gid_t gid) override;
     };
 };

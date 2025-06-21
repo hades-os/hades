@@ -5,14 +5,14 @@
 #include "fs/poll.hpp"
 #include "mm/arena.hpp"
 #include "mm/slab.hpp"
+#include "prs/allocator.hpp"
+#include "prs/string.hpp"
 #include "smarter/smarter.hpp"
 #include <cstddef>
 #include <cstdint>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <frg/hash.hpp>
 #include <frg/hash_map.hpp>
-#include <frg/string.hpp>
-#include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <sys/sched/time.hpp>
 #include <util/lock.hpp>
@@ -22,8 +22,8 @@
 #include <utility>
 
 namespace sched {
-    class process;
-    class thread;
+    struct process;
+    struct thread;
 }
 
 namespace ns {
@@ -35,23 +35,14 @@ namespace vfs {
     class filesystem;
     class manager;
 
-    using path = frg::string<prs::allocator>;
-    using pathlist = frg::vector<frg::string_view, prs::allocator>;
+    using path = prs::string;
+    using pathlist = prs::vector<prs::string_view, prs::allocator>;
 
     struct path_hasher {
-        unsigned int operator() (frg::string_view path) {
+        unsigned int operator() (prs::string_view path) {
             return frg::CStringHash{}(path.data());
         }
     };
-
-    inline frg::string_view find_name(frg::string_view path) {
-        auto pos = path.find_last('/');
-        if (pos == size_t(-1)) {
-            return path;
-        }
-
-        return path.sub_string(pos + 1);
-    }
 
     struct mflags {
         enum {
@@ -94,7 +85,7 @@ namespace vfs {
     };
 
     struct node {
-        private:
+        public:
             util::spinlock lock;
 
             weak_ptr<filesystem> fs;
@@ -116,19 +107,6 @@ namespace vfs {
             ssize_t flags;
             ssize_t type;
 
-            void init(ssize_t inum) {
-                if (inum > 0) {
-                    this->inum = inum;
-                } else {
-                    if (!parent.expired()) {
-                        auto new_parent = parent.lock();
-                        this->inum = new_parent ? new_parent->inum++ : 0;
-                    }
-                }
-
-                this->meta = prs::allocate_shared<statinfo>(slab::create_resource());
-            }
-        public:
             struct type {
                 enum {
                     FILE = 1,
@@ -145,28 +123,109 @@ namespace vfs {
                 ssize_t flags, ssize_t type, ssize_t inum = -1) : 
                 lock(), fs(fs),
                 name(std::move(name)), delete_on_close(false), 
-                allocator(), children(allocator), parent(parent), 
+                parent(parent), lc(), rs(), 
                 flags(flags), type(type) {
-                init(inum);
+                if (inum > 0) {
+                    this->inum = inum;
+                } else {
+                    if (!parent.expired()) {
+                        auto new_parent = parent.lock();
+                        this->inum = new_parent ? new_parent->inum++ : 0;
+                    }
+                }
+
+                this->meta = prs::allocate_shared<statinfo>(prs::allocator{slab::create_resource()});
             };
 
             node(std::nullptr_t, path name, std::nullptr_t, 
                 ssize_t flags, ssize_t type, ssize_t inum = -1):
                 lock(), fs(), 
                 name(std::move(name)), delete_on_close(false), 
-                allocator(), children(allocator), parent(), 
+                parent(), lc(), rs(),
                 flags(flags), type(type) {
-                init(inum);
-            }
-
-            shared_ptr<node> find_child(frg::string_view name) {
-                for (size_t i = 0; i < children.size(); i++) {
-                    if (children[i]) {
-                        if (children[i]->name.eq(name)) return children[i];
+                if (inum > 0) {
+                    this->inum = inum;
+                } else {
+                    if (!parent.expired()) {
+                        auto new_parent = parent.lock();
+                        this->inum = new_parent ? new_parent->inum++ : 0;
                     }
                 }
 
+                this->meta = prs::allocate_shared<statinfo>(prs::allocator{slab::create_resource()});
+            }
+
+            shared_ptr<node> child_add(shared_ptr<node> child) {
+                if (!lc) {
+                    lc = child;
+                } else {
+                    shared_ptr<node> current_lc = lc;
+                    child->rs = current_lc;
+
+                    lc = child;
+                }
+
+                return lc;
+            }
+
+            shared_ptr<node> child_remove(shared_ptr<node> child) {
+                shared_ptr<node> current = lc;
+                shared_ptr<node> prev{};
+                shared_ptr<node> target{};
+                while(current) {
+                    if (current == child) {
+                        target = current;
+                        break;
+                    }
+
+                    prev = current;
+                    current = current->rs;
+                }                
+
+                if (target) {
+                    if (target == lc) {
+                        lc = target->rs;
+                        target->rs = shared_ptr<node>{};
+                    } else {
+                        prev->rs = target->rs;
+                        target->rs = shared_ptr<node>{};                        
+                    }
+                }
+
+                return target;
+            }
+
+            shared_ptr<node> child_by_index(size_t index) {
+                shared_ptr<node> current = lc;
+                while (index && current) {
+                    current = current->rs;
+                    index--;
+                }
+
+                return current;
+            }
+
+            shared_ptr<node> child_by_name(prs::string_view name) {
+                shared_ptr<node> current = lc;
+                while(current) {
+                    if (current->name == name) 
+                        return current;
+
+                    current = current->rs;
+                }
+
                 return {nullptr};
+            }
+
+            size_t child_count() {
+                shared_ptr<node> current = lc;
+                size_t count = 0;
+                while (current) {
+                    current = current->rs;
+                    count++;
+                }
+
+                return count;
             }
 
             template<typename T>
@@ -217,18 +276,22 @@ namespace vfs {
 
     class filesystem {
         public:
+            shared_ptr<ns::mount> ns;
             shared_ptr<node> root;
             weak_ptr<node> device;
 
-            shared_ptr<filesystem> self;
+            weak_ptr<filesystem> self;
             path relpath;
 
-            filesystem(shared_ptr<node> root, weak_ptr<node> device):
-                root(root), device(device) {}
+            filesystem(shared_ptr<ns::mount> ns,
+                shared_ptr<node> root, weak_ptr<node> device):
+                ns(ns), root(root),
+                device(device) {}
+            virtual ~filesystem() {}
 
             virtual bool load() { return true; };
 
-            virtual weak_ptr<node>lookup(shared_ptr<node> parent, frg::string_view name) {
+            virtual weak_ptr<node>lookup(shared_ptr<node> parent, prs::string_view name) {
                 return {};
             }
 
@@ -273,12 +336,12 @@ namespace vfs {
                 return -ENOTSUP;
             }
 
-            virtual ssize_t mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
+            virtual ssize_t mkdir(shared_ptr<node> dst, prs::string_view name, int64_t flags, mode_t mode,
                 uid_t uid, gid_t gid) {
                 return -ENOTSUP;
             }
 
-            virtual ssize_t rename(shared_ptr<node> src, shared_ptr<node> dst, frg::string_view name, int64_t flags) {
+            virtual ssize_t rename(shared_ptr<node> src, shared_ptr<node> dst, prs::string_view name, int64_t flags) {
                 return -ENOTSUP;
             }
 
@@ -286,7 +349,7 @@ namespace vfs {
                 return -ENOTSUP;
             }
 
-            virtual ssize_t link(shared_ptr<node> src, shared_ptr<node> dst, frg::string_view name, bool is_symlink) {
+            virtual ssize_t link(shared_ptr<node> src, shared_ptr<node> dst, prs::string_view name, bool is_symlink) {
                 return -ENOTSUP;
             }
 
@@ -303,7 +366,10 @@ namespace vfs {
     struct socket;
 
     struct network {
-        shared_ptr<network> self;
+        weak_ptr<network> self;
+        network(weak_ptr<network> self):
+            self(self) {}
+        virtual ~network() {}
         
         virtual shared_ptr<socket> create(int type, int protocol) {
             return {};
@@ -373,7 +439,7 @@ namespace vfs {
         socket(weak_ptr<vfs::network> network):
             network(network), fs_node(),
             name(), peername(),
-            lock(), allocator() {}
+            lock(), allocator(arena::create_resource()) {}
 
         template<typename T>
         shared_ptr<T> data_as() {
@@ -402,7 +468,7 @@ namespace vfs {
         prs::allocator allocator;
 
         int current_ent;
-        frg::vector<dirent *, prs::allocator> dirent_list;
+        prs::vector<dirent *, prs::allocator> dirent_list;
 
         descriptor(): allocator(slab::create_resource()), dirent_list(allocator) {}
     };
@@ -417,6 +483,9 @@ namespace vfs {
         size_t len;
 
         bool data_written;
+        pipe(shared_ptr<descriptor> read, shared_ptr<descriptor> write,
+            prs::allocator allocator):
+            read(read), write(write), allocator(allocator) {}
     };
 
     using fd_pair = frg::tuple<shared_ptr<fd>, shared_ptr<fd>>;
@@ -444,13 +513,13 @@ namespace vfs {
     };
 
     ssize_t mount(shared_ptr<ns::mount> ns,
-        frg::string_view srcpath, frg::string_view dstpath, 
+        prs::string_view srcpath, prs::string_view dstpath, 
         ssize_t fstype, int64_t flags);
     ssize_t umount(shared_ptr<ns::mount> ns,
         shared_ptr<node> dst);
 
     shared_ptr<fd> open(shared_ptr<ns::mount> ns,
-        shared_ptr<node> base, frg::string_view filepath, 
+        shared_ptr<node> base, prs::string_view filepath, 
         shared_ptr<fd_table> table, int64_t flags, mode_t mode,
         uid_t uid, gid_t gid);
     fd_pair open_pipe(shared_ptr<fd_table> table, ssize_t flags);
@@ -470,32 +539,32 @@ namespace vfs {
     ssize_t poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::timespec *timespec);
 
     ssize_t stat(shared_ptr<ns::mount> ns,
-        shared_ptr<node> base, frg::string_view filepath, 
+        shared_ptr<node> base, prs::string_view filepath, 
         statinfo *buf, int64_t flags);
 
     ssize_t create(shared_ptr<ns::mount> ns,
-        shared_ptr<node> base, frg::string_view filepath, 
+        shared_ptr<node> base, prs::string_view filepath, 
         shared_ptr<fd_table> table, 
         int64_t type, int64_t flags, mode_t mode,
         uid_t uid, gid_t gid);
     ssize_t mkdir(shared_ptr<ns::mount> ns,
-        shared_ptr<node> base, frg::string_view dirpath, 
+        shared_ptr<node> base, prs::string_view dirpath, 
         int64_t flags, mode_t mode,
         uid_t uid, gid_t gid);
 
     ssize_t rename(shared_ptr<ns::mount> ns,
         shared_ptr<node> old_base, 
-        frg::string_view oldpath, shared_ptr<node> new_base, 
-        frg::string_view newpath, int64_t flags);
+        prs::string_view oldpath, shared_ptr<node> new_base, 
+        prs::string_view newpath, int64_t flags);
     ssize_t link(shared_ptr<ns::mount> ns,
-        shared_ptr<node> from_base, frg::string_view from, 
-        shared_ptr<node> to_base, frg::string_view to, bool is_symlink);
+        shared_ptr<node> from_base, prs::string_view from, 
+        shared_ptr<node> to_base, prs::string_view to, bool is_symlink);
     ssize_t unlink(shared_ptr<ns::mount> ns,
-        shared_ptr<node> base, frg::string_view filepath);
+        shared_ptr<node> base, prs::string_view filepath);
     ssize_t rmdir(shared_ptr<ns::mount> ns,
-        shared_ptr<node> base, frg::string_view dirpath);
+        shared_ptr<node> base, prs::string_view dirpath);
     pathlist readdir(shared_ptr<ns::mount> ns,
-        shared_ptr<node> base, frg::string_view dirpath);
+        shared_ptr<node> base, prs::string_view dirpath);
 
     shared_ptr<fd> create_socket(shared_ptr<network> network, int type, int protocol);
     ssize_t close_socket(shared_ptr<fd> fd, int how);
@@ -512,6 +581,8 @@ namespace vfs {
 
     // fs use only
     mode_t type2mode(int64_t type);
+    shared_ptr<vfs::node> make_recursive(prs::string_view path, 
+        shared_ptr<vfs::node> base, int64_t type, mode_t mode);
 
     shared_ptr<fd> make_fd(shared_ptr<node> node, shared_ptr<fd_table> table, int64_t flags, mode_t mode);
     shared_ptr<filesystem> device_fs();
@@ -520,7 +591,7 @@ namespace vfs {
     shared_ptr<fd_table>  make_table();
     shared_ptr<fd_table>  copy_table(shared_ptr<fd_table> table);
 
-    extern shared_ptr<node> tree_root;
+    extern shared_ptr<ns::mount> root_ns;
     void init();
 };
 

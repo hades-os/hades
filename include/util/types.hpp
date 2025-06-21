@@ -6,7 +6,7 @@
 #include <frg/unique.hpp>
 #include <mm/mm.hpp>
 #include <prs/shared.hpp>
-#include "prs/allocator.hpp"
+#include <prs/allocator.hpp>
 
 using pid_t = int;
 using tid_t = int;

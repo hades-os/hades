@@ -8,7 +8,7 @@
 #include <driver/video/fbdev.hpp>
 
 void fb::init(stivale::boot::tags::framebuffer *info) {
-    auto device = frg::construct<fb::device>(mm::slab<fb::device>(), vfs::devfs::mainbus, dtable::majors::FB, -1, nullptr);
+    auto device = prs::construct<fb::device>(prs::allocator{slab::create_resource()}, vfs::devfs::mainbus, dtable::majors::FB, -1, nullptr);
 
     device->width = info->width;
     device->height = info->height;
@@ -19,8 +19,8 @@ void fb::init(stivale::boot::tags::framebuffer *info) {
     device->major = major;
     device->minor = 0;
 
-    device->linux_compat.fix = frg::construct<fb_fix_screeninfo>(device->allocator);
-    device->linux_compat.var = frg::construct<fb_var_screeninfo>(device->allocator);
+    device->linux_compat.fix = prs::construct<fb_fix_screeninfo>(device->allocator);
+    device->linux_compat.var = prs::construct<fb_var_screeninfo>(device->allocator);
     
     *device->linux_compat.fix = (fb_fix_screeninfo) {
         .id = { 0 },

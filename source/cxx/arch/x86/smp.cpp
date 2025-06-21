@@ -4,7 +4,7 @@
 #include <arch/types.hpp>
 #include <atomic>
 #include <cstddef>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <mm/common.hpp>
 #include <mm/pmm.hpp>
 #include <mm/vmm.hpp>
@@ -79,7 +79,7 @@ extern "C" {
     extern void smp64_start(stivale::boot::info::processor *_);
 };
 
-frg::vector<x86::processor *, prs::allocator> x86::cpus{
+prs::vector<x86::processor *, prs::allocator> x86::cpus{
     arena::create_resource()
 };
 
@@ -152,8 +152,8 @@ void x86::init_smp() {
         size_t lapic_id = stivale_cpu->lapic_id;
         if (lapic_id == get_cpu()) continue;
 
-        auto processor = frg::construct<x86::processor>(mm::slab<x86::processor>(), lapic_id,
-        frg::construct<x86::run_tree>(mm::slab<x86::run_tree>()));
+        auto processor = prs::construct<x86::processor>(prs::allocator{slab::create_resource()}, lapic_id,
+        prs::construct<x86::run_tree>(prs::allocator{slab::create_resource()}));
         
         processor->kstack = (size_t) pmm::stack(x86::initialStackSize);
         processor->ctx = vmm::boot;

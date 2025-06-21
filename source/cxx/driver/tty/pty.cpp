@@ -11,16 +11,16 @@
 
 util::spinlock ptmx_lock{};
 void tty::ptmx::init() {
-    ptmx *device = frg::construct<ptmx>(mm::slab<ptmx>(), vfs::devfs::mainbus, dtable::majors::PTMX, -1, nullptr);
+    ptmx *device = prs::construct<ptmx>(prs::allocator{slab::create_resource()}, vfs::devfs::mainbus, dtable::majors::PTMX, -1, nullptr);
     vfs::devfs::append_device(device, dtable::majors::PTMX);
 }
 
 ssize_t tty::ptmx::on_open(shared_ptr<vfs::fd> fd, ssize_t flags) {
     util::lock_guard ptmx_guard{ptmx_lock};
 
-    tty::pts *pts = frg::construct<tty::pts>(mm::slab<tty::pts>());
-    tty::ptm *ptm = frg::construct<tty::ptm>(mm::slab<tty::ptm>(), vfs::devfs::mainbus, dtable::majors::PTM, -1, pts);
-    tty::device *pts_tty = frg::construct<tty::device>(mm::slab<tty::device>(), vfs::devfs::mainbus, dtable::majors::PTS, -1, pts);
+    tty::pts *pts = prs::construct<tty::pts>(prs::allocator{slab::create_resource()});
+    tty::ptm *ptm = prs::construct<tty::ptm>(prs::allocator{slab::create_resource()}, vfs::devfs::mainbus, dtable::majors::PTM, -1, pts);
+    tty::device *pts_tty = prs::construct<tty::device>(prs::allocator{slab::create_resource()}, vfs::devfs::mainbus, dtable::majors::PTS, -1, pts);
 
     pts->tty = pts_tty;
     pts->master = ptm;

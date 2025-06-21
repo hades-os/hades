@@ -117,6 +117,7 @@ flags_common = [
 	'-mno-red-zone',
 
 	'-ggdb',
+    '-w'
 ]
 
 flags_c = [

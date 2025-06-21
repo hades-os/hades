@@ -1,5 +1,5 @@
 #include <cstddef>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <frg/macros.hpp>
 #include <mm/mm.hpp>
 #include <sys/runtime.hpp>

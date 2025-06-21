@@ -3,6 +3,7 @@
 #include <sys/sched/sched.hpp>
 #include <arch/x86/types.hpp>
 #include <arch/types.hpp>
+#include <sys/namespace.hpp>
 
 void sched::process_env::place_params(char **envp, char **argv, sched::thread *task) {
     uint64_t *location = (uint64_t *) task->ustack;
@@ -35,14 +36,14 @@ bool sched::process_env::load_elf(const char *path, shared_ptr<vfs::fd> fd) {
     }
 
     file.ctx = proc->mem_ctx;
-    auto res = file.init(fd, proc->allocator);
+    auto res = file.init(fd);
     if (!res) return false;
 
     file.load_aux();
     file.load();
 
     entry = file.aux.at_entry;
-    has_interp = file.load_interp(&interp_path, proc->allocator);
+    has_interp = file.load_interp(&interp_path);
 
     vfs::close(fd);
 
@@ -52,7 +53,7 @@ bool sched::process_env::load_elf(const char *path, shared_ptr<vfs::fd> fd) {
             return false;
         }
 
-        fd = vfs::open(nullptr, interp_path, fd->table.lock(), 0, 0, 0, 0);
+        fd = vfs::open(proc->ns->mount_ns, nullptr, interp_path, fd->table.lock(), 0, 0, 0, 0);
         if (!fd) {
             proc->allocator.deallocate(interp_path);
             return false;
@@ -62,7 +63,7 @@ bool sched::process_env::load_elf(const char *path, shared_ptr<vfs::fd> fd) {
         interp.load_offset = 0x40000000;
         interp.fd = fd;
 
-        res = interp.init(fd, proc->allocator);
+        res = interp.init(fd);
         if (!res) {
             proc->allocator.deallocate(interp_path);
             vfs::close(fd);

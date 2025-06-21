@@ -2,7 +2,7 @@
 #include "arch/vmm.hpp"
 #include "arch/x86/smp.hpp"
 #include "arch/x86/types.hpp"
-#include "frg/allocation.hpp"
+#include "prs/construct.hpp"
 #include "ipc/evtable.hpp"
 #include "mm/slab.hpp"
 #include "util/lock.hpp"
@@ -119,7 +119,7 @@ void syscall_exec(arch::irq_regs *r) {
         };
 
         arch::kill_thread(task);
-        frg::destruct(mm::slab<sched::thread>(), task);
+        prs::destruct(mm::slab<sched::thread>(), task);
     }
 
     process->main_thread = current_task;
@@ -384,7 +384,7 @@ void syscall_setpgid(arch::irq_regs *r) {
         if (old_group->process_count == 0) {
             old_group->sess->remove_group(old_group);
             sched::remove_process_group(old_group->pgid);
-            frg::destruct(mm::slab<sched::process_group>(), old_group);            
+            prs::destruct(mm::slab<sched::process_group>(), old_group);            
         }
     }
 
@@ -425,7 +425,7 @@ void syscall_setsid(arch::irq_regs *r) {
         if (old_group->process_count == 0) {
             old_group->sess->remove_group(old_group);
             sched::remove_process_group(old_group->pgid);
-            frg::destruct(mm::slab<sched::process_group>(), old_group);            
+            prs::destruct(mm::slab<sched::process_group>(), old_group);            
         }
     }
 

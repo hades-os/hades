@@ -7,7 +7,6 @@
 #include "util/types.hpp"
 #include <cstddef>
 #include <cstdint>
-#include <frg/vector.hpp>
 #include <mm/mm.hpp>
 
 namespace pci {
@@ -190,7 +189,7 @@ struct pcibus: vfs::devfs::busdev {
     private:
         uint8_t bus;
 
-        frg::vector<pci::device, prs::allocator> devices;
+        prs::vector<pci::device, prs::allocator> devices;
 
         pci::device *get_device(uint8_t clazz, uint8_t subclazz, uint8_t prog_if);
         pci::device *get_device(uint16_t vendor, uint16_t device);

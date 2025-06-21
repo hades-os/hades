@@ -97,8 +97,8 @@ void arch::init_sched() {
 }
 
 void x86::init_bsp() {
-    auto processor = frg::construct<x86::processor>(mm::slab<x86::processor>(), apic::lapic::id(),
-        frg::construct<x86::run_tree>(mm::slab<x86::run_tree>()));
+    auto processor = prs::construct<x86::processor>(prs::allocator{slab::create_resource()}, apic::lapic::id(),
+        prs::construct<x86::run_tree>(prs::allocator{slab::create_resource()}));
 
     processor->kstack = (size_t) pmm::stack(x86::initialStackSize);
     processor->ctx = vmm::boot;
@@ -408,7 +408,7 @@ ssize_t x86::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespe
 
             sched::futex *futex;
             if (!futex_list.contains(paddr)) {
-                futex = frg::construct<sched::futex>(slab::create_resource(), paddr);
+                futex = prs::construct<sched::futex>(prs::allocator{slab::create_resource()}, paddr);
                 futex_list[paddr] = futex;
             } else {
                 futex = futex_list[paddr];

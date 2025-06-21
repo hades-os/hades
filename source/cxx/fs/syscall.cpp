@@ -9,7 +9,7 @@
 #include <arch/types.hpp>
 #include <arch/x86/types.hpp>
 
-shared_ptr<vfs::node> resolve_dirfd(int dirfd, frg::string_view path, sched::process *process) {
+shared_ptr<vfs::node> resolve_dirfd(int dirfd, prs::string_view path, sched::process *process) {
     bool is_relative = path != '/';
     if (is_relative) {
         if (dirfd == AT_FDCWD) {
@@ -880,7 +880,7 @@ void syscall_readdir(arch::irq_regs *r) {
     if ((node->children.size() >= fd->desc->current_ent) && node->children.size() != fd->desc->dirent_list.size()) {
         for (auto dirent: fd->desc->dirent_list) {
             if (dirent == nullptr) continue;
-            frg::destruct(fd->desc->allocator, dirent);
+            prs::destruct(fd->desc->allocator, dirent);
         }
 
         fd->desc->dirent_list.clear();
@@ -895,7 +895,7 @@ void syscall_readdir(arch::irq_regs *r) {
                 return;
             }
 
-            auto entry = frg::construct<dirent>(fd->desc->allocator);
+            auto entry = prs::construct<dirent>(fd->desc->allocator);
             make_dirent(node, child, entry);
             fd->desc->dirent_list.push(entry);
         }

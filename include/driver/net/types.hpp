@@ -2,7 +2,6 @@
 #define NET_TYPES_HPP
 
 #include <util/log/log.hpp>
-#include <frg/string.hpp>
 #include <mm/mm.hpp>
 #include <cstddef>
 #include <cstdint>

@@ -416,8 +416,8 @@ namespace vmm {
         if ((uint64_t) (flags & map_flags::PRIVATE))
             out_flags |= page_flags::PRIVATE;
 
-        if ((uint64_t) (flags & map_flags::EXEC))
-            out_flags |= page_flags::EXEC;
+        if (!((uint64_t) (flags & map_flags::EXEC)))
+            out_flags |= page_flags::NX;
         
         if ((uint64_t) (flags & map_flags::DEMAND)) 
             out_flags |= page_flags::DEMAND;

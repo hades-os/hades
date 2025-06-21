@@ -2,7 +2,6 @@
 #define ICMP_HPP
 
 #include "driver/net/types.hpp"
-#include "frg/string.hpp"
 #include <cstddef>
 #include <cstdint>
 

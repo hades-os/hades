@@ -4,7 +4,6 @@
 #include <driver/net/types.hpp>
 #include <mm/mm.hpp>
 #include <smarter/smarter.hpp>
-#include "frg/string.hpp"
 #include "mm/slab.hpp"
 
 /**
@@ -21,7 +20,7 @@ shared_ptr<vfs::socket> net::unix::create(int type, int protocol) {
         case SOCK_DGRAM:;
         case SOCK_STREAM:;
         case SOCK_SEQPACKET:
-            auto socket = prs::allocate_shared<vfs::socket>(mm::slab<vfs::socket>(),
+            auto socket = prs::allocate_shared<vfs::socket>(prs::allocator{slab::create_resource()},
                 self);
             auto data = prs::allocate_shared<unix::data>(socket->allocator);
             socket->as_data(data);
@@ -36,7 +35,7 @@ ssize_t net::unix::bind(shared_ptr<vfs::socket> socket, net::sockaddr_storage *a
     sockaddr_un *unix_addr = (sockaddr_un *) addr;
     if (unix_addr->sun_path[0] == '\0') {
         char *name = unix_addr->sun_path + 1;
-        frg::string_view abstract_name{name, addr_len - sizeof(sa_family_t) - 1};
+        prs::string_view abstract_name{name, addr_len - sizeof(sa_family_t) - 1};
 
         if (abstract_names.contains(abstract_name)) return -EADDRINUSE;
 
@@ -46,7 +45,7 @@ ssize_t net::unix::bind(shared_ptr<vfs::socket> socket, net::sockaddr_storage *a
         return 0;
     } else {
         char *name = unix_addr->sun_path;
-        frg::string_view path_name{name, strnlen(name, 108)};
+        prs::string_view path_name{name, strnlen(name, 108)};
 
         if (vfs::resolve_at(path_name, nullptr)) {
             return -EADDRINUSE;

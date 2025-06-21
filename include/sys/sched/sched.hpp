@@ -2,7 +2,6 @@
 #define SCHED_HPP
 
 #include "arch/types.hpp"
-#include "frg/list.hpp"
 #include "mm/arena.hpp"
 #include "prs/allocator.hpp"
 #include "prs/rbtree.hpp"
@@ -12,7 +11,6 @@
 #include <cstdint>
 #include <frg/hash.hpp>
 #include <frg/hash_map.hpp>
-#include <frg/vector.hpp>
 #include <fs/vfs.hpp>
 #include <mm/mm.hpp>
 #include <mm/vmm.hpp>
@@ -23,6 +21,10 @@
 
 namespace tty {
     struct device;
+}
+
+namespace ns {
+    struct accessor;
 }
 
 namespace sched {
@@ -55,18 +57,14 @@ namespace sched {
     constexpr size_t FUTEX_WAIT = 0;
     constexpr size_t FUTEX_WAKE = 1;
 
-    class session;
-    class thread;
-    class process;
-    class process_group;
+    struct session;
+    struct thread;
+    struct process;
+    struct process_group;
 
     void init();
 
     thread *create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege, bool assign_tid = true);
-    process *create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege);
-
-    process_group *create_process_group(process *leader);
-    session *create_session(process *leader, process_group *group);
 
     thread *fork(thread *original, vmm::vmm_ctx *ctx, arch::irq_regs *r);
     process *fork(process *original, thread *caller, arch::irq_regs *r);
@@ -98,7 +96,7 @@ namespace sched {
         size_t uptime;
     };
 
-    class thread {
+    struct thread {
         public:
             arch::thread_ctx ctx;
 
@@ -204,18 +202,19 @@ namespace sched {
             file(allocator), interp(allocator) {}
     };
 
-    class process {
+    struct process {
         public:
             char name[50];
 
             prs::allocator allocator;
             vmm::vmm_ctx *mem_ctx;
 
-            frg::vector<thread *, prs::allocator> threads;
-            frg::vector<process *, prs::allocator> children;
-            frg::vector<process *, prs::allocator> zombies;            
+            prs::vector<thread *, prs::allocator> threads;
+            prs::vector<process *, prs::allocator> children;
+            prs::vector<process *, prs::allocator> zombies;            
             shared_ptr<vfs::fd_table> fds;
             shared_ptr<vfs::node> cwd;
+            shared_ptr<ns::accessor> ns;
 
             util::spinlock lock;
 
@@ -269,13 +268,15 @@ namespace sched {
 
             frg::tuple<int, pid_t> waitpid(pid_t pid, thread *waiter, int options);
 
-            process(): allocator(arena::create_resource()),
+            process(shared_ptr<ns::accessor> ns): 
+                allocator(arena::create_resource()),
                 threads(allocator), children(allocator), zombies(allocator), 
+                ns(ns),
                 lock(), sig_lock(), env(allocator),
                 wire() {};
     };
 
-    class process_group {
+    struct process_group {
         public:
             pid_t pgid;
 
@@ -284,17 +285,19 @@ namespace sched {
             bool is_orphan;
 
             session *sess;
-            frg::vector<process *, prs::allocator> procs;
+            prs::vector<process *, prs::allocator> procs;
             size_t process_count;
 
-            process_group(process *leader): pgid(leader->pid), leader_pid(leader->pid), is_orphan(false), sess(nullptr), procs(), process_count(1) {
-                procs.push(leader);
+            process_group(process *leader): pgid(leader->pid), leader_pid(leader->pid), 
+                is_orphan(false), sess(nullptr), 
+                procs(arena::create_resource()), process_count(1) {
+                procs.push_back(leader);
                 
                 leader->group = this;
             }
 
             void add_process(process *proc) {
-                procs.push(proc);
+                procs.push_back(proc);
                 proc->group = this;
                 process_count++;
             }
@@ -306,29 +309,30 @@ namespace sched {
     };
 
     // TODO: lock these
-    class session {
+    struct session {
         public:
             pid_t sid;
             pid_t leader_pgid;
             process *leader;
-            frg::vector<process_group *, prs::allocator> groups;
+            prs::vector<process_group *, prs::allocator> groups;
             size_t group_count;
 
             tty::device *tty;
 
-            session(process *leader, process_group *group): sid(leader->pid), leader_pgid(leader->pid), leader(leader), 
-                groups(), group_count(1), tty(nullptr) {
+            session(process *leader, process_group *group): sid(leader->pid), leader_pgid(leader->pid), 
+                leader(leader), 
+                groups(arena::create_resource()), group_count(1), tty(nullptr) {
                 if (!group) {
                     __builtin_unreachable();
                 }
 
-                groups.push(group);
+                groups.push_back(group);
                 group->sess = this;
                 leader->sess = this;
             }
 
             void add_group(process_group *group) {
-                groups.push(group);
+                groups.push_back(group);
                 group->sess = this;
                 group_count++;
             }
@@ -338,18 +342,6 @@ namespace sched {
                 group_count--;
             }            
     };
-
-    pid_t add_process(sched::process *proc);
-    pid_t add_process_group(sched::process_group *group);
-    pid_t add_session(sched::session *sess);
-
-    void remove_process(pid_t pid);
-    void remove_process_group(pid_t pgid);
-    void remove_session(pid_t sid);
-
-    sched::process *get_process(pid_t pid);
-    sched::process_group *get_process_group(pid_t pgid);
-    sched::session *get_session(pid_t sid);
 };
 
 #endif

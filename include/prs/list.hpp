@@ -61,6 +61,10 @@ namespace prs {
                         return copy;
                     }
 
+                    explicit operator bool() {
+                        return current != nullptr;
+                    }
+
                     friend bool operator==(const iterator& a, const iterator& b) {
                         return a.current == b.current;
                     }
@@ -99,6 +103,10 @@ namespace prs {
                         auto copy = *this;
                         ++(*this);
                         return copy;
+                    }
+
+                    explicit operator bool() {
+                        return current != nullptr;
                     }
 
                     friend bool operator==(const reverse_iterator& a, 

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <atomic>
 #include <new>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <frg/eternal.hpp>
 #include <frg/macros.hpp>
 #include <frg/tuple.hpp>
@@ -66,7 +66,7 @@ public:
 				}
 
 				tn = cn->parent;
-				frg::destruct(_allocator, cn);
+				prs::destruct(_allocator, cn);
 			}else{
 				auto cn = static_cast<link_node *>(n);
 
@@ -82,7 +82,7 @@ public:
 				// When this link_node is a leaf, delete it.
 				if(!tn) {
 					tn = cn->parent;
-					frg::destruct(_allocator, cn);
+					prs::destruct(_allocator, cn);
 				}
 			}
 			n = tn;

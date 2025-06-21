@@ -6,6 +6,8 @@
 #include <utility>
 
 namespace prs {
+    struct allocator;
+    
     struct memory_resource {
         private:
             std::atomic_int _count;
@@ -33,7 +35,7 @@ namespace prs {
                 }
             }
 
-            allocator(allocator& other) {
+            allocator(allocator const& other) {
                 if (other._resource) {
                     if (other._resource->_count.fetch_add(1)) {
                         _resource = other._resource;
@@ -50,12 +52,13 @@ namespace prs {
             }
 
             void *allocate(size_t bytes,
-                size_t alignment = alignof(std::max_align_t)) {
+                size_t alignment = alignof(std::max_align_t)) const {
                 return _resource->allocate(bytes, alignment);
             }
 
-            void free(void *p) { deallocate(p); }
-            void deallocate(void *p) {
+            void free(void *p) const { deallocate(p); }
+            void deallocate(void *p, size_t _) const { deallocate(p); }
+            void deallocate(void *p) const {
                 if (!p)
                     return;
                 _resource->deallocate(p);

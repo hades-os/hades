@@ -10,7 +10,7 @@
 
 void ipc::wire::wait_for_wake(sched::thread *thread) {
     lock.lock();
-    threads.append(thread);
+    threads.push_back(thread);
     lock.unlock();
 
     arch::stop_thread(thread);

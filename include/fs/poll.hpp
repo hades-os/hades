@@ -6,11 +6,10 @@
 #include "mm/mm.hpp"
 #include "util/types.hpp"
 #include <util/lock.hpp>
-#include <frg/vector.hpp>
 #include <frg/tuple.hpp>
 
 namespace sched {
-    class thread;
+    struct thread;
 };
 
 namespace vfs {
@@ -36,11 +35,11 @@ namespace poll {
             friend struct table;
             friend shared_ptr<producer> create_producer(weak_ptr<vfs::descriptor> desc);
 
-            shared_ptr<poll::producer> self;
+            weak_ptr<poll::producer> self;
             weak_ptr<vfs::descriptor> desc;
             producer_context ctx;
 
-            frg::vector<shared_ptr<table>, prs::allocator> tables;
+            prs::vector<shared_ptr<table>, prs::allocator> tables;
             util::spinlock lock;
         public:
             producer(weak_ptr<vfs::descriptor> desc): desc(desc), tables(arena::create_resource()), lock() {}
@@ -56,7 +55,7 @@ namespace poll {
             friend struct producer;
             friend shared_ptr<table> create_table();
  
-            shared_ptr<table> self;
+            weak_ptr<table> self;
 
             struct event {
                 shared_ptr<poll::producer> producer;
@@ -65,8 +64,8 @@ namespace poll {
 
             arena::arena_resource *resource;
 
-            frg::vector<event, prs::allocator> events;
-            frg::vector<shared_ptr<producer>, prs::allocator> producers;
+            prs::vector<event, prs::allocator> events;
+            prs::vector<shared_ptr<producer>, prs::allocator> producers;
 
             shared_ptr<producer> latest_producer;
             ssize_t latest_event;
@@ -82,7 +81,7 @@ namespace poll {
             ~table();
 
             frg::tuple<shared_ptr<producer>, ssize_t> wait(bool allow_signals, sched::timespec *timeout);
-            frg::vector<event, prs::allocator> &get_events() {
+            prs::vector<event, prs::allocator> &get_events() {
                 return events;
             }
 

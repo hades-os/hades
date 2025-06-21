@@ -6,7 +6,7 @@
 #include <util/types.hpp>
 
 namespace sched {
-    class thread;
+    struct thread;
 }
 
 namespace ipc {

@@ -34,18 +34,18 @@ vfs::devfs::device
 
                     size_t vector = arch::alloc_vector();
 
-                    // bar = frg::construct<pci_space>(memory::mm::heap, pci_bar.base, pci_bar.size, pci_bar.is_mmio)
+                    // bar = prs::construct<pci_space>(memory::mm::heap, pci_bar.base, pci_bar.size, pci_bar.is_mmio)
                     ::net::setup_args args {
                         .flash_space = 0,
-                        .reg_space = frg::construct<pci_space>(mm::slab<pci_space>(), is_mmio ? mem_base : io_base, 128 * memory::page_size, is_mmio),
+                        .reg_space = prs::construct<pci_space>(prs::allocator{slab::create_resource()}, is_mmio ? mem_base : io_base, 128 * memory::page_size, is_mmio),
                         .irq = (int) vector,
                         .flags = is_e1000e
                     };
 
-                    auto e1000_dev = frg::construct<e1000::device>(mm::slab<e1000::device>(), bus, dtable::majors::NET, -1, &args);
+                    auto e1000_dev = prs::construct<e1000::device>(prs::allocator{slab::create_resource()}, bus, dtable::majors::NET, -1, &args);
                     bool success = e1000_dev->setup();
                     if (!success) {
-                        frg::destruct(mm::slab<e1000::device>(), e1000_dev);
+                        prs::destruct(prs::allocator{slab::create_resource()}, e1000_dev);
                         return nullptr;
                     }
 

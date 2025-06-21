@@ -155,7 +155,7 @@ namespace e1000 {
             bool is_e1000e;
             bool has_eeprom;
 
-            frg::vector<shared_ptr<vfs::devfs::bus_dma>, prs::allocator> rx_desc_dma;
+            prs::vector<shared_ptr<vfs::devfs::bus_dma>, prs::allocator> rx_desc_dma;
             shared_ptr<vfs::devfs::bus_dma> rx_dma;
             shared_ptr<vfs::devfs::bus_dma> tx_dma;
 

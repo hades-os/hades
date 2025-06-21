@@ -5,10 +5,9 @@
 #include "mm/arena.hpp"
 #include "mm/slab.hpp"
 #include "util/types.hpp"
-#include <frg/vector.hpp>
 #include <cstddef>
 #include <cstdint>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <frg/hash.hpp>
 #include <mm/mm.hpp>
 #include <fs/vfs.hpp>
@@ -163,14 +162,15 @@ namespace vfs {
                 return 0;
             }
         public:
-            ext2fs(shared_ptr<node> root, weak_ptr<node> device):
-                vfs::filesystem(root, device), 
+            ext2fs(shared_ptr<ns::mount> ns,
+                shared_ptr<node> root, weak_ptr<node> device):
+                vfs::filesystem(ns, root, device), 
                 allocator(arena::create_resource()), 
                 superblock(prs::make_unique<ext2fs::super>(allocator)) {}
 
             bool load() override;
 
-            weak_ptr<node> lookup(shared_ptr<node> parent, frg::string_view name) override;
+            weak_ptr<node> lookup(shared_ptr<node> parent, prs::string_view name) override;
             ssize_t readdir(shared_ptr<node> dir) override;
 
             ssize_t read(shared_ptr<node> file, void *buf, size_t len, off_t offset) override;
@@ -179,7 +179,7 @@ namespace vfs {
 
             ssize_t create(shared_ptr<node> dst, path name, int64_t type, int64_t flags, mode_t mode,
                 uid_t uid, gid_t gid) override;
-            ssize_t mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
+            ssize_t mkdir(shared_ptr<node> dst, prs::string_view name, int64_t flags, mode_t mode,
                 uid_t uid, gid_t gid) override;
 
             ssize_t readlink(shared_ptr<node> file) override;

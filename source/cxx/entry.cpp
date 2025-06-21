@@ -16,8 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <driver/ahci.hpp>
-#include <frg/allocation.hpp>
-#include <frg/string.hpp>
+#include <prs/construct.hpp>
 #include <fs/vfs.hpp>
 #include <fs/dev.hpp>
 #include <mm/mm.hpp>
@@ -73,7 +72,7 @@ static void show_splash(shared_ptr<vfs::fd_table> table) {
 
     auto splash_fd = vfs::open(nullptr, "/home/racemus/hades.bmp", table, 0, O_RDONLY, 0, 0);
 
-    auto info = frg::construct<vfs::node::statinfo>(slab::create_resource());
+    auto info = prs::construct<vfs::statinfo>(prs::allocator{slab::create_resource()});
     vfs::stat(nullptr, "/home/racemus/hades.bmp", info, 0);
      
     auto buffer = allocator.allocate(info->st_size);

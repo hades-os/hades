@@ -6,10 +6,10 @@
 #include <stdint.h>
 #include <frg/macros.hpp>
 #include <frg/optional.hpp>
-#include <frg/string.hpp>
 #include <frg/utility.hpp>
 #include <frg/tuple.hpp>
 #include <util/string.hpp>
+#include "prs/string.hpp"
 
 /* the ranges library is not even partially freestanding for some reason */
 #if __STDC_HOSTED__ && !defined(__clang__)
@@ -379,13 +379,13 @@ void format_object(const char *object, format_options, S &sink) {
 }
 
 template<Sink S>
-void format_object(const frg::string_view &object, format_options, S &sink) {
+void format_object(const prs::string_view &object, format_options, S &sink) {
 	for(size_t i = 0; i < object.size(); ++i)
 		sink.append(object[i]);
 }
 
 template<Sink S, typename Allocator>
-void format_object(const frg::string<Allocator> &object, format_options, S &sink) {
+void format_object(const prs::string &object, format_options, S &sink) {
 	sink.append(object.data());
 }
 

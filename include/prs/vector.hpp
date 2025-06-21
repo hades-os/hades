@@ -81,6 +81,10 @@ namespace prs {
                         return copy;
                     }
 
+                    explicit operator bool() {
+                        return current != nullptr;
+                    }
+
                     friend bool operator==(const iterator& a, const iterator& b) {
                         return a.current == b.current;
                     }
@@ -136,6 +140,10 @@ namespace prs {
                         return a.current == b.current;
                     }
 
+                    explicit operator bool() {
+                        return current != nullptr;
+                    }
+
                     friend bool operator!=(const reverse_iterator& a, 
                             const reverse_iterator& b) {
                         return a.current != b.current;
@@ -154,7 +162,10 @@ namespace prs {
                     }                    
             };
 
-            vector(Allocator allocator = Allocator()):
+            vector():
+                _size(0), _capacity(0), _elements(nullptr) {}
+
+            vector(Allocator allocator):
                 _size(0), _capacity(0), _elements(nullptr), allocator(std::move(allocator)) {}
 
             vector(const vector& other):
@@ -168,8 +179,10 @@ namespace prs {
                 _size = other_size;
             }
 
-            vector(vector&& other) {
-                swap(*this, other);
+            vector(vector&& other):
+                allocator(std::move(other.allocator)), 
+                _elements(std::move(other._elements)),
+                _size(std::move(other._size)), _capacity(std::move(other._capacity)) {
             }
 
             vector &operator=(vector other) {
@@ -242,15 +255,15 @@ namespace prs {
                 return reverse_iterator{_elements};
             }
 
-            bool empty() {
+            bool empty() const {
                 return _size == 0;
             }
 
-            size_t size() {
+            size_t size() const {
                 return _size;
             }
 
-            size_t capacity() {
+            size_t capacity() const {
                 return _capacity;
             }
 
@@ -361,6 +374,22 @@ namespace prs {
                 new(&_elements[current]) T(std::forward<Args>(args)...);
                 _size++;
                 return iterator{_elements + current};         
+            }
+
+            iterator erase(T element) {
+                iterator pos{nullptr};
+                for (iterator it = begin(); it != end(); it++) {
+                    if (*it == element) {
+                        pos = it;
+                        break;
+                    }
+                }
+
+                if (!pos) {
+                    return iterator{nullptr};
+                }
+
+                return erase(pos);          
             }
 
             iterator erase(iterator pos) {
