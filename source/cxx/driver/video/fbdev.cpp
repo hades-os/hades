@@ -69,7 +69,7 @@ void fb::init(stivale::boot::tags::framebuffer *info) {
     vfs::devfs::add("/dev/fb0", device);
 }
 
-vfs::ssize_t fb::device::read(void *buf, size_t count, size_t offset) {
+ssize_t fb::device::read(void *buf, size_t count, size_t offset) {
     if (offset + count > linux_compat.fix->smem_len) {
         count = linux_compat.fix->smem_len - offset;
     }
@@ -78,7 +78,7 @@ vfs::ssize_t fb::device::read(void *buf, size_t count, size_t offset) {
     return count;
 }
 
-vfs::ssize_t fb::device::write(void *buf, size_t count, size_t offset) {
+ssize_t fb::device::write(void *buf, size_t count, size_t offset) {
     if (offset + count > linux_compat.fix->smem_len) {
         count = linux_compat.fix->smem_len - offset;
     }
@@ -87,7 +87,7 @@ vfs::ssize_t fb::device::write(void *buf, size_t count, size_t offset) {
     return count;
 }
 
-vfs::ssize_t fb::device::ioctl(size_t req, void *buf) {
+ssize_t fb::device::ioctl(size_t req, void *buf) {
     switch (req) {
         case FBIOGET_VSCREENINFO:
             memcpy(buf, linux_compat.var, sizeof(fb_var_screeninfo));

@@ -282,7 +282,6 @@ namespace ahci {
         command_entry *entry;
     };
 
-    using ssize_t = signed long long int;
     constexpr size_t major = 0xA;
     constexpr char alphabet[] = "abcdefghijklmnopqrstuvwxyz";
 

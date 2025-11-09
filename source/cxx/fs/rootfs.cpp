@@ -14,7 +14,7 @@ vfs::node *vfs::rootfs::lookup(node *parent, frg::string_view name) {
     }
 }
 
-vfs::ssize_t vfs::rootfs::write(node *file, void *buf, size_t len, size_t offset) {
+ssize_t vfs::rootfs::write(node *file, void *buf, size_t len, off_t offset) {
     auto storage = (rootfs::storage *) file->private_data;
     if (storage->length < len + offset) {
         void *old = storage->buf;
@@ -27,7 +27,7 @@ vfs::ssize_t vfs::rootfs::write(node *file, void *buf, size_t len, size_t offset
     return len;
 }
 
-vfs::ssize_t vfs::rootfs::read(node *file, void *buf, size_t len, size_t offset) {
+ssize_t vfs::rootfs::read(node *file, void *buf, size_t len, off_t offset) {
     auto storage = (rootfs::storage *) file->private_data;
     if (storage->length > len + offset) {
         memcpy(buf, (char *) storage->buf + offset, len);
@@ -40,7 +40,7 @@ vfs::ssize_t vfs::rootfs::read(node *file, void *buf, size_t len, size_t offset)
     }
 }
 
-vfs::ssize_t vfs::rootfs::create(node *dst, path name, int64_t type, int64_t flags) {
+ssize_t vfs::rootfs::create(node *dst, path name, int64_t type, int64_t flags) {
     auto storage = frg::construct<rootfs::storage>(memory::mm::heap);
     storage->buf = kmalloc(memory::common::page_size);
     storage->length = memory::common::page_size;
@@ -52,14 +52,14 @@ vfs::ssize_t vfs::rootfs::create(node *dst, path name, int64_t type, int64_t fla
     return 0;
 }
 
-vfs::ssize_t vfs::rootfs::mkdir(node *dst, frg::string_view name, int64_t flags) {
+ssize_t vfs::rootfs::mkdir(node *dst, frg::string_view name, int64_t flags) {
     node *new_dir = frg::construct<vfs::node>(memory::mm::heap, this, name, dst, flags, node::type::DIRECTORY);
     dst->children.push_back(new_dir);
 
     return 0;
 }
 
-vfs::ssize_t vfs::rootfs::remove(node *dest) {
+ssize_t vfs::rootfs::remove(node *dest) {
     auto storage = (rootfs::storage *) dest->private_data;
     kfree(storage->buf);
     frg::destruct(memory::mm::heap, storage);

@@ -44,12 +44,12 @@ vfs::node *vfs::devfs::lookup(node *parent, frg::string_view name) {
     return node;
 }
 
-vfs::ssize_t vfs::devfs::on_open(vfs::fd *fd, ssize_t flags) {
+ssize_t vfs::devfs::on_open(vfs::fd *fd, ssize_t flags) {
     auto device = (devfs::device *) fd->desc->node->private_data;
     return device->on_open(fd, flags);
 }
 
-vfs::ssize_t vfs::devfs::on_close(vfs::fd *fd, ssize_t flags) {
+ssize_t vfs::devfs::on_close(vfs::fd *fd, ssize_t flags) {
     auto device = (devfs::device *) fd->desc->node->private_data;
     return device->on_open(fd, flags);
 
@@ -103,7 +103,7 @@ bool vfs::devfs::request_io(node *file, device::io_request *req, bool rw, bool a
 }
 
 
-vfs::ssize_t vfs::devfs::read(node *file, void *buf, size_t len, size_t offset) {
+ssize_t vfs::devfs::read(node *file, void *buf, size_t len, off_t offset) {
     auto private_data = (dev_priv *) file->private_data;
     if (!private_data) return -error::NOENT;
 
@@ -120,7 +120,7 @@ vfs::ssize_t vfs::devfs::read(node *file, void *buf, size_t len, size_t offset) 
     return device->read(buf, len, offset);
 }
 
-vfs::ssize_t vfs::devfs::write(node *file, void *buf, size_t len, size_t offset) {
+ssize_t vfs::devfs::write(node *file, void *buf, size_t len, off_t offset) {
     auto private_data = (dev_priv *) file->private_data;
     if (!private_data) return -error::NOENT;
 
@@ -137,7 +137,7 @@ vfs::ssize_t vfs::devfs::write(node *file, void *buf, size_t len, size_t offset)
     return device->write(buf, len, offset);
 }
 
-vfs::ssize_t vfs::devfs::ioctl(node *file, size_t req, void *buf) {
+ssize_t vfs::devfs::ioctl(node *file, size_t req, void *buf) {
     auto device = (devfs::device *) file->private_data;
     if (!device) {
         return -error::NOENT;
@@ -153,7 +153,7 @@ vfs::ssize_t vfs::devfs::ioctl(node *file, size_t req, void *buf) {
     }
 }
 
-void *vfs::devfs::mmap(node *file, void *addr, size_t len, size_t offset) {
+void *vfs::devfs::mmap(node *file, void *addr, size_t len, off_t offset) {
     auto device = (devfs::device *) file->private_data;
     if (!device) {
         return nullptr;
@@ -162,7 +162,7 @@ void *vfs::devfs::mmap(node *file, void *addr, size_t len, size_t offset) {
     return device->mmap(file, addr, len, offset);
 }
 
-vfs::ssize_t vfs::devfs::mkdir(node *dst, frg::string_view name, int64_t flags) {
+ssize_t vfs::devfs::mkdir(node *dst, frg::string_view name, int64_t flags) {
     node *new_dir = frg::construct<vfs::node>(memory::mm::heap, this, name, dst, flags, node::type::DIRECTORY);
     dst->children.push_back(new_dir);
 

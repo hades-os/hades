@@ -7,6 +7,7 @@
 #include <sys/sched/regs.hpp>
 #include <sys/sched/wait.hpp>
 #include <sys/sched/time.hpp>
+#include <util/types.hpp>
 
 #define SIG_ERR ((void*) -1)
 #define SIG_DFL ((void*) 0)
@@ -72,11 +73,7 @@ namespace sched {
     class process;
     class process_group;
 
-    using pid_t = int64_t;
-
     namespace signal {
-        using sigset_t = uint64_t;
-
         union sigval {
             int sival_int;
             void *sival_ptr;

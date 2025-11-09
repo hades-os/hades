@@ -91,7 +91,7 @@ int sched::signal::do_sigprocmask(process *proc, int how, sigset_t *set, sigset_
     return 0;
 }
 
-int sched::signal::do_kill(sched::pid_t pid, int sig) {
+int sched::signal::do_kill(pid_t pid, int sig) {
     if (!is_valid(sig)) {
         return -vfs::error::INVAL;
     }

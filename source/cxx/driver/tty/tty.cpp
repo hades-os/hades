@@ -14,7 +14,7 @@ void tty::self::init() {
     vfs::devfs::add("/dev/tty", self);
 }
 
-tty::ssize_t tty::self::on_open(vfs::fd *fd, ssize_t flags) {
+ssize_t tty::self::on_open(vfs::fd *fd, ssize_t flags) {
     if (smp::get_process() && !smp::get_process()->sess->tty) {
         // TODO: errno
         return -1;
@@ -40,7 +40,7 @@ void tty::device::set_active() {
     active_tty = this;
 }
 
-tty::ssize_t tty::device::on_open(vfs::fd *fd, ssize_t flags) {
+ssize_t tty::device::on_open(vfs::fd *fd, ssize_t flags) {
     if (__atomic_fetch_add(&ref, 1, __ATOMIC_RELAXED) == 0) {
         if (driver && driver->has_connect) {
             if (driver->connect(this) == -1) {
@@ -49,7 +49,7 @@ tty::ssize_t tty::device::on_open(vfs::fd *fd, ssize_t flags) {
         }
     }
 
-    if ((sess == nullptr) && (!((flags & vfs::O_NOCTTY) == vfs::O_NOCTTY)) &&
+    if ((sess == nullptr) && (!((flags & O_NOCTTY) == O_NOCTTY)) &&
         (smp::get_process() && smp::get_process()->group->pgid == smp::get_process()->sess->leader_pgid)) {
         sess = smp::get_process()->sess;
         fg = smp::get_process()->group;
@@ -58,7 +58,7 @@ tty::ssize_t tty::device::on_open(vfs::fd *fd, ssize_t flags) {
     return 0;
 }
 
-tty::ssize_t tty::device::on_close(vfs::fd *fd, ssize_t flags) {
+ssize_t tty::device::on_close(vfs::fd *fd, ssize_t flags) {
     if (__atomic_sub_fetch(&ref, 1, __ATOMIC_RELAXED) == 0) {
         if (driver && driver->has_disconnect) {
             driver->disconnect(this);
@@ -68,7 +68,7 @@ tty::ssize_t tty::device::on_close(vfs::fd *fd, ssize_t flags) {
     return 0;
 }
 
-tty::ssize_t tty::device::read(void *buf, size_t count, size_t offset) {
+ssize_t tty::device::read(void *buf, size_t count, size_t offset) {
     // TODO: orphans
     if (smp::get_process() && smp::get_process()->sess == sess) {
         if (smp::get_process()->group != fg) {
@@ -93,7 +93,7 @@ tty::ssize_t tty::device::read(void *buf, size_t count, size_t offset) {
     return 0;
 }
 
-tty::ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
+ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     // TODO: orphans
     if (smp::get_process() && smp::get_process()->sess == sess) {
         if (smp::get_process()->group != fg && (termios.c_cflag & TOSTOP)) {
@@ -128,7 +128,7 @@ tty::ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     return bytes;
 }
 
-tty::ssize_t tty::device::ioctl(size_t req, void *buf) {
+ssize_t tty::device::ioctl(size_t req, void *buf) {
     lock.irq_acquire();
     switch (req) {
         case TIOCGPGRP: {
@@ -138,7 +138,7 @@ tty::ssize_t tty::device::ioctl(size_t req, void *buf) {
                 return -1;
             }
 
-            sched::pid_t *pgrp = (sched::pid_t *) buf;
+            pid_t *pgrp = (pid_t *) buf;
             *pgrp = fg->pgid;
             lock.irq_release();
             return 0;
@@ -151,7 +151,7 @@ tty::ssize_t tty::device::ioctl(size_t req, void *buf) {
                 return -1;
             }
 
-            sched::pid_t pgrp = *(sched::pid_t *) buf;
+            pid_t pgrp = *(pid_t *) buf;
             sched::process_group *group;
 
             if (!(group = sess->groups[pgrp])) {
@@ -243,5 +243,17 @@ tty::ssize_t tty::device::ioctl(size_t req, void *buf) {
                 return -1;
             }
         }
+    }
+}
+
+void tty::set_active(frg::string_view path, vfs::fd_table *table) {
+    auto fd = vfs::open(nullptr, path, table, O_NOCTTY, O_RDONLY);
+    if (fd == nullptr) return;
+
+    tty::device *tty = (tty::device *) fd->desc->node->private_data; 
+    vfs::close(fd);
+
+    if (tty) {
+        active_tty = tty;
     }
 }

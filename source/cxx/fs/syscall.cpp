@@ -29,7 +29,7 @@
 vfs::node *resolve_dirfd(int dirfd, frg::string_view path, sched::process *process) {
     bool is_relative = path == '/';
     if (is_relative) {
-        if (dirfd == vfs::AT_FDCWD) {
+        if (dirfd == AT_FDCWD) {
             return process->cwd;
         }
 
@@ -44,34 +44,34 @@ vfs::node *resolve_dirfd(int dirfd, frg::string_view path, sched::process *proce
     return vfs::tree_root;
 }
 
-void make_dirent(vfs::node *dir, vfs::node *child, vfs::dirent *entry) {
+void make_dirent(vfs::node *dir, vfs::node *child, dirent *entry) {
     strcpy(entry->d_name, child->name.data());
 
     entry->d_ino = child->inum;
     entry->d_off = 0;
-    entry->d_reclen = sizeof(vfs::dirent);
+    entry->d_reclen = sizeof(dirent);
 
     switch (child->type) {
         case vfs::node::type::FILE:
-            entry->d_type = vfs::DT_REG;
+            entry->d_type = DT_REG;
             break;
         case vfs::node::type::DIRECTORY:
-            entry->d_type = vfs::DT_DIR;
+            entry->d_type = DT_DIR;
             break;
         case vfs::node::type::BLOCKDEV:
-            entry->d_type = vfs::DT_BLK;
+            entry->d_type = DT_BLK;
             break;
         case vfs::node::type::CHARDEV:
-            entry->d_type = vfs::DT_CHR;
+            entry->d_type = DT_CHR;
             break;
         case vfs::node::type::SOCKET:
-            entry->d_type = vfs::DT_SOCK;
+            entry->d_type = DT_SOCK;
             break;
         case vfs::node::type::SYMLINK:
-            entry->d_type = vfs::DT_LNK;
+            entry->d_type = DT_LNK;
             break;
         default:
-            entry->d_type = vfs::DT_UNKNOWN;
+            entry->d_type = DT_UNKNOWN;
     }
 }
 
@@ -90,14 +90,14 @@ void syscall_openat(irq::regs *r) {
     }
 
     auto node = vfs::resolve_at(path, dir);
-    if (flags & vfs::O_CREAT && node == nullptr) {
+    if (flags & O_CREAT && node == nullptr) {
         auto res = vfs::create(dir, path, process->fds, vfs::node::type::FILE, flags, mode);
         if (res < 0) {
             // TODO: errno
             r->rax = -1;
             return;
         }
-    } else if ((flags & vfs::O_CREAT) && (flags & vfs::O_EXCL)) {
+    } else if ((flags & O_CREAT) && (flags & O_EXCL)) {
         // TODO: errno
         r->rax = -1;
         return;
@@ -107,13 +107,13 @@ void syscall_openat(irq::regs *r) {
         return;
     }
 
-    if (!(flags & vfs::O_DIRECTORY) && node->type == vfs::node::type::DIRECTORY) {
+    if (!(flags & O_DIRECTORY) && node->type == vfs::node::type::DIRECTORY) {
         // TODO: errno
         r->rax = -1;
         return;
     }
 
-    if ((flags & vfs::O_TRUNC)) {
+    if ((flags & O_TRUNC)) {
         auto res = node->fs->truncate(node, 0);
         if (res < 0) {
             // TODO: errno
@@ -142,7 +142,7 @@ void syscall_pipe(irq::regs *r) {
 }
 
 void syscall_lseek(irq::regs *r) {
-    size_t offset = r->rsi;
+    off_t offset = r->rsi;
     size_t whence = r->rdx;
 
     auto process = smp::get_process();
@@ -302,14 +302,14 @@ void syscall_lstatat(irq::regs *r) {
     auto process = smp::get_process();
     auto dir = resolve_dirfd(dirfd, path, process);
 
-    if (!strlen(path) && !(flags & vfs::AT_EMPTY_PATH)) {
+    if (!strlen(path) && !(flags & AT_EMPTY_PATH)) {
         // TODO: errno
         r->rax = -1;
         return;
     }
 
     vfs::node *node;
-    if (flags & vfs::AT_EMPTY_PATH) {
+    if (flags & AT_EMPTY_PATH) {
         if (dir == nullptr) {
             // TODO: errno
             r->rax = -1;
@@ -508,7 +508,7 @@ void syscall_unlinkat(irq::regs *r) {
 
 void syscall_readdir(irq::regs *r) {
     int fd_number = r->rdi;
-    vfs::dirent *ents = (vfs::dirent *) r->rsi;
+    dirent *ents = (dirent *) r->rsi;
 
     auto process = smp::get_process();
 
@@ -546,7 +546,7 @@ void syscall_readdir(irq::regs *r) {
                 return;
             }
 
-            auto entry = frg::construct<vfs::dirent>(memory::mm::heap);
+            auto entry = frg::construct<dirent>(memory::mm::heap);
             make_dirent(node, child, entry);
             fd->desc->dirent_list.push_back(entry);
         }
@@ -581,26 +581,26 @@ void syscall_fcntl(irq::regs *r) {
     }
 
     switch(r->rsi) {
-        case vfs::F_DUPFD: {
+        case F_DUPFD: {
             auto new_fd = vfs::dup(fd, false, -1);
             r->rax = new_fd->fd_number;
             break;
         }
 
-        case vfs::F_DUPFD_CLOEXEC: {
+        case F_DUPFD_CLOEXEC: {
             auto new_fd = vfs::dup(fd, true, -1);
             r->rax = new_fd->fd_number;
             break;
         }
 
-        case vfs::F_GETFD: {
+        case F_GETFD: {
             fd->lock.irq_acquire();
             r->rax = fd->flags;
             fd->lock.irq_release();
             break;
         }
 
-        case vfs::F_SETFD: {
+        case F_SETFD: {
             fd->lock.irq_acquire();
             fd->flags = r->rdx;
             r->rax = 0;
@@ -608,7 +608,7 @@ void syscall_fcntl(irq::regs *r) {
             break;
         }
 
-        case vfs::F_GETFL: {
+        case F_GETFL: {
             if (!fd->desc->node) {
                 // TODO: errno
                 r->rax = -1;
@@ -621,7 +621,7 @@ void syscall_fcntl(irq::regs *r) {
             break;
         }
 
-        case vfs::F_SETFL: {
+        case F_SETFL: {
             if (!fd->desc->node) {
                 // TODO: errno
                 r->rax = -1;

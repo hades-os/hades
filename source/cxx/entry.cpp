@@ -29,6 +29,7 @@
 #include <util/log/qemu.hpp>
 #include <util/log/serial.hpp>
 #include <driver/video/vesa.hpp>
+#include <driver/video/fbdev.hpp>
 #include <util/log/log.hpp>
 #include <util/string.hpp>
 
@@ -53,12 +54,22 @@ static void run_init() {
     auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_USER | VMM_WRITE | VMM_MANAGED, (void *) ctx) + (4 * memory::common::page_size);
 
     auto proc = sched::create_process((char *) "init", 0, stack, ctx, 3);
-    char *argv[] = { (char *)"/bin/init", NULL };
-    char *envp[] = { (char *) "HOME=/", (char *) "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", (char *) "TERM=linux", (char *) "FBDEV=/dev/fb0", NULL };
+    char *argv[] = { (char *)
+        "/bin/init", 
+        NULL 
+    };
+    char *envp[] = { 
+        (char *) "HOME=/home/racemus", 
+        (char *) "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", 
+        (char *) "TERM=linux", 
+        (char *) "FBDEV=/dev/fb0", 
+        NULL 
+    };
     proc->cwd = vfs::resolve_at("/bin", nullptr);
 
+    auto fd = vfs::open(nullptr, "/bin/init", proc->fds, 0, O_RDWR);
     memory::vmm::change(proc->mem_ctx);
-    proc->env.load_elf("/bin/init.elf");
+    proc->env.load_elf("/bin/init.elf", fd);
     proc->main_thread->reg.rip = proc->env.entry;
 
     proc->env.place_params(envp, argv, proc->main_thread);
@@ -66,7 +77,7 @@ static void run_init() {
 }
 
 static void show_splash(vfs::fd_table *table) {
-    auto splash_fd = vfs::open(nullptr, "/home/racemus/hades.bmp", table, 0, vfs::O_RDONLY);
+    auto splash_fd = vfs::open(nullptr, "/home/racemus/hades.bmp", table, 0, O_RDONLY);
 
     auto info = frg::construct<vfs::node::statinfo>(memory::mm::heap);
     vfs::lstat(nullptr, "/home/racemus/hades.bmp", info);
@@ -89,13 +100,19 @@ static void kern_task() {
 
     e1000::init();
 
-    kb::init();
+    vt::init(fbinfo);
     tty::self::init();
     tty::ptmx::init();
     
     auto boot_table = vfs::make_table();
+
+    tty::set_active("/dev/tty0", boot_table);
+    fb::init(&fbinfo);
+
     show_splash(boot_table);
- 
+
+    kb::init();
+
     while (true) {
         asm volatile("hlt");
     }

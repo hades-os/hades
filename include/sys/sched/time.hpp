@@ -12,6 +12,10 @@ namespace ipc {
 
 namespace sched {    
     constexpr long TIMER_HZ = 1000000000;
+
+    constexpr size_t CLOCK_REALTIME = 0;
+    constexpr size_t CLOCK_MONOTONIC = 1;
+
     struct timespec {
         public:
             int64_t tv_sec;

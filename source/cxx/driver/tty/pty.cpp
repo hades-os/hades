@@ -19,7 +19,7 @@ void tty::ptmx::init() {
     vfs::devfs::add("ptmx", device);
 }
 
-tty::ssize_t tty::ptmx::on_open(vfs::fd *fd, tty::ssize_t flags) {
+ssize_t tty::ptmx::on_open(vfs::fd *fd, ssize_t flags) {
     ptmx_lock.irq_acquire();
     size_t slave_no = last_pts++;
 
@@ -71,7 +71,7 @@ void tty::pts::flush(tty::device *tty) {
     tty->out_lock.irq_release();
 }
 
-tty::ssize_t tty::ptm::read(void *buf, size_t len, size_t offset) {
+ssize_t tty::ptm::read(void *buf, size_t len, size_t offset) {
     size_t count;
     char *chars = (char *) buf;
 
@@ -88,7 +88,7 @@ tty::ssize_t tty::ptm::read(void *buf, size_t len, size_t offset) {
     return count;
 }
 
-tty::ssize_t tty::ptm::write(void *buf, size_t len, size_t offset) {
+ssize_t tty::ptm::write(void *buf, size_t len, size_t offset) {
     size_t count;
     char *chars = (char *) buf;
 
@@ -105,7 +105,7 @@ tty::ssize_t tty::ptm::write(void *buf, size_t len, size_t offset) {
     return count;
 }
 
-tty::ssize_t tty::ptm::ioctl(size_t req, void *buf) {
+ssize_t tty::ptm::ioctl(size_t req, void *buf) {
     auto pts = slave;
 
     switch (req) {
@@ -133,7 +133,7 @@ tty::ssize_t tty::ptm::ioctl(size_t req, void *buf) {
     }
 }
 
-tty::ssize_t tty::pts::ioctl(device *tty, size_t req, void *buf) {
+ssize_t tty::pts::ioctl(device *tty, size_t req, void *buf) {
     switch (req) {
         case TIOCGWINSZ: {
             memcpy(buf, &size, sizeof(winsize));

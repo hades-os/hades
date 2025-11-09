@@ -301,7 +301,7 @@ bool sched::exec(thread *target, const char *path, char **argv, char **envp) {
     target->proc->env.place_params(envp, argv, target);
     
     for (auto [fd_number, fd]: target->proc->fds->fd_list) {
-        if (fd->flags & vfs::O_CLOEXEC) {
+        if (fd->flags & O_CLOEXEC) {
             vfs::close(fd);
         }
     }
@@ -497,7 +497,7 @@ int64_t sched::process::start() {
     return pid;
 }
 
-void sched::process::kill() {
+void sched::process::kill(int term_signal) {
     sched_lock.irq_acquire();
     vfs::delete_table(this->fds);
 
@@ -564,6 +564,7 @@ void sched::process::kill() {
     parent->zombies.push_back(this);
 
     status.val = TERMINATED | STATUS_CHANGED;
+    status.term_signal = term_signal;
     notify_status->arise(main_thread);
 
     sched_lock.irq_release();
@@ -712,7 +713,7 @@ void reap_process(sched::process *zombie) {
     sched::sched_lock.irq_release();
 }
 
-frg::tuple<uint32_t, sched::pid_t> sched::process::waitpid(sched::pid_t pid, thread *waiter, int options) {
+frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int options) {
     // Reap zombies first
     this->lock.irq_acquire();
     for (size_t i = 0; i < zombies.size(); i++) {
@@ -734,7 +735,7 @@ frg::tuple<uint32_t, sched::pid_t> sched::process::waitpid(sched::pid_t pid, thr
 
         zombies[i] = nullptr;
 
-        uint8_t status = zombie->status.val;
+        uint8_t status = zombie->status.term_signal;
         pid_t pid = zombie->pid;
         reap_process(zombie);
 
@@ -750,6 +751,7 @@ frg::tuple<uint32_t, sched::pid_t> sched::process::waitpid(sched::pid_t pid, thr
     process *proc = nullptr;
     pid_t return_pid = 0;
     uint32_t exit_val = 0;
+    int exit_status = -1;
 
     do_wait:
         while (true) {
@@ -779,6 +781,7 @@ frg::tuple<uint32_t, sched::pid_t> sched::process::waitpid(sched::pid_t pid, thr
 
         return_pid = proc->pid;
         exit_val = proc->status.val;
+        exit_status = proc->status.term_signal;
 
         if ((exit_val & TERMINATED) == TERMINATED) {
             zombies[find_zombie(proc)] = nullptr;
@@ -786,7 +789,7 @@ frg::tuple<uint32_t, sched::pid_t> sched::process::waitpid(sched::pid_t pid, thr
         }
     finish:
         this->lock.irq_release();
-        return {exit_val, return_pid};
+        return {exit_status, return_pid};
 }
 
 

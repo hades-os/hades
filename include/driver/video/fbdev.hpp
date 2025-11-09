@@ -96,7 +96,6 @@ namespace fb {
         fb_fix_screeninfo *fix;
     };    
 
-    using ssize_t = signed long long int;
     constexpr size_t major = 29;
 
     void init(stivale::boot::tags::framebuffer *info);    
