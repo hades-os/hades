@@ -4,13 +4,13 @@
 #include "mm/arena.hpp"
 #include "mm/common.hpp"
 #include "mm/mm.hpp"
+#include "prs/rbtree.hpp"
 #include <cstddef>
 #include <stdint.h>
 #include <stddef.h>
 #include <mm/pmm.hpp>
 #include <util/lock.hpp>
 #include <frg/vector.hpp>
-#include <frg/rbtree.hpp>
 #include <frg/tuple.hpp>
 #include <arch/vmm.hpp>
 #include <arch/x86/types.hpp>
@@ -30,7 +30,7 @@ namespace vmm {
                     uint64_t largest_hole = 0;
                     void *map = nullptr;
 
-                    frg::rbtree_hook hook;
+                    prs::rbtree_hook hook;
 
                     hole(void *addr, uint64_t len, void *map): hook() {
                         this->addr = addr;
@@ -47,7 +47,7 @@ namespace vmm {
             };
 
             struct hole_aggregator;
-            using hole_tree = frg::rbtree<hole, &hole::hook, hole_comparator, hole_aggregator>;
+            using hole_tree = prs::rbtree<hole, &hole::hook, hole_comparator, hole_aggregator>;
 
             struct hole_aggregator {
                 static bool aggregate(hole *node);
@@ -81,7 +81,7 @@ namespace vmm {
                     mapping_perms perms;
                     
                     bool free_pages;
-                    frg::rbtree_hook hook;
+                    prs::rbtree_hook hook;
 
                     mapping(void *addr, uint64_t len, vmm_ctx_map map) : addr(addr), len(len), map(map), perms(), free_pages(false) { };
             };
@@ -92,7 +92,7 @@ namespace vmm {
                 };
             };
 
-            using mapping_tree = frg::rbtree<mapping, &mapping::hook, mapping_comparator, frg::null_aggregator>;
+            using mapping_tree = prs::rbtree<mapping, &mapping::hook, mapping_comparator>;
             mapping_tree mappings;
 
             void *create_mapping(void *addr, uint64_t len, map_flags flags, bool fill_now);

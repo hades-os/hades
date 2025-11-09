@@ -29,12 +29,12 @@ vmm::vmm_ctx::~vmm_ctx() {
 bool vmm::vmm_ctx::hole_aggregator::aggregate(hole *node) {
     size_t size = node->len;
 
-    if (hole_tree::get_left(node) && hole_tree::get_left(node)->largest_hole > size) {
-        size = hole_tree::get_left(node)->largest_hole;
+    if (hole_tree::left(node) && hole_tree::left(node)->largest_hole > size) {
+        size = hole_tree::left(node)->largest_hole;
     }
 
-    if (hole_tree::get_right(node) && hole_tree::get_right(node)->largest_hole > size) {
-        size = hole_tree::get_right(node)->largest_hole;
+    if (hole_tree::right(node) && hole_tree::right(node)->largest_hole > size) {
+        size = hole_tree::right(node)->largest_hole;
     }
 
     if (node->largest_hole == size) {
@@ -51,12 +51,12 @@ bool vmm::vmm_ctx::hole_aggregator::check_invariant(hole_tree &tree, hole *node)
     hole *pred = tree.predecessor(node);
     hole *sucs = tree.successor(node);
 
-    if (hole_tree::get_left(node) && hole_tree::get_left(node)->largest_hole > size) {
-        size = hole_tree::get_left(node)->largest_hole;
+    if (hole_tree::left(node) && hole_tree::left(node)->largest_hole > size) {
+        size = hole_tree::left(node)->largest_hole;
     }
 
-    if (hole_tree::get_right(node) && hole_tree::get_right(node)->largest_hole > size) {
-        size = hole_tree::get_left(node)->largest_hole;
+    if (hole_tree::right(node) && hole_tree::right(node)->largest_hole > size) {
+        size = hole_tree::left(node)->largest_hole;
     }
 
     if (node->largest_hole != size) {
@@ -83,11 +83,11 @@ void vmm::vmm_ctx::setup_hole() {
 }
 
 void *vmm::vmm_ctx::create_hole(void *addr, uint64_t len) {
-    hole *current = this->holes.get_root();
+    hole *current = this->holes.root();
     if (!addr) {
         while (true) {
-            if (this->holes.get_left(current) && this->holes.get_left(current)->largest_hole >= len) {
-                current = this->holes.get_left(current);
+            if (this->holes.left(current) && this->holes.left(current)->largest_hole >= len) {
+                current = this->holes.left(current);
                 continue;
             }
 
@@ -97,7 +97,7 @@ void *vmm::vmm_ctx::create_hole(void *addr, uint64_t len) {
                 return addr;
             }
 
-            current = this->holes.get_right(current);
+            current = this->holes.right(current);
         }
     } else {
         while (true) {
@@ -107,9 +107,9 @@ void *vmm::vmm_ctx::create_hole(void *addr, uint64_t len) {
             }
 
             if (addr < current->addr) {
-                current = this->holes.get_left(current);
+                current = this->holes.left(current);
             } else if (addr >= (char *) current->addr + current->len) {
-                current = this->holes.get_right(current);
+                current = this->holes.right(current);
             } else {
                 break;
             }
@@ -128,23 +128,23 @@ void *vmm::vmm_ctx::create_hole(void *addr, uint64_t len) {
 }
 
 uint8_t vmm::vmm_ctx::delete_hole(void *addr, uint64_t len) {
-    hole *current = this->holes.get_root();
+    hole *current = this->holes.root();
 
     hole *pre = nullptr;
     hole *succ = nullptr;
 
     while (true) {
         if (addr < current->addr) {
-            if (this->holes.get_left(current)) {
-                current = this->holes.get_left(current);
+            if (this->holes.left(current)) {
+                current = this->holes.left(current);
             } else {
                 pre = this->holes.predecessor(current);
                 succ = current;
                 break;
             }
         } else {
-            if (this->holes.get_right(current)) {
-                current = this->holes.get_right(current);
+            if (this->holes.right(current)) {
+                current = this->holes.right(current);
             } else {
                 pre = current;
                 succ = this->holes.successor(current);
@@ -250,16 +250,16 @@ void *vmm::vmm_ctx::create_mapping(void *addr, uint64_t len, map_flags flags, bo
 }
 
 vmm::vmm_ctx::mapping *vmm::vmm_ctx::get_mapping(void *addr) {
-    mapping *current = this->mappings.get_root();
+    mapping *current = this->mappings.root();
     while (current) {
         if (current->addr <= addr && ((char *) current->addr + current->len) >= addr) {
             return current;
         }
 
         if (current->addr > addr) {
-            current = this->mappings.get_left(current);
+            current = this->mappings.left(current);
         } else {
-            current = this->mappings.get_right(current);
+            current = this->mappings.right(current);
         }
     }
 
@@ -295,9 +295,9 @@ void *vmm::vmm_ctx::delete_mappings(void *addr, uint64_t len) {
 }
 
 frg::tuple<vmm::vmm_ctx::mapping *, vmm::vmm_ctx::mapping *>vmm::vmm_ctx::split_mappings(void *addr, uint64_t len) {
-    auto left = mappings.get_root();
+    auto left = mappings.root();
     while (left) {
-        if (auto next = mappings.get_left(left)) {
+        if (auto next = mappings.left(left)) {
             left = next;
         } else {
             break;

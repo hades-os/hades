@@ -8,54 +8,47 @@
 #include <frg/list.hpp>
 #include <frg/tuple.hpp>
 #include <utility>
+#include "prs/list.hpp"
 #include "util/lock.hpp"
 
 namespace arena {
     struct allocator;
-    struct free_list_arena {
+    struct arena {
         private:
             friend struct allocator;
 
-            struct page_list;
+            struct page_block;
             struct free_header {
                 size_t size;
-                page_list *list;
-                frg::default_list_hook<free_header> hook;
+                page_block *block;
+                prs::list_hook hook;
 
-                free_header(size_t size, page_list *list): size(size), list(list), hook() {}
+                free_header(size_t size, page_block *block): size(size), block(block), hook() {}
             };
 
-            struct page_list {
-                size_t pages;
+            struct page_block {
+                size_t page_count;
                 uintptr_t addr;
 
-                frg::default_list_hook<page_list> hook;
-                frg::intrusive_list<
+                prs::list_hook hook;
+                prs::list<
                     free_header,
-                    frg::locate_member<
-                        free_header,
-                        frg::default_list_hook<free_header>,
-                        &free_header::hook
-                    >
+                    &free_header::hook
                 > free_list;
 
-                page_list(size_t pages): pages(pages), hook(), free_list() {}
+                page_block(size_t page_count): page_count(page_count), hook(), free_list() {}
             };
 
             struct allocation_header {
                 size_t size;
                 uint8_t padding;
-                page_list *list;
+                page_block *block;
             };
 
-            frg::intrusive_list<
-            page_list,
-                frg::locate_member<
-                page_list,
-                    frg::default_list_hook<page_list>,
-                    &page_list::hook
-                >
-            > pages_list;
+            prs::list<
+                page_block,
+                &page_block::hook
+            > block_list;
 
             // prev, found
             frg::tuple<
@@ -69,11 +62,11 @@ namespace arena {
 
             util::spinlock lock;
         public:
-            free_list_arena();
+            arena();
 
-            free_list_arena(const free_list_arena& other):
-                pages_list(other.pages_list), lock() {}
-            ~free_list_arena();
+            arena(const arena& other):
+            block_list(other.block_list), lock() {}
+            ~arena();
 
             void *allocate(size_t size, size_t alignment = 0);
             void deallocate(void *ptr);
@@ -81,7 +74,7 @@ namespace arena {
 
     struct allocator: mm::allocator {
         private:
-            mutable free_list_arena arena;
+            mutable arena arena;
         public:
             void *allocate(size_t size, size_t alignment = 8) const override;
             void *reallocate(void *ptr, size_t size) const override;

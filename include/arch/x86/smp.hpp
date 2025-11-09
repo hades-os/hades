@@ -4,7 +4,6 @@
 #include "arch/x86/types.hpp"
 #include "frg/intrusive.hpp"
 #include "frg/list.hpp"
-#include "frg/rbtree.hpp"
 #include "sys/sched/time.hpp"
 #include "util/types.hpp"
 #include <cstddef>
@@ -76,7 +75,7 @@ namespace x86 {
         };
     };
 
-    using run_tree = frg::rbtree<
+    using run_tree = prs::rbtree<
         sched::thread,
         &sched::thread::hook,
         thread_comparator

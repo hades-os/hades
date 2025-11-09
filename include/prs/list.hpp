@@ -9,12 +9,12 @@ namespace prs {
     struct list_hook {
         public:
             list_hook():
-                prev(nullptr), next(nullptr), in_list(false) {}
+                previous(nullptr), next(nullptr), in_list(false) {}
 
             list_hook(const list_hook &other) = delete;
             list_hook &operator= (const list_hook &other) = delete;
 
-            void *prev;
+            void *previous;
             void *next;
             bool in_list;
     };
@@ -51,7 +51,7 @@ namespace prs {
                     }
 
                     iterator& operator++() {
-                        current = h(current).next;
+                        current = static_cast<pointer>(h(current)->next);
                         return *this;
                     }
 
@@ -91,7 +91,7 @@ namespace prs {
                     }
 
                     iterator& operator++() {
-                        current = h(current)->prev;
+                        current = static_cast<pointer>(h(current)->previous);
                         return *this;
                     }
 
@@ -110,6 +110,9 @@ namespace prs {
                     }
             };
 
+            list():
+                head(nullptr), tail(nullptr) {}
+
             pointer front() {
                 return head;
             }
@@ -122,13 +125,13 @@ namespace prs {
                 prs::assert(node);
                 prs::assert(!h(node)->in_list);
                 prs::assert(!h(node)->next);
-                prs::assert(!h(node)->prev);
+                prs::assert(!h(node)->previous);
 
+                h(node)->next = head;
                 if (!head) {
                     tail = node;
                 } else {
-                    h(node)->next = head;
-                    h(head)->prev = node;
+                    h(head)->previous = node;
                 }
 
                 head = node;
@@ -140,12 +143,12 @@ namespace prs {
                 prs::assert(node);
                 prs::assert(!h(node)->in_list);
                 prs::assert(!h(node)->next);
-                prs::assert(!h(node)->prev);
+                prs::assert(!h(node)->previous);
 
+                h(node)->previous = tail;
                 if (!tail) {
                     head = node;
                 } else {
-                    h(node)->prev = tail;
                     h(tail)->next = node;
                 }
 
@@ -155,71 +158,72 @@ namespace prs {
             }
 
             pointer pop_front() {
-                prs::assert(h(head).in_list);
+                prs::assert(h(head)->in_list);
                 return erase(iterator{head});
             }
 
             pointer pop_back() {
-                prs::assert(h(head).in_list);
+                prs::assert(h(tail)->in_list);
                 return erase(iterator{tail});
-            }            
+            }
 
             iterator insert(iterator before, pointer node) {
-                if(!before.current) {
+                if (!before.current) {
                     return push_back(node);
-                } else if(before.current == head) {
+                } else if (before.current == head) {
                     return push_front(node);
                 }
 
                 prs::assert(node);
-                prs::assert(!h(node).in_list);
-                prs::assert(!h(node).next);
-                prs::assert(!h(node).previous);
-                pointer previous = h(before.current).previous;
-                pointer next = h(previous).next;
-        
-                h(previous).next = node;
-                h(next).previous = node;
-                h(node).previous = previous;
-                h(node).next = next;
-                h(node).in_list = true;
+                prs::assert(!h(node)->in_list);
+                prs::assert(!h(node)->next);
+                prs::assert(!h(node)->previous);
+
+                pointer prev = this->prev(before.current);
+
+                h(node)->next = before.current;
+                h(node)->previous = prev;
+                h(prev)->next = node;
+                h(before.current)->previous = node;
+
+                h(node)->in_list = true;
                 return iterator{node};
             }
 
             void splice(iterator pos, list &other) {
                 prs::assert(!pos.current);
-                
+
                 if(!other.head)
                     return;
-        
-                prs::assert(h(other.head).in_list);
-                prs::assert(!h(other.head).previous);
+
+                prs::assert(h(other.head)->in_list);
+                prs::assert(!h(other.head)->previous);
                 if(!tail) {
                     head = other.head;
                 } else {
-                    h(other.head).previous = tail;
-                    h(tail).next = other.head;
+                    h(other.head)->previous = tail;
+                    h(tail)->next = other.head;
                 }
 
                 tail = other.tail;
                 other.head = nullptr;
                 other.tail = nullptr;
-            }            
+            }
 
             iterator erase(iterator pos) {
-                prs::assert(pos._current);
-                prs::assert(h(pos._current).in_list);
-                pointer next = h(pos.current).next;
-                pointer previous = h(pos.current).previous;
-        
+                prs::assert(pos.current);
+                prs::assert(h(pos.current)->in_list);
+                pointer next = this->next(pos.current);
+                pointer previous = this->prev(pos.current);
+
                 if(!next) {
                     prs::assert(tail == pos.current);
                     tail = previous;
                 } else {
-                    prs::assert(h(next).previous == pos.current);
-                    h(next).previous = previous;
+                    prs::assert(h(next)->previous == pos.current);
+                    h(next)->previous = previous;
                 }
-        
+
                 pointer erased;
                 if(!previous) {
                     prs::assert(head == pos.current);
@@ -227,14 +231,14 @@ namespace prs {
                     head = next;
                 } else {
                     prs::assert(h(previous)->next == pos.current);
-                    erased = h(previous).next;
-                    h(previous).next = next;
+                    erased = this->next(previous);
+                    h(previous)->next = next;
                 }
-        
+
                 prs::assert(erased == pos.current);
-                h(pos.current).next = nullptr;
-                h(pos.current).previous = nullptr;
-                h(pos.current).in_list = false;
+                h(pos.current)->next = nullptr;
+                h(pos.current)->previous = nullptr;
+                h(pos.current)->in_list = false;
                 return iterator{erased};
             }
 
@@ -243,7 +247,7 @@ namespace prs {
             }
 
             iterator end() {
-                return iterator{tail};
+                return iterator{nullptr};
             }
 
             reverse_iterator rbegin() {
@@ -251,16 +255,24 @@ namespace prs {
             }
 
             reverse_iterator rend() {
-                return reverse_iterator{head};
+                return reverse_iterator{nullptr};
+            }
+
+            pointer next(pointer before) {
+                return static_cast<pointer>(h(before)->next);
+            }
+
+            pointer prev(pointer after) {
+                return static_cast<pointer>(h(after)->previous);
             }
 
             bool contains(pointer element) {
                 for (auto iter = begin(); iter != end(); ++iter) {
                     if (*iter == element) return true;
                 }
-        
+
                 return false;
-            }            
+            }
     };
 }
 
