@@ -17,7 +17,6 @@
 #include <util/log/panic.hpp>
 #include <util/string.hpp>
 
-
 static log::subsystem logger = log::make_subsystem("AHCI");
 void ahci::device::await_ready() {
     while (port->tfd & (1 << 3) || port->tfd & (1 << 7)) {
@@ -82,23 +81,26 @@ void ahci::device::comreset() {
 int ahci::device::wait_command(size_t slot) {
     while (port->cmd_issue & (1 << slot)) {
         asm volatile("pause");
-    }
 
-    if (port->tfd & (1 << 0)) {
-        return 1;
+        if (port->ist & (1 << 30)) {
+            if (port->tfd & (1 << 0)) {
+                return 1;
+            }    
+        }
     }
 
     return 0;
 }
 
 void ahci::device::reset_engine() {
-    port->cas &= ahci::HBA_PxCMD_ST;
+    port->cas &= ~ahci::HBA_PxCMD_ST;
     while (port->cas & ahci::HBA_PxCMD_CR) asm volatile("pause");
 
     if (port->tfd & (1 << 7) || port->tfd & (1 << 3)) {
         comreset();
     }
 
+    port->ist |= (1 << 30);
     port->cas |= (1 << 0);
     while (!(port->cas & ahci::HBA_PxCMD_CR)) asm volatile("pause");
 }
@@ -194,14 +196,6 @@ void ahci::device::identify_sata() {
         return;
     }
 
-    if (port->tfd & (1 << 0)) {
-        uint8_t error = (uint8_t) (port->tfd >> 8);
-        kmsg(logger, "Identify Error: ", error);
-
-        reset_engine();
-        return;
-    }
-
     uint16_t valid = *(uint16_t *) (&id_mem[212]);
     if (!(valid & (1<<15)) && (valid & (1<<14)) && (valid & (1<<12))) {
         sector_size = *(uint32_t *) (&id_mem[234]);
@@ -285,14 +279,14 @@ ssize_t ahci::device::do_sector_io(void *buf, uint16_t count, size_t offset, boo
     await_ready();
 
     issue_command(slot.idx);
-    wait_command(slot.idx);
+    int err = wait_command(slot.idx);
 
-    if (port->tfd & (1 << 0)) {
+    if (err) {
         uint8_t error = (uint8_t) (port->tfd >> 8);
-        kmsg(logger, "Transfer Error: ", error);
+        kmsg(logger, "Disk Error: %x", error);
 
         reset_engine();
-        return -1;
+        return 1;
     }
 
     return 0;
@@ -301,6 +295,8 @@ ssize_t ahci::device::do_sector_io(void *buf, uint16_t count, size_t offset, boo
 ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
     // offset is a multiple of sector_size
     // count is a multiple of sector_size
+
+    debug("Read Buffer: %x, Count: %llu, Offset: %llu, Total: %llu", buf, count, offset, sectors * sector_size);
 
     uint64_t sector_start = offset / sector_size;
     uint64_t sector_count = count / sector_size;

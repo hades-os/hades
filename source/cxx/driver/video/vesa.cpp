@@ -1,6 +1,6 @@
 #include "driver/video/bmp.hpp"
-#include "flanterm/backends/fb.hpp"
-#include "flanterm/flanterm.hpp"
+#include "flanterm/backends/fb.h"
+#include "flanterm/flanterm.h"
 #include <cstddef>
 #include <driver/video/vesa.hpp>
 

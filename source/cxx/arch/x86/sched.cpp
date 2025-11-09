@@ -348,12 +348,12 @@ void arch::rstor_context(sched::thread *task, irq_regs *r) {
     }
 }
 
-int arch::do_futex(uintptr_t vaddr, int op, int expected, sched::timespec *timeout) {
+int arch::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *timeout) {
     return x86::do_futex(vaddr, op, expected, timeout);
 }
 
 frg::hash_map<uint64_t, sched::futex *, frg::hash<uint64_t>, memory::mm::heap_allocator> futex_list{frg::hash<uint64_t>()};
-ssize_t x86::do_futex(uintptr_t vaddr, int op, int expected, sched::timespec *timeout) {
+ssize_t x86::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *timeout) {
     auto process = x86::get_process();
 
     uint64_t vpage = vaddr & ~(0xFFF);

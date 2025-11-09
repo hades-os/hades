@@ -16,7 +16,6 @@ static util::spinlock session_lock{};
 static frg::rcu_radixtree<sched::session *, memory::mm::heap_allocator>
     session_tree{};
 
-
 pid_t sched::add_process(sched::process *proc) {
     util::lock_guard guard{process_lock};
     

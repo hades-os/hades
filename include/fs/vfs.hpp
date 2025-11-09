@@ -111,12 +111,12 @@ namespace vfs {
             };
 
             node(weak_ptr<filesystem> fs, path name, weak_ptr<node> parent, ssize_t flags, ssize_t type, ssize_t inum = -1) : fs(fs), name(name),
-                resolveable(true), delete_on_close(false), parent(parent), children(), flags(flags), type(type), lock() {
+                delete_on_close(false), parent(parent), children(), flags(flags), type(type), lock() {
                 init(inum);
             };
 
             node(std::nullptr_t, path name, std::nullptr_t, ssize_t flags, ssize_t type, ssize_t inum = -1):
-                fs(), name(name), resolveable(true), delete_on_close(false), parent(), children(), flags(flags), type(type), lock() {
+                fs(), name(name), delete_on_close(false), parent(), children(), flags(flags), type(type), lock() {
                 init(inum);
             }
 
@@ -130,8 +130,14 @@ namespace vfs {
                 return {nullptr};
             }
 
-            path get_name() {
-                return name;
+            template<typename T>
+            shared_ptr<T> data_as() {
+                return smarter::reinterpret_pointer_cast<T>(this->data);
+            }
+
+            template<typename T>
+            void as_data(shared_ptr<T> data) {
+                this->data = smarter::reinterpret_pointer_cast<void *>(data);
             }
 
             bool has_access(uid_t uid, gid_t gid, int mode) {
@@ -168,15 +174,17 @@ namespace vfs {
 
             weak_ptr<filesystem> fs;
             shared_ptr<statinfo> meta;
-            path name;
 
-            bool resolveable;
+            path name;
+            path link_target;
+
             bool delete_on_close;
 
             weak_ptr<node> parent;
             frg::vector<shared_ptr<node>, memory::mm::heap_allocator> children;
 
-            void *private_data;
+            shared_ptr<void *> data;
+            
             ssize_t inum;
             ssize_t flags;
             ssize_t type;
@@ -251,6 +259,10 @@ namespace vfs {
             }
 
             virtual ssize_t rename(shared_ptr<node> src, shared_ptr<node> dst, frg::string_view name, int64_t flags) {
+                return -ENOTSUP;
+            }
+
+            virtual ssize_t readlink(shared_ptr<node> file) {
                 return -ENOTSUP;
             }
 
@@ -331,8 +343,12 @@ namespace vfs {
     ssize_t lseek(shared_ptr<fd> fd, off_t off, size_t whence);
     shared_ptr<fd> dup(shared_ptr<fd> fd, bool cloexec, ssize_t new_num);
     ssize_t close(shared_ptr<fd> fd);
+
     ssize_t read(shared_ptr<fd> fd, void *buf, size_t len);
     ssize_t write(shared_ptr<fd> fd, void *buf, size_t len);
+    ssize_t pread(shared_ptr<fd> fd, void *buf, size_t len, off_t offset);
+    ssize_t pwrite(shared_ptr<fd> fd, void *buf, size_t len, off_t offset);    
+    
     ssize_t ioctl(shared_ptr<fd> fd, size_t req, void *buf);
     void *mmap(shared_ptr<fd> fd, void *addr, off_t off, size_t len);
 

@@ -69,7 +69,7 @@ namespace sched {
     thread *fork(thread *original, vmm::vmm_ctx *ctx, arch::irq_regs *r);
     process *fork(process *original, thread *caller, arch::irq_regs *r);
 
-    int do_futex(uintptr_t vaddr, int op, int expected, timespec *timeout);    
+    int do_futex(uintptr_t vaddr, int op, uint32_t expected, timespec *timeout);    
 
     frg::tuple<tid_t, thread *> pick_task();
     void swap_task(arch::irq_regs *r);

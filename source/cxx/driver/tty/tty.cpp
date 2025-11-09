@@ -124,6 +124,7 @@ ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     out_lock.lock();
 
     char *chars = (char *) kmalloc(count);
+    char *chars_ptr = chars;
     auto copied = arch::copy_from_user(chars, buf, count);
     if (copied < count) {
         kfree(chars);
@@ -133,7 +134,7 @@ ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
 
     size_t bytes = 0;
     for (bytes = 0; bytes < count; bytes++) {
-        if (!out.push(*chars++)) {
+        if (!out.push(*chars_ptr++)) {
             out_lock.unlock();
             driver->flush(this);
             out_lock.lock();
@@ -265,7 +266,7 @@ void tty::set_active(frg::string_view path, shared_ptr<vfs::fd_table> table) {
     auto fd = vfs::open(nullptr, path, table, O_NOCTTY, O_RDONLY, 0, 0);
     if (!fd) return;
 
-    vfs::devfs::dev_priv *private_data = (vfs::devfs::dev_priv *) fd->desc->node->private_data; 
+    auto private_data = fd->desc->node->data_as<vfs::devfs::dev_priv>();
     tty::device *tty = (tty::device *) private_data->dev;
     vfs::close(fd);
 

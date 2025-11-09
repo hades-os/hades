@@ -368,6 +368,41 @@ void syscall_read(arch::irq_regs *r) {
     }
 }
 
+void syscall_pread(arch::irq_regs *r) {
+    int fd_number = r->rdi;
+    void *buf = (void *) r->rsi;
+    size_t count = r->rdx;
+    off_t offset = r->r10;
+
+    auto process = arch::get_process();
+
+    util::lock_guard fd_guard{process->fds->lock};
+    auto fd = process->fds->fd_list[fd_number];
+    if (!fd || (fd->desc->node && fd->desc->node->type == vfs::node::type::DIRECTORY)) {
+        arch::set_errno(ESPIPE);
+        r->rax = -1;
+        return;
+    }
+
+    if ((fd->flags & O_ACCMODE) != O_RDONLY
+            && (fd->flags & O_ACCMODE) != O_RDWR) {
+        arch::set_errno(EBADF);
+        r->rax = -1;
+        return;
+    }
+
+    util::lock_guard guard{fd->lock};
+    if (fd->desc->node) {
+        fd->desc->node->lock.lock();
+    }
+
+    r->rax = vfs::pread(fd, buf, count, offset);
+
+    if (fd->desc->node) {
+        fd->desc->node->lock.unlock();
+    }
+}
+
 void syscall_write(arch::irq_regs *r) {
     int fd_number = r->rdi;
     void *buf = (void *) r->rsi;
@@ -396,6 +431,41 @@ void syscall_write(arch::irq_regs *r) {
     }
 
     r->rax = vfs::write(fd, buf, count);
+
+    if (fd->desc->node) {
+        fd->desc->node->lock.unlock();
+    }
+}
+
+void syscall_pwrite(arch::irq_regs *r) {
+    int fd_number = r->rdi;
+    void *buf = (void *) r->rsi;
+    size_t count = r->rdx;
+    off_t offset = r->r10;
+
+    auto process = arch::get_process();
+
+    util::lock_guard fd_guard{process->fds->lock};
+    auto fd = process->fds->fd_list[fd_number];
+    if (!fd || (fd->desc->node && fd->desc->node->type == vfs::node::type::DIRECTORY)) {
+        arch::set_errno(ESPIPE);
+        r->rax = -1;
+        return;
+    }
+
+    if ((fd->flags & O_ACCMODE) != O_WRONLY
+            && (fd->flags & O_ACCMODE) != O_RDWR) {
+        arch::set_errno(EBADF);
+        r->rax = -1;
+        return;
+    }
+
+    util::lock_guard guard{fd->lock};
+    if (fd->desc->node) {
+        fd->desc->node->lock.lock();
+    }
+
+    r->rax = vfs::pwrite(fd, buf, count, offset);
 
     if (fd->desc->node) {
         fd->desc->node->lock.unlock();

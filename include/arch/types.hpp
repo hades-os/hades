@@ -2,6 +2,7 @@
 #define ARCH_TYPES_HPP
 
 #include <cstddef>
+#include <cstdint>
 #include <util/types.hpp>
 #include <sys/sched/time.hpp>
 
@@ -71,7 +72,7 @@ namespace arch {
     void tick();
     void stop_all_cpus();
 
-    int do_futex(uintptr_t vaddr, int op, int expected, sched::timespec *timeout);
+    int do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *timeout);
 
     void set_process(sched::process *process);
     void set_thread(sched::thread *task);

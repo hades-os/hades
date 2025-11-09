@@ -1,7 +1,7 @@
 #ifndef VT_HPP
 #define VT_HPP
 
-#include <flanterm/flanterm.hpp>
+#include <flanterm/flanterm.h>
 #include <driver/tty/tty.hpp>
 #include <driver/video/fbdev.hpp>
 #include <util/stivale.hpp>

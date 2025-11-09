@@ -10,6 +10,7 @@
 #include "sys/sched/time.hpp"
 #include "util/lock.hpp"
 #include "util/log/log.hpp"
+#include "util/types.hpp"
 #include <util/log/panic.hpp>
 #include <cstddef>
 #include <fs/cache.hpp>
@@ -29,7 +30,10 @@ caches{};
 static bool syncing = true;
 static log::subsystem logger = log::make_subsystem("CACHE");
 
-void *cache::holder::read_page(size_t offset) {
+frg::tuple<
+    ssize_t,
+    void *
+> cache::holder::read_page(size_t offset) {
     util::lock_guard guard{lock};
 
     uintptr_t *page = address_tree.find(offset);
@@ -38,13 +42,19 @@ void *cache::holder::read_page(size_t offset) {
         address_tree.insert(offset, (uintptr_t) out_page);
 
         auto res = backing_device->read(out_page, memory::page_size, offset);
-        if (res < 0) return nullptr;
+        if (res < 0) {
+            pmm::free(out_page);
+            return {-1, nullptr};
+        }
     }
 
-    return out_page;
+    return {0, out_page};
 }
 
-void *cache::holder::write_page(size_t offset) {
+frg::tuple<
+    ssize_t,
+    void *
+> cache::holder::write_page(size_t offset) {
     util::lock_guard guard{lock};
 
     uintptr_t *page = address_tree.find(offset);
@@ -58,12 +68,16 @@ void *cache::holder::write_page(size_t offset) {
         res = backing_device->write(out_page, memory::page_size, offset);
     }
 
-    if (res < 0) return nullptr;
-    return out_page;
+    if (res < 0) {
+        pmm::free(out_page);
+        return {-1, nullptr};
+    }
+
+    return {0, out_page};
 }
 
 // TODO: add disk flushing
-int cache::holder::release_page(size_t offset) {
+ssize_t cache::holder::release_page(size_t offset) {
     util::lock_guard guard{lock};
 
     uintptr_t *page = address_tree.find(offset);
@@ -75,8 +89,8 @@ int cache::holder::release_page(size_t offset) {
     return 0;
 }
 
-void cache::holder::request_page(void *buffer, size_t offset, size_t buffer_len, size_t buffer_offset, size_t page_offset, bool rw) {
-    if (page_offset > memory::page_size) {
+ssize_t cache::holder::request_page(void *buffer, size_t offset, size_t buffer_len, size_t buffer_offset, size_t page_offset, bool rw) {
+    if (page_offset + buffer_len > memory::page_size) {
         panic("Buffer overrun");
     }
 
@@ -89,7 +103,7 @@ void cache::holder::request_page(void *buffer, size_t offset, size_t buffer_len,
             memcpy((char *) buffer + buffer_offset, (char *) in_page + page_offset, buffer_len);
         }
 
-        return;
+        return false;
     }
 
     shared_ptr<holder::request> req = smarter::allocate_shared<holder::request>(memory::mm::heap);
@@ -101,11 +115,11 @@ void cache::holder::request_page(void *buffer, size_t offset, size_t buffer_len,
     req->buffer_offset = buffer_offset;
     req->buffer_len = buffer_len;
 
+    req->error = 0;
     req->rw = rw;
 
     size_t id = link.request(rw ? evtable::BLOCK_WRITE : evtable::BLOCK_READ,
-        [req, &requests = this->requests,
-        &pending_reads = this->pending_reads, &pending_writes = this->pending_writes](size_t id) {
+        [&](size_t id) {
         req->link_id = id;
 
         requests.push(req);
@@ -113,9 +127,10 @@ void cache::holder::request_page(void *buffer, size_t offset, size_t buffer_len,
     });
 
     link.sync_wait(evtable::BLOCK_FIN, id, true);
+    return req->error;
 }
 
-void cache::holder::request_io(void *buffer, size_t offset, size_t len, bool rw) {
+ssize_t cache::holder::request_io(void *buffer, size_t offset, size_t len, bool rw) {
     for (uint64_t headway = 0; headway < len;) {
         size_t page = (offset + headway) & ~(0xFFF);
         size_t page_offset = (offset + headway) & 0xFFF;
@@ -129,10 +144,15 @@ void cache::holder::request_io(void *buffer, size_t offset, size_t len, bool rw)
             panic("Buffer overflow");
         }
 
-        request_page(buffer, page, length, headway, page_offset, rw);
+        auto res = request_page(buffer, page, length, headway, page_offset, rw);
+        if (res < 0) {
+            return -1;
+        }
 
         headway += length;
     }
+
+    return 0;
 }
 
 cache::holder *cache::create_cache(vfs::devfs::blockdev *backing_device) {
@@ -158,14 +178,20 @@ void cache::sync_worker() {
             auto request = holder->requests.pop();
 
             if (request->rw) {
-                void *page = holder->read_page(request->offset);
-
-                memcpy((char *) page + request->page_offset, (char *) request->buffer + request->buffer_offset, request->buffer_len);
-                holder->write_page(request->offset);
+                auto [res, page] = holder->read_page(request->offset);
+                if (res < 0) {
+                    request->error = res;
+                } else {
+                    memcpy((char *) page + request->page_offset, (char *) request->buffer + request->buffer_offset, request->buffer_len);
+                    holder->write_page(request->offset);    
+                }
             } else {
-                void *page = holder->read_page(request->offset);
-
-                memcpy((char *) request->buffer + request->buffer_offset, (char *) page + request->page_offset, request->buffer_len);
+                auto [res, page] = holder->read_page(request->offset);
+                if (res < 0) {
+                    request->error = res;
+                } else {
+                    memcpy((char *) request->buffer + request->buffer_offset, (char *) page + request->page_offset, request->buffer_len);
+                }
             }
 
             request->rw ? holder->pending_writes-- : holder->pending_reads--;
@@ -178,6 +204,4 @@ sched::thread *sync_thread;
 void cache::init() {
     sync_thread = sched::create_thread(sync_worker, (uint64_t) pmm::stack(x86::initialStackSize), vmm::boot, 0);
     sync_thread->start();
-
-    kmsg(logger, "Sync thread: %d", sync_thread->tid);
 }

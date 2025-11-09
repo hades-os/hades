@@ -1,6 +1,7 @@
 #ifndef EXT2_HPP
 #define EXT2_HPP
 
+#include "frg/tuple.hpp"
 #include "util/types.hpp"
 #include <frg/vector.hpp>
 #include <cstddef>
@@ -91,10 +92,16 @@ namespace vfs {
                 uint8_t dir_type;
             };
 
-            struct ext2_private {
-                dirent *dent;
-                char *name;
-                ext2_private *next;
+            struct data {
+                struct ent {
+                    dirent *dent;
+                    char *name;
+
+                    shared_ptr<ent> next;
+                };
+
+                shared_ptr<ent> head;
+                data(shared_ptr<ent> head): head(head) {}
             };
 
             super *superblock;
@@ -123,7 +130,7 @@ namespace vfs {
             int inode_set_block(inode *inode, int index, uint32_t iblock, uint32_t block);
             int inode_get_block(inode *inode, uint32_t iblock, uint32_t *res);
 
-            int read_dirents(inode *inode, ext2_private **files);
+            frg::tuple<int, shared_ptr<data::ent>> read_dirents(inode *inode);
             int write_dirent(inode *dir, int dir_inode, const char *name, int inode, int type);
 
             int read_symlink(inode *inode, char **path);

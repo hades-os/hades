@@ -1,3 +1,4 @@
+#include "frg/tuple.hpp"
 #include "fs/vfs.hpp"
 #include "mm/mm.hpp"
 #include "smarter/smarter.hpp"
@@ -65,7 +66,8 @@ bool vfs::ext2fs::load() {
     root->meta->st_ino = 2;
     root->meta->st_nlink = 1;
 
-    read_dirents(&inode, (ext2fs::ext2_private **) (&root->private_data));
+    auto [_, head] = read_dirents(&inode);
+    root->as_data(smarter::allocate_shared<data>(memory::mm::heap, head));
 
     return true;;
 }
@@ -76,15 +78,15 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
         return {};
     }
 
-    auto private_data = (ext2fs::ext2_private *) parent->private_data;
+    auto private_data = parent->data_as<data>();
     if (!private_data) {
-        if (read_dirents(&dir_inode, &private_data) == -1) {
-            return {};
-        }
+        auto [res, head] = read_dirents(&dir_inode);
+        if (res < 0) return {};
+
+        private_data = smarter::allocate_shared<data>(memory::mm::heap, head);
     }
 
-    ext2_private *files = private_data;
-    ext2_private *file = files;
+    auto file = private_data->head;
     while (file) {
         ext2fs::inode inode;
         if (read_inode_entry(&inode, file->dent->inode_index) == -1) {
@@ -142,7 +144,6 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
         auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
 
         node->meta = meta;
-        node->private_data = nullptr;
 
         meta->st_uid = inode.uid;
         meta->st_gid = inode.gid;
@@ -173,15 +174,15 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
         return -1;
     }
 
-    auto private_data = (ext2fs::ext2_private *) dir->private_data;
+    auto private_data = dir->data_as<data>();
     if (!private_data) {
-        if (read_dirents(&dir_inode, &private_data) == -1) {
-            return -1;
-        }
+        auto [res, head] = read_dirents(&dir_inode);
+        if (res < 0) return {};
+
+        private_data = smarter::allocate_shared<data>(memory::mm::heap, head);
     }
 
-    ext2_private *files = private_data;
-    ext2_private *file = files;
+    auto file = private_data->head;
     while (file) {
         ext2fs::inode inode;
         if (read_inode_entry(&inode, file->dent->inode_index) == -1) {
@@ -236,7 +237,7 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
         auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
 
         node->meta = meta;
-        node->private_data = (void *) file;
+        node->as_data(smarter::allocate_shared<data>(memory::mm::heap, file));
 
         meta->st_uid = inode.uid;
         meta->st_gid = inode.gid;
@@ -442,8 +443,8 @@ ssize_t vfs::ext2fs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t 
 }
 
 ssize_t vfs::ext2fs::unlink(shared_ptr<node> dst) {
-    auto private_data = (ext2fs::ext2_private *) dst->private_data;
-    return free_inode(private_data->dent->inode_index);
+    auto private_data = dst->data_as<data>();
+    return free_inode(private_data->head->dent->inode_index);
 }
 
 int vfs::ext2fs::write_dirent(inode *dir, int dir_inode, const char *name, int inode, int type) {
@@ -502,36 +503,41 @@ int vfs::ext2fs::read_symlink(inode *inode, char **path) {
     return 0;
 }
 
-int vfs::ext2fs::read_dirents(inode *inode, ext2_private **files) {
+frg::tuple<
+    int,
+    shared_ptr<vfs::ext2fs::data::ent>
+> vfs::ext2fs::read_dirents(inode *inode) {
     void *buffer = kmalloc(read_inode_size(inode));
 
     if (read_inode(inode, buffer, read_inode_size(inode), 0) == -1) {
         kfree(buffer);
-        return -1;
+        return {-1, {}};
     }
+
+    shared_ptr<data::ent> head;
+    shared_ptr<data::ent> current;
 
     for (size_t headway = 0; headway < read_inode_size(inode);) {
         ext2fs::dirent *dirent = (ext2fs::dirent *) ((char *) buffer + headway);
-        ext2fs::ext2_private *file = frg::construct<ext2fs::ext2_private>(memory::mm::heap);
+        auto ent = smarter::allocate_shared<data::ent>(memory::mm::heap);
 
         char *name = (char *) kmalloc(dirent->name_length + 1);
         memcpy(name, (char *) dirent + sizeof(ext2fs::dirent), dirent->name_length);
 
-        file->dent = dirent;
-        file->name = name;
-        file->next = *files;
+        ent->dent = dirent;
+        ent->name = name;
 
-        *files = file;
+        if (!head)
+            head = ent;
 
-        int expected_size = util::align(sizeof(ext2fs::dirent) + dirent->name_length, 4);
-        if (dirent->entry_size != expected_size || dirent->name_length == 0) {
-            break;
-        }
+        if (current)
+            current->next = ent;
 
+        current = ent;
         headway += dirent->entry_size;
     }
 
-    return 0;
+    return {0, head};
 }
 
 int vfs::ext2fs::write_inode(inode *inode, int index, void *buf, size_t count, off_t off) {

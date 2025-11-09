@@ -199,6 +199,8 @@ struct ptr_access_crtp<void, D> {
 
 template<typename T, typename H = void>
 struct shared_ptr : ptr_access_crtp<T, shared_ptr<T, H>> {
+    using element_type = T;
+
 	template<typename T_, typename H_>
 	friend struct shared_ptr;
 	
@@ -432,6 +434,12 @@ shared_ptr<T> allocate_shared(Allocator alloc, Args &&... args) {
 	auto meta = new (memory) meta_type{1,
 			allocator_deallocator<Allocator>{alloc}, std::forward<Args>(args)...};
 	return shared_ptr<T>{adopt_rc, meta->get(), meta->object_ctr()};
+}
+
+template<class T, class U>
+shared_ptr<T> reinterpret_pointer_cast(const shared_ptr<U>& r) noexcept {
+    auto p = reinterpret_cast<typename shared_ptr<T>::element_type*>(r.get());
+    return shared_ptr<T>{r, p};
 }
 
 } // namespace smarter

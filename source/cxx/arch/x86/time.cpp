@@ -7,6 +7,7 @@
 #include <sys/x86/apic.hpp>
 #include <sys/sched/time.hpp>
 #include <arch/types.hpp>
+#include <ipc/mux.hpp>
 
 sched::timespec sched::clock_rt{};
 sched::timespec sched::clock_mono{};
@@ -25,9 +26,11 @@ void arch::tick_clock(long nanos) {
     for (auto timer = sched::timers.begin(); timer != sched::timers.end();) {
         timer->spec = timer->spec - interval;
         if (timer->spec.tv_nsec == 0 && timer->spec.tv_sec == 0) {
-            timer->wire->arise(evtable::TIME_WAKE);
+            if (timer->wire)
+                timer->wire->arise(evtable::TIME_WAKE);
+            if (timer->drain)
+                timer->drain->arise(evtable::TIME_WAKE, get_thread());
 
-            frg::destruct(memory::mm::heap, timer);
             timer = sched::timers.erase(timer);
         } else {
             ++timer;

@@ -20,7 +20,6 @@ build_dir = Path(args.build).resolve()
 scripts_dir = Path(source_dir, "..", "scripts").resolve()
 sysroot_dir = Path(args.hbuild, "system_files").resolve()
 base_dir = Path(source_dir, "..", "base_files").resolve()
-mount_dir = Path("/mnt", f"{args.name}").resolve()
 
 kernel_path = Path(args.kernel).resolve()
 image_path = Path(build_dir, f"{args.name}.img").resolve()
@@ -54,14 +53,7 @@ def do_limine_install():
     subprocess.run([Path(source_dir, "misc", "limine-install").resolve(), str(image_path)])
 
 def do_sysroot():
-    for root, dirs, files in os.walk(mount_dir):
-        for f in files:
-            os.unlink(os.path.join(root, f))
-        for d in dirs:
-            shutil.rmtree(os.path.join(root, d))
-
-    shutil.copytree(sysroot_dir, mount_dir, dirs_exist_ok=True)
-    shutil.copytree(base_dir, mount_dir, dirs_exist_ok=True)
+    subprocess.run([Path(scripts_dir, "fs.sh").resolve(), str(persist_path), str(sysroot_dir)])
 
 def do_vmdk():
     subprocess.run(["qemu-img", "convert", "-O", "vmdk", str(image_path), str(vmdk_path)])
