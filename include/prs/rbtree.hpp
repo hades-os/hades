@@ -23,7 +23,6 @@ namespace prs {
         none, red, black
     };
 
-    template<typename P = void *>
     struct rbtree_hook {
         public:
             rbtree_hook():
@@ -34,11 +33,11 @@ namespace prs {
             rbtree_hook(const rbtree_hook &other) = delete;
             rbtree_hook &operator= (const rbtree_hook &other) = delete;
 
-            P parent;
-            P left;
-            P right;
-            P predecessor;
-            P successor;
+            void *parent;
+            void *left;
+            void *right;
+            void *predecessor;
+            void *successor;
             rbtree_color color;
     };
 

@@ -5,6 +5,7 @@
 #include <mm/mm.hpp>
 #include <util/string.hpp>
 #include "mm/arena.hpp"
+#include "prs/allocator.hpp"
 
 namespace util {
     template <typename T>
@@ -15,8 +16,10 @@ namespace util {
             int head;
             int tail;
 
-            arena::allocator allocator;
+            prs::allocator allocator;
         public:
+            ring():
+                allocator(arena::create_resource()) {}
             size_t items;
 
             ring(size_t size);

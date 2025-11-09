@@ -70,7 +70,7 @@ bool init_symbols(elf::file *file) {
     return true;
 }
 
-bool elf::file::init(shared_ptr<vfs::fd> fd, arena::allocator allocator) {
+bool elf::file::init(shared_ptr<vfs::fd> fd) {
     this->fd = fd;
 
     elf64_hdr *hdr = (elf64_hdr *) allocator.allocate(64);
@@ -217,7 +217,7 @@ void elf::file::load() {
     }
 }
 
-bool elf::file::load_interp(char **interp_path, arena::allocator allocator) {
+bool elf::file::load_interp(char **interp_path) {
     elf64_phdr *interp_hdr = nullptr;
 
     for (size_t i = 0; i < header->ph_num; i++) {

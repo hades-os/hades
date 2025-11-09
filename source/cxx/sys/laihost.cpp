@@ -13,7 +13,9 @@
 #include <lai/host.h>
 
 static log::subsystem logger = log::make_subsystem("LAI");
-static arena::allocator allocator{};
+static prs::allocator allocator{
+    arena::create_resource()
+};
 extern "C" {
     void laihost_log(int level, const char *msg) {
         kmsg(logger, msg);

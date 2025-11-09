@@ -98,11 +98,10 @@ namespace vfs {
                     dirent dent;
                     char *name;
 
-                    arena::allocator allocator;
-
+                    prs::allocator allocator;
                     shared_ptr<ent> next;
 
-                    ent(): allocator() {}
+                    ent(): allocator(arena::create_resource()) {}
                     ~ent() {
                         while (next) {
                             next = std::move(next->next);
@@ -116,8 +115,8 @@ namespace vfs {
                 data(shared_ptr<ent> head): head(head) {}
             };
 
-            arena::allocator allocator;
-            unique_ptr<ext2fs::super, arena::allocator> superblock;
+            prs::allocator allocator;
+            unique_ptr<ext2fs::super> superblock;
 
             uint64_t block_size;
             uint64_t frag_size;
@@ -166,7 +165,8 @@ namespace vfs {
         public:
             ext2fs(shared_ptr<node> root, weak_ptr<node> device):
                 vfs::filesystem(root, device), 
-                allocator(), superblock(prs::make_unique<ext2fs::super>(allocator)) {}
+                allocator(arena::create_resource()), 
+                superblock(prs::make_unique<ext2fs::super>(allocator)) {}
 
             bool load() override;
 

@@ -8,6 +8,8 @@
 #include <mm/vmm.hpp>
 #include <cstddef>
 #include <cstdint>
+#include "prs/allocator.hpp"
+#include "prs/vector.hpp"
 
 #define ELF_SIGNATURE 0x464C457F
 #define ELF_ELF64 0x2
@@ -134,13 +136,16 @@ namespace elf {
         void *strtab;
         void *symtab;
 
-        frg::vector<symbol, arena::allocator> symbols;
-
+        prs::allocator allocator;
+        prs::vector<symbol, prs::allocator> symbols;
         symbol *find_symbol(uintptr_t addr);
 
-        bool init(shared_ptr<vfs::fd> fd, arena::allocator allocator);
+        file(prs::allocator allocator):
+            allocator(allocator), symbols(allocator) {}
+
+        bool init(shared_ptr<vfs::fd> fd);
         void load();
-        bool load_interp(char **interp_path, arena:: allocator allocator);
+        bool load_interp(char **interp_path);
         void load_aux();
     };
 

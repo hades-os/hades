@@ -17,10 +17,11 @@ namespace vfs {
                 size_t length;
             };
 
-            arena::allocator allocator;
+            prs::allocator allocator;
         public:
             rootfs(shared_ptr<node> root):
-                vfs::filesystem(root, {}), allocator() {}
+                vfs::filesystem(root, {}), 
+                allocator(arena::create_resource()) {}
 
             weak_ptr<node> lookup(shared_ptr<node> parent, frg::string_view name) override;
             

@@ -4,6 +4,7 @@
 #include "arch/types.hpp"
 #include "frg/list.hpp"
 #include "mm/arena.hpp"
+#include "prs/allocator.hpp"
 #include "prs/rbtree.hpp"
 #include <arch/x86/types.hpp>
 #include <ipc/wire.hpp>
@@ -198,18 +199,21 @@ namespace sched {
         uint64_t *place_args(uint64_t* location);
         uint64_t *place_auxv(uint64_t *location);
         void load_params(char **argv, char** envp);
+
+        process_env(prs::allocator allocator):
+            file(allocator), interp(allocator) {}
     };
 
     class process {
         public:
             char name[50];
 
-            arena::allocator allocator;
+            prs::allocator allocator;
             vmm::vmm_ctx *mem_ctx;
 
-            frg::vector<thread *, arena::allocator> threads;
-            frg::vector<process *, arena::allocator> children;
-            frg::vector<process *, arena::allocator> zombies;            
+            frg::vector<thread *, prs::allocator> threads;
+            frg::vector<process *, prs::allocator> children;
+            frg::vector<process *, prs::allocator> zombies;            
             shared_ptr<vfs::fd_table> fds;
             shared_ptr<vfs::node> cwd;
 
@@ -265,9 +269,10 @@ namespace sched {
 
             frg::tuple<int, pid_t> waitpid(pid_t pid, thread *waiter, int options);
 
-            process(): allocator(),
+            process(): allocator(arena::create_resource()),
                 threads(allocator), children(allocator), zombies(allocator), 
-                lock(), sig_lock(), wire() {};
+                lock(), sig_lock(), env(allocator),
+                wire() {};
     };
 
     class process_group {
@@ -279,7 +284,7 @@ namespace sched {
             bool is_orphan;
 
             session *sess;
-            frg::vector<process *, arena::allocator> procs;
+            frg::vector<process *, prs::allocator> procs;
             size_t process_count;
 
             process_group(process *leader): pgid(leader->pid), leader_pid(leader->pid), is_orphan(false), sess(nullptr), procs(), process_count(1) {
@@ -306,7 +311,7 @@ namespace sched {
             pid_t sid;
             pid_t leader_pgid;
             process *leader;
-            frg::vector<process_group *, arena::allocator> groups;
+            frg::vector<process_group *, prs::allocator> groups;
             size_t group_count;
 
             tty::device *tty;

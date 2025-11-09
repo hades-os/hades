@@ -2,6 +2,7 @@
 #define PRS_SHARED_HPP
 
 #include <atomic>
+#include <compare>
 #include <memory>
 #include <new>
 #include <type_traits>
@@ -284,95 +285,21 @@ namespace prs {
         return !rhs;
     }
 
-    // operator !=
+    // operator <=>
     template<typename T, typename U>
-    inline bool operator!=(const shared_ptr<T>& lhs,
+    inline std::strong_ordering operator<=>(const shared_ptr<T>& lhs,
         const shared_ptr<U>& rhs) {
-        return lhs.get() != rhs.get();
-    }
-
-    template<typename T>
-    inline bool operator!=(const shared_ptr<T>& lhs, std::nullptr_t) noexcept {
-        return bool{lhs};
-    }
-
-    template<typename T>
-    inline bool operator!=(std::nullptr_t, const shared_ptr<T>& rhs) noexcept {
-        return bool{rhs};
-    }
-
-    // operator <
-    template<typename T, typename U>
-    inline bool operator<(const shared_ptr<T>& lhs,
-        const shared_ptr<U>& rhs) {
-        using T_element_type = typename shared_ptr<T>::element_type;
-        using U_element_type = typename shared_ptr<U>::element_type;
-
-        using common_type = typename std::common_type<T_element_type *, U_element_type *>::type;
-        return ((common_type) lhs.get()) < ((common_type) rhs.get());
-    }
-
-    template<typename T>
-    inline bool operator<(const shared_ptr<T>& lhs, std::nullptr_t) {
-        using T_element_type = typename shared_ptr<T>::element_type;
-        return ((T_element_type *) lhs.get()) < ((T_element_type *) nullptr);
-    }
-
-    template<typename T>
-    inline bool operator<(std::nullptr_t, const shared_ptr<T>& rhs) {
-        using T_element_type = typename shared_ptr<T>::element_type;
-        return ((T_element_type *) nullptr) < ((T_element_type *) rhs.get());
-    }
-
-    // operator <=
-    template<typename T, typename U>
-    inline bool operator<=(const shared_ptr<T>& lhs,
-        const shared_ptr<U>& rhs) {
-        return !(rhs.get() < lhs.get());
+        return !(rhs.get() <=> lhs.get());
     }
 
     template<typename T, typename U>
-    inline bool operator<=(const shared_ptr<T>& lhs, std::nullptr_t) {
-        return !(nullptr < lhs.get());
+    inline std::strong_ordering operator<=>(const shared_ptr<T>& lhs, std::nullptr_t) {
+        return !(nullptr <=> lhs.get());
     }
 
     template<typename T, typename U>
-    inline bool operator<=(std::nullptr_t, const shared_ptr<T>& rhs) {
-        return !(rhs.get() < nullptr);
-    }
-
-    // operator >
-    template<typename T, typename U>
-    inline bool operator>(const shared_ptr<T>& lhs,
-        const shared_ptr<U>& rhs) {
-        return rhs.get() < lhs.get();
-    }
-
-    template<typename T, typename U>
-    inline bool operator>(const shared_ptr<T>& lhs, std::nullptr_t) {
-        return nullptr < lhs.get();
-    }
-
-    template<typename T, typename U>
-    inline bool operator>(std::nullptr_t, const shared_ptr<T>& rhs) {
-        return rhs.get() < nullptr;
-    }
-
-    // operator >=
-    template<typename T, typename U>
-    inline bool operator>=(const shared_ptr<T>& lhs,
-        const shared_ptr<U>& rhs) {
-        return !(lhs.get() > rhs.get());
-    }
-
-    template<typename T, typename U>
-    inline bool operator>=(const shared_ptr<T>& lhs, std::nullptr_t) {
-        return !(lhs.get() < nullptr);
-    }
-
-    template<typename T, typename U>
-    inline bool operator>=(std::nullptr_t, const shared_ptr<T>& rhs) {
-        return !(nullptr < rhs.get());
+    inline std::strong_ordering operator<=>(std::nullptr_t, const shared_ptr<T>& rhs) {
+        return !(rhs.get() <=> nullptr);
     }
 
     // swap

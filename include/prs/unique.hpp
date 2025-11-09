@@ -158,100 +158,22 @@ namespace prs {
         return !rhs;
     }
 
-    // operator !=
+    // operator <=>
     template<typename T, typename D,
         typename U, typename E>
-    inline bool operator!=(const unique_ptr<T, D>& lhs,
+    inline std::strong_ordering operator<=>(const unique_ptr<T, D>& lhs,
         const unique_ptr<U, E>& rhs) {
-        return lhs.get() != rhs.get();
+        return !(rhs.get() <=> lhs.get());
     }
 
     template<typename T, typename D>
-    inline bool operator!=(const unique_ptr<T, D>& lhs, std::nullptr_t) noexcept {
-        return bool{lhs};
+    inline std::strong_ordering operator<=>(const unique_ptr<T, D>& lhs, std::nullptr_t) {
+        return !(nullptr <=> lhs.get());
     }
 
     template<typename T, typename D>
-    inline bool operator!=(std::nullptr_t, const unique_ptr<T, D>& rhs) noexcept {
-        return bool{rhs};
-    }
-
-    // operator <
-    template<typename T, typename D,
-        typename U, typename E>
-    inline bool operator<(const unique_ptr<T, D>& lhs,
-        const unique_ptr<U, E>& rhs) {
-        using T_element_type = typename unique_ptr<T, D>::element_type;
-        using U_element_type = typename unique_ptr<U, E>::element_type;
-
-        using common_type = typename std::common_type<T_element_type *, U_element_type *>::type;
-        return ((common_type) lhs.get()) < ((common_type) rhs.get());
-    }
-
-    template<typename T,typename D>
-    inline bool operator<(const unique_ptr<T, D>& lhs, std::nullptr_t) {
-        using T_element_type = typename unique_ptr<T, D>::element_type;
-        return ((T_element_type *) lhs.get()) < ((T_element_type *) nullptr);
-    }
-
-    template<typename T,typename D>
-    inline bool operator<(std::nullptr_t, const unique_ptr<T, D>& rhs) {
-        using T_element_type = typename unique_ptr<T, D>::element_type;
-        return ((T_element_type *) nullptr) < ((T_element_type *) rhs.get());
-    }
-
-    // operator <=
-    template<typename T, typename D,
-        typename U, typename E>
-    inline bool operator<=(const unique_ptr<T, D>& lhs,
-        const unique_ptr<U, E>& rhs) {
-        return !(rhs.get() < lhs.get());
-    }
-
-    template<typename T, typename D>
-    inline bool operator<=(const unique_ptr<T, D>& lhs, std::nullptr_t) {
-        return !(nullptr < lhs.get());
-    }
-
-    template<typename T, typename D>
-    inline bool operator<=(std::nullptr_t, const unique_ptr<T, D>& rhs) {
-        return !(rhs.get() < nullptr);
-    }
-
-    // operator >
-    template<typename T, typename D,
-        typename U, typename E>
-    inline bool operator>(const unique_ptr<T, D>& lhs,
-        const unique_ptr<U, E>& rhs) {
-        return rhs.get() < lhs.get();
-    }
-
-    template<typename T, typename D>
-    inline bool operator>(const unique_ptr<T, D>& lhs, std::nullptr_t) {
-        return nullptr < lhs.get();
-    }
-
-    template<typename T, typename D>
-    inline bool operator>(std::nullptr_t, const unique_ptr<T, D>& rhs) {
-        return rhs.get() < nullptr;
-    }
-
-    // operator >=
-    template<typename T, typename D,
-        typename U, typename E>
-    inline bool operator>=(const unique_ptr<T, D>& lhs,
-        const unique_ptr<U, E>& rhs) {
-        return !(lhs.get() > rhs.get());
-    }
-
-    template<typename T, typename D>
-    inline bool operator>=(const unique_ptr<T, D>& lhs, std::nullptr_t) {
-        return !(lhs.get() < nullptr);
-    }
-
-    template<typename T, typename D>
-    inline bool operator>=(std::nullptr_t, const unique_ptr<T, D>& rhs) {
-        return !(nullptr < rhs.get());
+    inline std::strong_ordering operator<=>(std::nullptr_t, const unique_ptr<T, D>& rhs) {
+        return !(rhs.get() <=> nullptr);
     }
 
     template<typename T, typename D>

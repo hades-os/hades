@@ -1,6 +1,7 @@
 #include "arch/types.hpp"
 #include "fs/ext2.hpp"
 #include "fs/poll.hpp"
+#include "mm/arena.hpp"
 #include "mm/common.hpp"
 #include <sys/sched/sched.hpp>
 #include "mm/slab.hpp"
@@ -21,14 +22,8 @@
 #include <utility>
 
 shared_ptr<vfs::node> vfs::tree_root{};
-static frg::hash_map<
-    frg::string_view,
-    shared_ptr<vfs::filesystem>,
-    vfs::path_hasher,
-    arena::allocator
-> mounts{vfs::path_hasher()};
-
 shared_ptr<vfs::filesystem> stored_devfs{};
+
 static log::subsystem logger = log::make_subsystem("VFS");
 void vfs::init() {
     mount("/", "/", fslist::ROOTFS, mflags::NOSRC);
@@ -536,7 +531,9 @@ ssize_t vfs::ioctl(shared_ptr<fd> fd, size_t req, void *buf) {
 
 ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::timespec *timespec) {
     auto poll_table = poll::create_table();
-    frg::vector<shared_ptr<descriptor>, arena::allocator> desc_list{};
+    frg::vector<shared_ptr<descriptor>, prs::allocator> desc_list{
+        arena::create_resource()
+    };
     for (size_t i = 0; i < nfds; i++) {
         auto pollfd = &fds[i];
         auto fd = table->fd_list[pollfd->fd];
@@ -1166,7 +1163,6 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                     fs->self = fs;
                     root->fs = fs;
                     tree_root = root;
-                    mounts["/"] = fs;
                     break;
                 }
 
@@ -1188,7 +1184,6 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                     fs->self = fs;
                     dst->fs = fs;
 
-                    mounts[strip_leading(dstpath)] = fs;
                     stored_devfs = fs;
                     break;
                 }
@@ -1221,7 +1216,6 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                     }
 
                     dst->fs = fs;
-                    mounts[strip_leading(dstpath)] = fs;
                 }
 
                 default:

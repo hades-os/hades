@@ -11,6 +11,8 @@
 #include <ipc/link.hpp>
 #include <mm/mm.hpp>
 #include <util/types.hpp>
+#include "mm/arena.hpp"
+#include "prs/allocator.hpp"
 #include "prs/list.hpp"
 
 namespace cache {
@@ -22,7 +24,9 @@ namespace cache {
         private:
             util::spinlock lock;
 
-            frg::rcu_radixtree<uintptr_t, arena::allocator> address_tree;
+            prs::allocator allocator;
+
+            frg::rcu_radixtree<uintptr_t, prs::allocator> address_tree;
             vfs::devfs::blockdev *backing_device;
 
             frg::tuple<ssize_t, void*> write_page(size_t offset );
@@ -51,7 +55,7 @@ namespace cache {
 
             bool syncing;
 
-            frg::vector<shared_ptr<request>, arena::allocator> requests;
+            frg::vector<shared_ptr<request>, prs::allocator> requests;
         public:
             ssize_t request_io(void *buffer, size_t offset, size_t len, bool rw);
 
@@ -61,11 +65,12 @@ namespace cache {
             void halt_syncing();
 
             prs::list_hook hook;
-            holder(vfs::devfs::blockdev *backing_device): lock(), 
-                address_tree(), backing_device(backing_device),
+            holder(vfs::devfs::blockdev *backing_device): 
+                lock(), allocator(arena::create_resource()), 
+                address_tree(allocator), backing_device(backing_device),
                 link(),
                 pending_reads(0), pending_writes(0), 
-                syncing(true), requests(),
+                syncing(true), requests(allocator),
                 hook() {} 
 
             friend void sync_worker();

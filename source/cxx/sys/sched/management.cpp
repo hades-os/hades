@@ -6,16 +6,18 @@
 #include "mm/arena.hpp"
 
 static util::spinlock process_lock{};
-static arena::allocator allocator{};
-static frg::rcu_radixtree<sched::process *, arena::allocator>
+static prs::allocator allocator{
+    arena::create_resource()
+};
+static frg::rcu_radixtree<sched::process *, prs::allocator>
     process_tree{allocator};
 
 static util::spinlock process_group_lock{};
-static frg::rcu_radixtree<sched::process_group *, arena::allocator>
+static frg::rcu_radixtree<sched::process_group *, prs::allocator>
     process_group_tree{allocator};
 
 static util::spinlock session_lock{};
-static frg::rcu_radixtree<sched::session *, arena::allocator>
+static frg::rcu_radixtree<sched::session *, prs::allocator>
     session_tree{allocator};
 
 pid_t sched::add_process(sched::process *proc) {

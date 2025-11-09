@@ -1,4 +1,6 @@
+#include "mm/arena.hpp"
 #include "mm/common.hpp"
+#include "prs/allocator.hpp"
 #include "util/lock.hpp"
 #include <arch/vmm.hpp>
 #include <arch/x86/types.hpp>
@@ -12,7 +14,9 @@
 #include <util/log/log.hpp>
 #include <util/log/panic.hpp>
 
-vmm::vmm_ctx::vmm_ctx(): holes(), page_map(nullptr), lock() {}
+vmm::vmm_ctx::vmm_ctx(): 
+    holes(), page_map(nullptr), 
+    allocator(arena::create_resource()), lock() {}
 
 // TODO: update destroy for shared pages
 // TODO: free up the map

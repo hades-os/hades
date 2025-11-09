@@ -110,7 +110,7 @@ namespace vmm {
 
             mapping::mapping_perms flags_to_perms(map_flags flags);
 
-            arena::allocator allocator;
+            prs::allocator allocator;
         public:
             util::spinlock lock;
 

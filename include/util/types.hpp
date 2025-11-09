@@ -6,6 +6,7 @@
 #include <frg/unique.hpp>
 #include <mm/mm.hpp>
 #include <prs/shared.hpp>
+#include "prs/allocator.hpp"
 
 using pid_t = int;
 using tid_t = int;
@@ -182,12 +183,21 @@ struct pollfd {
     short revents;
 };
 
+struct uts {
+    char *sysname;
+    char *nodename;
+    char *release;
+    char *version;
+    char *machine;
+    char *domainname;
+};
+
 using bus_addr_t = size_t;
 using bus_size_t = size_t;
 using bus_handle_t = uintptr_t;
 
-template<typename T, typename A>
-using unique_ptr = prs::unique_ptr<T, A>;
+template<typename T>
+using unique_ptr = prs::unique_ptr<T, prs::allocator>;
 
 template <typename T>
 using shared_ptr = prs::shared_ptr<T>;

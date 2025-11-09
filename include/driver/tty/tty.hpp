@@ -6,6 +6,7 @@
 #include "fs/vfs.hpp"
 #include "ipc/wire.hpp"
 #include "mm/arena.hpp"
+#include "prs/allocator.hpp"
 #include "util/lock.hpp"
 #include "util/ring.hpp"
 #include "util/types.hpp"
@@ -57,7 +58,7 @@ namespace tty {
     struct device: vfs::devfs::chardev {
         private:
             ipc::wire wire;
-            arena::allocator allocator;
+            prs::allocator allocator;
         public:
             util::spinlock lock;
             int ref;
@@ -78,10 +79,11 @@ namespace tty {
             util::ring<util::ring<char> *> canon;
 
             device(vfs::devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux): 
-                    vfs::devfs::chardev(bus, major, minor, aux),
-                    wire(), lock(),
-                    termios(), in_lock(), in(max_chars), out_lock(),
-                    out(output_size), canon_lock(), canon(max_canon_lines) {
+                vfs::devfs::chardev(bus, major, minor, aux),
+                wire(),
+                allocator(arena::create_resource()), lock(),
+                termios(), in_lock(), in(max_chars), out_lock(),
+                out(output_size), canon_lock(), canon(max_canon_lines) {
                 driver = (tty::driver *) aux;
 
                 termios.c_lflag = ECHO | ECHOCTL | ECHOE | ISIG | ICANON | TOSTOP;
