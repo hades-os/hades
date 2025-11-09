@@ -198,11 +198,11 @@ namespace prs {
                 allocator.free(_elements);
             }
 
-            friend void swap(vector& a, vector& b) {
-                std::swap(a.allocator, b.allocator);
-                std::swap(a._elements, b._elements);
-                std::swap(a._size, b._size);
-                std::swap(a._capacity, b._capacity);
+            void swap(vector& other) {
+                std::swap(allocator, other.allocator);
+                std::swap(_elements, other._elements);
+                std::swap(_size, other._size);
+                std::swap(_capacity, other._capacity);
             }
 
             const T &operator[](size_t index) const {
@@ -422,6 +422,11 @@ namespace prs {
                 _size = (writeIter - _elements);
             }
     };
+
+    template<typename T, typename Allocator>
+    void swap(vector<T, Allocator>& lhs, vector<T, Allocator>& rhs) {
+        lhs.swap(rhs);
+    }
 }
 
 #endif

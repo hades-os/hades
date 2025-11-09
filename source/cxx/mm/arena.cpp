@@ -25,6 +25,9 @@ frg::tuple<
             if (free_header->size >= needed_space && (free_header->size - needed_space < smallestDiff)) {
                 smallestDiff = free_header->size - needed_space;
                 best = free_header;
+
+                if (smallestDiff == 0)
+                    return {prev, best, padding};
             }
 
             prev = free_header;
@@ -105,8 +108,8 @@ void *arena::arena_resource::allocate(size_t size, size_t alignment) {
     uintptr_t data_addr = header_addr + alloc_header_size;
 
     allocation_header *header = new ((void *) header_addr) allocation_header();
-    header->size = needed_space;
-    header->padding = align_padding;
+    header->size = size;
+    header->padding = padding;
     header->block = chosen->block;
 
     return (void *) data_addr;
@@ -119,7 +122,9 @@ void arena::arena_resource::deallocate(void *ptr) {
     uintptr_t header_addr = current_addr - sizeof(allocation_header);
 
     allocation_header *header = (allocation_header *) header_addr;
-    free_header *freed = new ((void *) header_addr) free_header(header->size + header->padding, header->block);
+    size_t align_padding = header->padding - sizeof(allocation_header);
+
+    free_header *freed = new ((void *) (header_addr - align_padding)) free_header(header->size + header->padding, header->block);
 
     auto block = freed->block;
     auto& free_list = block->free_list;
@@ -135,6 +140,27 @@ void arena::arena_resource::deallocate(void *ptr) {
     }
 
     coalesce(prev, freed);
+}
+
+void *arena::arena_resource::reallocate(void *p, size_t new_bytes) {
+    util::lock_guard guard{lock};
+
+    uintptr_t current_addr = (uintptr_t) p;
+    uintptr_t header_addr = current_addr - sizeof(allocation_header);
+
+    allocation_header *header = (allocation_header *) header_addr;
+
+    if (header->size < new_bytes) {
+        void *new_p = allocate(new_bytes);
+        size_t old_bytes = header->size;
+        memcpy(new_p, p, old_bytes);
+
+        deallocate(p);
+
+        return new_p;
+    } else {
+        return p;
+    }
 }
 
 arena::arena_resource::~arena_resource() {

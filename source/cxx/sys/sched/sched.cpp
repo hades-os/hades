@@ -2,7 +2,9 @@
 #include "arch/x86/types.hpp"
 #include "ipc/evtable.hpp"
 #include "mm/slab.hpp"
+#include "prs/allocator.hpp"
 #include "prs/construct.hpp"
+#include "prs/unique.hpp"
 #include "util/types.hpp"
 #include <arch/types.hpp>
 #include <cstddef>
@@ -27,14 +29,15 @@ void sched::init() {
 }
 
 sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege, bool assign_tid) {
-    return prs::construct<thread>(slab::create_resource(),(uintptr_t) pmm::stack(x86::initialStackSize), rsp,
+    return prs::construct<thread>(prs::allocator{slab::create_resource()},(uintptr_t) pmm::stack(x86::initialStackSize), rsp,
         (uintptr_t) pmm::stack(x86::initialStackSize), ctx,
         main, rsp, privilege,
         assign_tid);
 }
 
 sched::process *ns::pid::create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege) {
-    sched::process *proc = prs::construct<sched::process>(slab::create_resource());
+    auto ns_accessor = prs::make_unique<ns::accessor>(prs::allocator{slab::create_resource()}, )
+    sched::process *proc = prs::construct<sched::process>(prs::allocator{slab::create_resource()}, this->parent);
 
     proc->fds = vfs::make_table();
 
@@ -77,26 +80,26 @@ sched::process *ns::pid::create_process(char *name, void (*main)(), uint64_t rsp
 }
 
 sched::process_group *ns::pid::create_process_group(sched::process *leader) {
-    auto group = prs::construct<sched::process_group>(slab::create_resource(), leader);
+    auto group = prs::construct<sched::process_group>(prs::allocator{slab::create_resource()}, leader);
     add_process_group(group);
 
     return group;
 }
 
 sched::session *ns::pid::create_session(sched::process *leader, sched::process_group *group) {
-    auto sess = prs::construct<sched::session>(slab::create_resource(), leader, group);
+    auto sess = prs::construct<sched::session>(prs::allocator{slab::create_resource()}, leader, group);
     add_session(sess);
 
     return sess;
 }
 
 sched::thread *sched::fork(thread *original, vmm::vmm_ctx *ctx, arch::irq_regs *r) {
-    return prs::construct<thread>(slab::create_resource(), original, ctx, r,
+    return prs::construct<thread>(prs::allocator{slab::create_resource()}, original, ctx, r,
         (uintptr_t) pmm::stack(x86::initialStackSize), (uintptr_t) pmm::stack(x86::initialStackSize));
 }
 
 sched::process *sched::fork(process *original, thread *caller, arch::irq_regs *r) {
-    process *proc = prs::construct<sched::process>(slab::create_resource());
+    process *proc = prs::construct<sched::process>(prs::allocator{slab::create_resource()});
 
     proc->fds = vfs::copy_table(original->fds);
     proc->cwd = original->cwd;
@@ -176,7 +179,7 @@ void sched::process::kill(int exit_code) {
         };
 
         arch::kill_thread(task);
-        prs::destruct(slab::create_resource(), task);
+        prs::destruct(prs::allocator{slab::create_resource()}, task);
     }
 
     arch::cleanup_vmm_ctx(this);
@@ -207,7 +210,7 @@ void sched::process::kill(int exit_code) {
                 group->sess->remove_group(group);
                 ns->pid_ns->remove_process_group(group->pgid);
     
-                prs::destruct(slab::create_resource(), group);
+                prs::destruct(prs::allocator{slab::create_resource()}, group);
             } else {
                 bool is_orphan = true;
                 for (size_t i = 0; i < group->procs.size(); i++) {
@@ -251,7 +254,7 @@ void sched::process::kill(int exit_code) {
             sess->groups.clear();
     
             ns->pid_ns->remove_session(sess->sid);
-            prs::destruct(slab::create_resource(), sess);
+            prs::destruct(prs::allocator{slab::create_resource()}, sess);
         }
     }
 
@@ -316,8 +319,8 @@ void reap_process(sched::process *zombie) {
     auto task = zombie->main_thread;
     zombie->ns->pid_ns->remove_process(zombie->pid);
 
-    prs::destruct(slab::create_resource(), task);
-    prs::destruct(slab::create_resource(), zombie);
+    prs::destruct(prs::allocator{slab::create_resource()}, task);
+    prs::destruct(prs::allocator{slab::create_resource()}, zombie);
 }
 
 frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int options) {

@@ -4,6 +4,7 @@
 #include "fs/poll.hpp"
 #include "mm/arena.hpp"
 #include "mm/common.hpp"
+#include "prs/allocator.hpp"
 #include "util/types.hpp"
 #include <cstddef>
 #include <frg/hash.hpp>
@@ -244,7 +245,7 @@ namespace vfs {
                 prs::vector<device *, prs::allocator> list;
                 size_t last_index;
 
-                device_list(): list(arena::create_resource()), last_index(0) {}
+                device_list(): list(prs::allocator{arena::create_resource()}), last_index(0) {}
             };
 
             inline static frg::hash_map<
@@ -257,10 +258,6 @@ namespace vfs {
             static void append_device(device *dev, ssize_t major);
             static void remove_device(device *dev, ssize_t major);
 
-            /*
-            filesystem(shared_ptr<ns::mount> ns, weak_ptr<filesystem> self,
-                shared_ptr<node> root, weak_ptr<node> device):            
-            */
             devfs(shared_ptr<ns::mount> ns,
                 shared_ptr<node> root):
                 vfs::filesystem(ns, root, {}) { };

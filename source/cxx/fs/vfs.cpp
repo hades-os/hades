@@ -51,7 +51,7 @@ static prs::string_view find_name(prs::string_view path) {
 weak_ptr<vfs::filesystem> ns::mount::resolve_fs(prs::string_view path, 
     shared_ptr<vfs::node> base, size_t& symlinks_traversed) {
     if (path == '/') {
-        return this->resolve_root;
+        return this->resolve_root->fs;
     }
 
     if (path == '.') {

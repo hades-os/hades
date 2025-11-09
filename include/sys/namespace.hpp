@@ -99,6 +99,10 @@ namespace ns {
     struct accessor {
         shared_ptr<pid> pid_ns;
         shared_ptr<mount> mount_ns;
+
+        accessor(shared_ptr<pid> pid_ns,
+            shared_ptr<mount> mount_ns):
+            pid_ns(pid_ns), mount_ns(mount_ns) {}
     };
 }
 

@@ -94,12 +94,12 @@ namespace prs {
                         return current;
                     }
 
-                    iterator& operator++() {
+                    reverse_iterator& operator++() {
                         current = static_cast<pointer>(h(current)->previous);
                         return *this;
                     }
 
-                    iterator operator++(int) {
+                    reverse_iterator operator++(int) {
                         auto copy = *this;
                         ++(*this);
                         return copy;

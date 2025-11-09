@@ -214,7 +214,7 @@ namespace sched {
             prs::vector<process *, prs::allocator> zombies;            
             shared_ptr<vfs::fd_table> fds;
             shared_ptr<vfs::node> cwd;
-            shared_ptr<ns::accessor> ns;
+            unique_ptr<ns::accessor> ns;
 
             util::spinlock lock;
 
@@ -268,10 +268,10 @@ namespace sched {
 
             frg::tuple<int, pid_t> waitpid(pid_t pid, thread *waiter, int options);
 
-            process(shared_ptr<ns::accessor> ns): 
+            process(unique_ptr<ns::accessor> ns): 
                 allocator(arena::create_resource()),
                 threads(allocator), children(allocator), zombies(allocator), 
-                ns(ns),
+                ns(std::move(ns)),
                 lock(), sig_lock(), env(allocator),
                 wire() {};
     };

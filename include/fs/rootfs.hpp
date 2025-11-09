@@ -19,8 +19,9 @@ namespace vfs {
 
             prs::allocator allocator;
         public:
-            rootfs(shared_ptr<node> root):
-                vfs::filesystem(root, {}), 
+            rootfs(shared_ptr<ns::mount> ns,
+                shared_ptr<node> root):
+                vfs::filesystem(ns, root, {}), 
                 allocator(arena::create_resource()) {}
 
             weak_ptr<node> lookup(shared_ptr<node> parent, prs::string_view name) override;

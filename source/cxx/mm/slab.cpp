@@ -224,6 +224,31 @@ void slab::slab_resource::deallocate(void *ptr) {
     }
 }
 
+void *slab::slab_resource::reallocate(void *p, size_t new_bytes) {
+    cache *current = root_cache;
+    while (current) {
+        if (current->has_object(p))
+            break;
+
+        current = current->next;
+    }
+
+    if (!current) {
+        debug("WARN: Attepted to reallocate object %xthat does not have a slab cache allocated", p);
+        return nullptr;
+    }
+
+    if (current->object_size < new_bytes) {
+        void *new_p = allocate(new_bytes);
+        memcpy(new_p, p, current->object_size);
+        current->do_deallocate(p);
+
+        return new_p;
+    } else {
+        return p;
+    }
+}
+
 slab::slab_resource *slab::create_resource() {
     auto meta_cache = cache::get_by_size(sizeof(slab_resource));
     auto resource = (slab_resource *) meta_cache->do_allocate();

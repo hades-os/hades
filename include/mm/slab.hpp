@@ -67,7 +67,8 @@ namespace slab {
 
             void *allocate(size_t size, size_t
                 alignment = alignof(std::max_align_t)) override;
-            void deallocate(void *ptr) override;        
+            void deallocate(void *ptr) override;       
+            void *reallocate(void *p, size_t new_bytes) override; 
     };
 
     slab_resource *create_resource();

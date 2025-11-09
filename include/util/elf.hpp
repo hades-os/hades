@@ -136,13 +136,14 @@ namespace elf {
         void *symtab;
 
         prs::vector<symbol, prs::allocator> symbols;
+        prs::allocator allocator;
         symbol *find_symbol(uintptr_t addr);
 
         file(prs::allocator allocator):
-            symbols(allocator) {}
+            allocator(allocator), symbols(allocator) {}
         
         file(const file& other):
-            symbols(other.symbols) {}
+            allocator(other.allocator), symbols(other.symbols) {}
 
         bool init(shared_ptr<vfs::fd> fd);
         void load();

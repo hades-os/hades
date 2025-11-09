@@ -73,6 +73,7 @@ namespace arena {
             void *allocate(size_t size,
                 size_t align = alignof(std::max_align_t)) override;
             void deallocate(void *ptr) override;
+            void *reallocate(void *p, size_t new_bytes) override;
     };
 };
 

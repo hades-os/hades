@@ -254,7 +254,7 @@ void e1000::device::add_route(const char *ipv4_dest,
     uint32_t gateway = net::ipv4_pton(ipv4_gateway);
     uint32_t netmask = net::ipv4_pton(ipv4_netmask);
 
-    ipv4_routing_table.push(net::route(dest, gateway, netmask, mtu));
+    ipv4_routing_table.push_back(net::route(dest, gateway, netmask, mtu));
 }
 
 uint32_t e1000::device::route(uint32_t dest) {
