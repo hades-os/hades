@@ -58,23 +58,24 @@ bool vmm::vmm_ctx::hole_aggregator::check_invariant(hole_tree &tree, hole *node)
     }
 
     if (node->largest_hole != size) {
-        panic("[VMM] Hole state violated with address ", node->addr, "pagemap ", node->map);
+        panic("[VMM] Hole state violated with address %lx, pagemap %lx", node->addr, node->map);
         return false;
     }
 
     if (pred && node->addr < (char *) pred->addr + pred->len) {
-        panic("[VMM] Hole state violated with address ", node->addr, "pagemap ", node->map);
+        panic("[VMM] Hole state violated with address %lx, pagemap %lx", node->addr, node->map);
         return false;
     }
 
     if (sucs && sucs->addr < (char *) node->addr + node->len) {
-        panic("[VMM] Hole state violated with address ", node->addr, "pagemap ", node->map);
+        panic("[VMM] Hole state violated with address %lx, pagemap %lx", node->addr, node->map);
         return false;
     }
 
     return true;
 }
 
+static log::subsystem logger = log::make_subsystem("VM");
 void *vmm::vmm_ctx::create_hole(void *addr, uint64_t len) {
     hole *current = this->holes.get_root();
     if (!current) {
@@ -100,7 +101,7 @@ void *vmm::vmm_ctx::create_hole(void *addr, uint64_t len) {
     } else {
         while (true) {
             if (!current) {
-                kmsg("Out of virtual memory");
+                kmsg(logger, "Out of virtual memory");
                 return nullptr;
             }
 
@@ -114,7 +115,7 @@ void *vmm::vmm_ctx::create_hole(void *addr, uint64_t len) {
         }
 
         if ((char *) addr - (char *) current->addr + len > current->len) {
-            kmsg("Out of virtual memory");
+            kmsg(logger, "Out of virtual memory");
             return nullptr;
         }
 
@@ -198,35 +199,19 @@ void vmm::vmm_ctx::split_hole(hole *node, uint64_t offset, size_t len) {
     frg::destruct(memory::mm::heap, node);
 }
 
-bool vmm::vmm_ctx::mapped(void *addr, uint64_t len) {
-    for (void *cur_addr = addr; (char *) cur_addr <= ((char *) addr + len); cur_addr = (char *) cur_addr + memory::page_size) {
-        void *phys = resolve_single_4k(addr, page_map);
-        if (phys) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-void *vmm::vmm_ctx::create_mapping(void *addr, uint64_t len, page_flags flags) {
-    if (this->mapped(addr, len)) {
-        return nullptr;
-    }
-
+void *vmm::vmm_ctx::create_mapping(void *addr, uint64_t len, page_flags flags, bool fill_now) {
     void *dst = this->create_hole(addr, len);
 
-    bool fill_phys = ((uint64_t) (flags & page_flags::COW)) == 0;
-    for (size_t i = 0; i <= memory::page_count(len); i++) {
-        void *phys = fill_phys ? memory::pmm::phys(1) : nullptr;
-        if (fill_phys) {
+    for (size_t i = 0; i < memory::page_count(len); i++) {
+        void *phys = fill_now ? memory::pmm::phys(1) : nullptr;
+        if (fill_now) {
             ref_page(phys);
         }
         map_single_4k(phys, (char *) dst + (memory::page_size * i), flags, page_map);
     }
 
     mapping *node = frg::construct<mapping>(memory::mm::heap, dst, len, page_map);
-    if (fill_phys) node->free_pages = true;
+    if (fill_now) node->free_pages = true;
     node->perms = flags;
 
     this->mappings.insert(node);
@@ -381,21 +366,16 @@ void vmm::vmm_ctx::delete_mapping(vmm::vmm_ctx::mapping *node) {
 }
 
 void *vmm::vmm_ctx::map(void *virt, uint64_t len, map_flags flags) {
-    if (virt && mapped(virt, len)) {
-        if ((uint64_t) (flags & map_flags::FIXED)) {
-            delete_mappings(virt, len);
-        } else {
-            return nullptr;
-        }
+    if (virt && (uint64_t) (flags & map_flags::FIXED)) {
+        delete_mappings(virt, len);
     }
 
-    return create_mapping(virt, len, to_arch(flags));
+    return create_mapping(virt, len, to_arch(flags), ((uint64_t) (flags & map_flags::FILL_NOW)));
 }
 
 void *vmm::vmm_ctx::stack(void *virt, uint64_t len, map_flags flags) {
-    return (void *) (((uint64_t) map(virt, len, flags)) + (len * memory::page_size));
+    return (void *) (((uint64_t) map(virt, len, flags)) + len);
 }
-
 
 void *vmm::vmm_ctx::resolve(void *virt) {
     return resolve_single_4k(virt, page_map);

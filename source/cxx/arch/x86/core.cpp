@@ -1,4 +1,5 @@
-#include "arch/x86/types.hpp"
+#include <arch/x86/hpet.hpp>
+#include <arch/x86/types.hpp>
 #include <sys/x86/apic.hpp>
 #include <util/io.hpp>
 #include <arch/types.hpp>
@@ -34,14 +35,23 @@ void io::writed(uint16_t port, uint32_t val) {
 }
 
 void io::wait() {
-    io::writeb(0x80, 0);
+    io::writeb(0x80, 0x0);
 }
 
 void arch::init_features() {
+    hpet::init();
     apic::init();
 }
 
-arch::irq_regs arch::sched_to_irq(arch::sched_regs *regs) {
+arch::irq_regs arch::sched_to_irq(sched_regs *regs) {
+    return x86::sched_to_irq(regs);
+}
+
+arch::sched_regs arch::irq_to_sched(irq_regs *regs) {
+    return x86::irq_to_sched(regs);
+}
+
+arch::irq_regs x86::sched_to_irq(arch::sched_regs *regs) {
     return {        
         .r15 = regs->r15,
         .r14 = regs->r14,
@@ -53,7 +63,7 @@ arch::irq_regs arch::sched_to_irq(arch::sched_regs *regs) {
         .r8 = regs->r8,
         .rsi = regs->rsi,
         .rdi = regs->rdi,
-        .rbp = regs->rbx,
+        .rbp = regs->rbp,
         .rdx = regs->rdx,
         .rcx = regs->rcx,
         .rbx = regs->rbx,
@@ -68,4 +78,41 @@ arch::irq_regs arch::sched_to_irq(arch::sched_regs *regs) {
         .rsp = regs->rsp,
         .ss = regs->ss
     };
+}
+
+arch::sched_regs x86::irq_to_sched(arch::irq_regs *regs) {
+    return {        
+        .rax = regs->rax,
+        .rbx = regs->rbx,
+        .rcx = regs->rcx,
+        .rdx = regs->rdx,
+        .rbp = regs->rbx,
+        .rdi = regs->rdi,
+        .rsi = regs->rsi,
+        .r8 = regs->r8,
+        .r9 = regs->r9,
+        .r10 = regs->r10,
+        .r11 = regs->r11,
+        .r12 = regs->r12,
+        .r13 = regs->r13,
+        .r14 = regs->r14,
+        .r15 = regs->r15,
+
+        .rsp = regs->rsp,
+        .rip = regs->rip,
+
+        .ss = regs->ss,
+        .cs = regs->cs,
+        .rflags = regs->rflags,
+    };
+}
+
+void x86::stall_cpu() {
+    while (true) {
+        asm volatile("pause");
+    }    
+}
+
+void arch::stall_cpu() {
+    x86::stall_cpu();
 }

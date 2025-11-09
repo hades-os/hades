@@ -53,6 +53,8 @@ extern void syscall_chdir(arch::irq_regs *);
 
 void syscall_set_fs_base(arch::irq_regs *r) {
     uint64_t addr = r->rdi;
+
+    x86::get_thread()->ctx.reg.fs = addr;
     x86::wrmsr(x86::fsBase, addr);
     r->rax = 0;
 }
@@ -71,8 +73,9 @@ void syscall_get_gs_base(arch::irq_regs *r) {
     r->rax = x86::rdmsr<uint64_t>(x86::gsBase);
 }
 
+static log::subsystem logger = log::make_subsystem("USER");
 void syscall_user_log(arch::irq_regs *r) {
-    kmsg("Userspace: ", (char *) r->rdi);
+    kmsg(logger, (char *) r->rdi);
     r->rax = 0;
 }
 
@@ -158,7 +161,7 @@ extern "C" {
 
         // TODO: signal queue
         auto process = x86::get_process();
-        process->sig_queue.active = false;
+        process->sig_ctx.active = false;
 
         if (syscalls_list[syscall_num] != nullptr) {
             syscalls_list[syscall_num](r);
@@ -168,6 +171,6 @@ extern "C" {
             x86::set_errno(0);
         }
 
-        process->sig_queue.active = true;
+        process->sig_ctx.active = true;
     }
 }

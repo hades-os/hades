@@ -26,8 +26,8 @@ namespace vmm {
 }
 
 namespace arch {
-    void *copy_to_user(void *dst, const void *src, size_t length);
-    void *copy_from_user(void *dst, const void *src, size_t length);
+    size_t copy_to_user(void *dst, const void *src, size_t length);
+    size_t copy_from_user(void *dst, const void *src, size_t length);
 
     struct [[gnu::packed]] irq_regs;
     struct [[gnu::packed]] sched_regs;
@@ -36,26 +36,21 @@ namespace arch {
     irq_regs sched_to_irq(sched_regs *regs);
     sched_regs irq_to_sched(irq_regs *regs);
 
-    constexpr size_t IRQ0 = 0;
-
-    using irq_fn = void(*)(size_t irq, irq_regs *r, void *private_data);
-    struct irq_handler {
-        irq_fn fn;
-        void *private_data;
-    };
+    using irq_fn = void(*)(irq_regs *r);
 
     void init_irqs();
     void init_features();
 
     void irq_on();
     void irq_off();
+    void stall_cpu();
     bool get_irq_state();
 
     void route_irq(size_t irq, size_t vector);
-    void install_irq(size_t irq, irq_fn handler, void *private_data);
+    void install_irq(size_t irq, irq_fn handler);
 
     void init_context(sched::thread *task, void (*main)(), uint64_t rsp, uint8_t privilege);
-    void copy_context(sched::thread *original, sched::thread *task);
+    void fork_context(sched::thread *original, sched::thread *task, irq_regs *r);
 
     void save_context(irq_regs *r, sched::thread *task);
     void rstor_context(sched::thread *task, irq_regs *r);
@@ -86,6 +81,7 @@ namespace arch {
     tid_t get_tid();
     tid_t get_idle();
     pid_t get_pid();
+    uint64_t get_cpu();
 
     void set_errno(int errno);
 

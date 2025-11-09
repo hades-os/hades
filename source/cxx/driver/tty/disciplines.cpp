@@ -84,7 +84,12 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
 
             canon_lock.irq_release();
 
-            arch::copy_to_user(buf, chars, count);
+            auto not_copied = arch::copy_to_user(buf, chars, count);
+            if (not_copied) {
+                kfree(chars);
+                return count - not_copied;
+            }
+            
             kfree(chars);
             return count;
         }
@@ -98,7 +103,7 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
            x86::irq_on();
 
             while (__atomic_load_n(&in.items, __ATOMIC_RELAXED) == 0) {
-                if (arch::get_process() && arch::get_process()->sig_queue.sigpending) {
+                if (arch::get_process() && arch::get_thread()->sig_ctx.sigpending) {
                     canon_lock.irq_release();
                     arch::set_errno(EINTR);
 
@@ -189,14 +194,19 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
             driver->flush(this);
         in_lock.irq_release();
 
-        arch::copy_to_user(buf, chars, count);
+        auto not_copied = arch::copy_to_user(buf, chars, count);
+        if (not_copied) {
+            kfree(chars);
+            return count - not_copied;
+        }
+
         kfree(chars);
         return count;
     } else if (min > 0 && time == 0) {
         arch::irq_on();
 
         while (__atomic_load_n(&in.items, __ATOMIC_RELAXED) < min) {
-            if (arch::get_process() && arch::get_process()->sig_queue.sigpending) {
+            if (arch::get_process() && arch::get_thread()->sig_ctx.sigpending) {
                 arch::set_errno(EINTR);
             
                 kfree(chars);
@@ -221,7 +231,12 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
             driver->flush(this);
         in_lock.irq_release();
 
-        arch::copy_to_user(buf, chars, count);
+        auto not_copied = arch::copy_to_user(buf, chars, count);
+        if (not_copied) {
+            kfree(chars);
+            return count - not_copied;
+        }
+
         kfree(chars);
         return count;
     } else {

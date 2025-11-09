@@ -62,7 +62,7 @@ namespace x86 {
         uintptr_t ustack;
         int errno;
 
-        size_t lid;
+        size_t processor_id;
 
         x86::tss::entry tss;
 
@@ -74,8 +74,10 @@ namespace x86 {
 
         vmm::vmm_ctx *ctx;
 
-        processor(size_t lid) : lid(lid) { }
+        processor(size_t processor_id) : processor_id(processor_id) { }
     };
+    
+    extern frg::vector<x86::processor *, memory::mm::heap_allocator> cpus;
 
     x86::processor *get_locals();
 
@@ -84,6 +86,7 @@ namespace x86 {
 
     size_t get_pid();
     int64_t get_tid();
+    uint64_t get_cpu();
 
     void set_errno(int errno);
 

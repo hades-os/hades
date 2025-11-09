@@ -1,3 +1,4 @@
+#include "arch/types.hpp"
 #include <cstddef>
 #include <sys/sched/signal.hpp>
 #include <driver/tty/termios.hpp>
@@ -72,7 +73,7 @@ ssize_t tty::device::read(void *buf, size_t count, size_t offset) {
     if (arch::get_process() && arch::get_process()->sess == sess) {
         if (arch::get_process()->group != fg) {
             if (sched::signal::is_ignored(arch::get_process(), SIGTTIN)
-                || sched::signal::is_blocked(arch::get_process(), SIGTTIN)) {
+                || sched::signal::is_blocked(arch::get_thread(), SIGTTIN)) {
                 arch::set_errno(EIO);
                 return -1;
             }
@@ -97,7 +98,7 @@ ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     if (arch::get_process() && arch::get_process()->sess == sess) {
         if (arch::get_process()->group != fg && (termios.c_cflag & TOSTOP)) {
             if (sched::signal::is_ignored(arch::get_process(), SIGTTOU)
-                || sched::signal::is_blocked(arch::get_process(), SIGTTOU)) {
+                || sched::signal::is_blocked(arch::get_thread(), SIGTTOU)) {
                 arch::set_errno(EIO);
                 return -1;
             }
@@ -112,7 +113,12 @@ ssize_t tty::device::write(void *buf, size_t count, size_t offset) {
     out_lock.irq_acquire();
 
     char *chars = (char *) kmalloc(count);
-    arch::copy_from_user(chars, buf, count);
+    auto not_copied = arch::copy_from_user(chars, buf, count);
+    if (not_copied) {
+        kfree(chars);
+        out_lock.irq_release();
+        return count - not_copied;
+    }
 
     size_t bytes = 0;
     for (bytes = 0; bytes < count; bytes++) {

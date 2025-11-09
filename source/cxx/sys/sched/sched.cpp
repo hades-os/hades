@@ -1,3 +1,4 @@
+#include "arch/x86/types.hpp"
 #include <arch/types.hpp>
 #include <cstddef>
 #include <cstdint>
@@ -18,11 +19,9 @@
 
 util::lock sched::sched_lock{};
 
-void sched::sleep(size_t time) {
-    volatile uint64_t final_time = uptime + (time * (TIMER_HZ / PIT_FREQ));
-
-    final_time += 1;
-    while (uptime < final_time) {  }
+void sched::init() {
+    arch::init_features();
+    arch::init_sched();
 }
 
 sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege) {
@@ -31,9 +30,15 @@ sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *
     task->kstack = (size_t) memory::pmm::stack(4);
     task->ustack = rsp;
 
+    task->sig_ctx = signal::thread_ctx{};
+    task->sig_ctx.waitq = frg::construct<ipc::queue>(memory::mm::heap);
+
     task->sig_kstack = (size_t) memory::pmm::stack(4);
     task->sig_ustack = (size_t) memory::pmm::stack(4);
     task->mem_ctx = ctx;
+
+    task->release_waitq = false;
+    task->dispatch_signals = false;
 
     arch::init_context(task, main, rsp, privilege);
 
@@ -71,11 +76,7 @@ sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, 
 
     proc->lock = util::lock();
     proc->sig_lock = util::lock();
-    proc->block_signals = false;
-    proc->sigenter_rip = 0;
-    proc->sig_queue = signal::queue{};
-    proc->sig_queue.waitq = frg::construct<ipc::queue>(memory::mm::heap);
-    proc->sig_queue.active = true;
+    proc->trampoline = 0;
     // default sigactions
     for (size_t i = 0; i < SIGNAL_MAX; i++) {
         signal::sigaction *sa = &proc->sigactions[i];
@@ -91,7 +92,7 @@ sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, 
     return proc;
 }
 
-sched::thread *sched::fork(thread *original, vmm::vmm_ctx *ctx) {
+sched::thread *sched::fork(thread *original, vmm::vmm_ctx *ctx, arch::irq_regs *r) {
     thread *task = frg::construct<thread>(memory::mm::heap);
 
     task->kstack = (size_t) memory::pmm::stack(4);
@@ -99,9 +100,17 @@ sched::thread *sched::fork(thread *original, vmm::vmm_ctx *ctx) {
 
     task->sig_ustack = original->sig_ustack;
     task->ustack = original->ustack;
+
+    task->sig_ctx = signal::thread_ctx{};
+    task->sig_ctx.waitq = frg::construct<ipc::queue>(memory::mm::heap);
+    task->sig_ctx.sigmask = original->sig_ctx.sigmask;
+    
     task->mem_ctx = ctx;
 
-    arch::copy_context(original, task);
+    arch::fork_context(original, task, r);
+
+    task->release_waitq = original->release_waitq;
+    task->dispatch_signals = original->dispatch_signals;
 
     task->state = thread::READY;
     task->cpu = -1;
@@ -115,7 +124,7 @@ sched::thread *sched::fork(thread *original, vmm::vmm_ctx *ctx) {
     return task;
 }
 
-sched::process *sched::fork(process *original, thread *caller) {
+sched::process *sched::fork(process *original, thread *caller, arch::irq_regs *r) {
     sched_lock.irq_acquire();
 
     process *proc = frg::construct<process>(memory::mm::heap);
@@ -128,19 +137,14 @@ sched::process *sched::fork(process *original, thread *caller) {
 
     proc->parent = original;
     proc->ppid = original->ppid;
-    proc->sigenter_rip = 0;
-    proc->sig_lock = util::lock();
-    proc->sig_queue = signal::queue{};
-    proc->sig_queue.waitq = frg::construct<ipc::queue>(memory::mm::heap);
-    proc->sig_queue.active = true;
-    proc->sig_queue.sigmask = original->sig_queue.sigmask;
+    proc->trampoline = 0;
     memcpy(&proc->sigactions, &original->sigactions, SIGNAL_MAX * sizeof(signal::sigaction));
 
     proc->env = original->env;
     proc->env.proc = proc;
     proc->mem_ctx = original->mem_ctx->fork();
 
-    proc->main_thread = fork(caller, proc->mem_ctx);
+    proc->main_thread = fork(caller, proc->mem_ctx, r);
     proc->main_thread->proc = proc;
     proc->threads.push_back(proc->main_thread);
 
@@ -150,7 +154,8 @@ sched::process *sched::fork(process *original, thread *caller) {
         original->group->procs.push_back(proc);
     }
 
-    proc->lock = util::lock{};
+    proc->lock = util::lock();
+    proc->sig_lock = util::lock();
     proc->status = WCONTINUED_CONSTRUCT;
 
     proc->real_uid = original->real_uid;
@@ -172,10 +177,11 @@ int sched::do_futex(uintptr_t vaddr, int op, int expected, timespec *timeout) {
     return arch::do_futex(vaddr, op, expected, timeout);
 }
 
-sched::thread *sched::process::pick_thread() {
+sched::thread *sched::process::pick_thread(int signum) {
     for (size_t i = 0; i < threads.size(); i++) {
         if (threads[i] == nullptr) continue;
-        if (threads[i]->state == thread::DEAD || threads[i]->state == thread::BLOCKED) continue;
+        if (threads[i]->state == thread::DEAD || threads[i]->dispatch_signals) continue;
+        if (threads[i]->sig_ctx.sigmask & SIGMASK(signum)) continue;
 
         return threads[i];
     }
@@ -215,9 +221,6 @@ void sched::process::kill(int exit_code) {
         panic("Init exited.");
     }
 
-    sched_lock.irq_acquire();
-    vfs::delete_table(this->fds);
-
     for (size_t i = 0; i < this->threads.size(); i++) {
         auto task = this->threads[i];
         if (task == nullptr) continue;
@@ -230,9 +233,11 @@ void sched::process::kill(int exit_code) {
         frg::destruct(memory::mm::heap, task);
     }
 
+    vfs::delete_table(this->fds);
     arch::cleanup_vmm_ctx(this);
     signal::send_process(nullptr, this->parent, SIGCHLD);
 
+    sched_lock.irq_acquire();
     for (size_t i = 0; i < children.size(); i++) {
         auto child = children[i];
         if (child == nullptr) continue;
@@ -313,41 +318,40 @@ int64_t sched::thread::start() {
 }
 
 void sched::thread::stop() {
-    sched_lock.acquire();
+    sched_lock.irq_acquire();
 
     this->state = thread::BLOCKED;
     if (this->cpu != -1) {
-        sched_lock.release();
+        sched_lock.irq_release();
 
         arch::stop_thread(this);
 
-        sched_lock.acquire();
+        sched_lock.irq_acquire();
     }
 
-    sched_lock.release();
+    sched_lock.irq_release();
 }
 
 void sched::thread::cont() {
-    sched_lock.acquire();
+    sched_lock.irq_acquire();
     this->state = thread::READY;
-    sched_lock.release();
+    sched_lock.irq_release();
 }
 
 int64_t sched::thread::kill() {
-    sched_lock.acquire();
+    sched_lock.irq_acquire();
 
-    while (this->state == thread::BLOCKED) { arch::tick(); }
     this->state = thread::DEAD;
     if (this->cpu != -1) {
-        sched_lock.release();
+        sched_lock.irq_release();
 
         arch::stop_thread(this);
 
-        sched_lock.acquire();
+        sched_lock.irq_acquire();
     }
 
     threads[tid] = (sched::thread *) 0;
-    sched_lock.release();
+    sched_lock.irq_release();
 
     return this->tid;
 }
@@ -387,15 +391,12 @@ void reap_process(sched::process *zombie) {
     sched::sched_lock.irq_acquire();
 
     auto task = zombie->main_thread;
-    task->kill();
-
-    sched::threads[task->tid] = nullptr;
     sched::processes[zombie->pid] = nullptr;
 
+    frg::destruct(memory::mm::heap, task->sig_ctx.waitq);
     frg::destruct(memory::mm::heap, task);
     frg::destruct(memory::mm::heap, zombie->waitq);
     frg::destruct(memory::mm::heap, zombie->notify_status);
-    frg::destruct(memory::mm::heap, zombie->sig_queue.waitq);
     frg::destruct(memory::mm::heap, zombie);
 
     sched::sched_lock.irq_release();
@@ -483,7 +484,9 @@ int64_t sched::pick_task() {
     for (int64_t t = arch::get_tid() + 1; (uint64_t) t < threads.size(); t++) {
         auto task = threads[t];
         if (task) {
-            if (task->state == thread::READY || task->state == thread::WAIT) {
+            if (task->cpu != -1) continue;
+            if (task->state == thread::READY
+                || task->dispatch_signals) {
                 return task->tid;
             }
         }
@@ -492,7 +495,9 @@ int64_t sched::pick_task() {
     for (int64_t t = 0; t < arch::get_tid() + 1; t++) {
         auto task = threads[t];
         if (task) {
-            if (task->state == thread::READY || task->state == thread::WAIT) {
+            if (task->cpu != -1) continue;
+            if (task->state == thread::READY
+                || task->dispatch_signals) {
                 return task->tid;
             }
         }
@@ -511,15 +516,17 @@ void sched::swap_task(arch::irq_regs *r) {
 
     int64_t next_tid = pick_task();
     if (next_tid == -1) {
-        if (running_task->tid != arch::get_idle() && running_task->pid != -1) {
-            signal::process_signals(running_task->proc, &running_task->ctx);
+        if (arch::get_tid() != arch::get_idle() && arch::get_pid() != -1
+            && !signal::process_signals(running_task->proc, &running_task->ctx)) {
             goto swap_regs;
         }
 
         auto idle_task = threads[arch::get_idle()];
+
+        arch::set_process(nullptr);
         arch::set_thread(idle_task);
 
-        running_task = arch::get_thread();
+        running_task = idle_task;
     } else {
         auto next_task = threads[next_tid];
         if (next_task->pid != -1) {
@@ -536,6 +543,5 @@ void sched::swap_task(arch::irq_regs *r) {
 
     swap_regs:
     arch::rstor_context(running_task, r);
-
     sched_lock.release();
 }

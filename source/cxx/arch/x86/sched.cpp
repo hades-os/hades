@@ -19,13 +19,8 @@ static void _idle() {
     while (1) { asm volatile("hlt"); };
 }
 
-static void tick_ap(size_t irq, arch::irq_regs *r, void *private_data) {
+void x86::handle_tick(arch::irq_regs *r) {
     sched::swap_task(r);
-}
-
-void x86::handle_bsp(arch::irq_regs *r) {
-    sched::swap_task(r);
-    send_ipis();
 }
 
 void arch::tick() {
@@ -34,7 +29,7 @@ void arch::tick() {
 
 void x86::do_tick() {
     x86::irq_on();
-    apic::lapic::ipi(x86::get_locals()->lid, 34);
+    apic::lapic::ipi(x86::get_cpu(), 32);
 }
 
 void x86::save_sse(char *sse_region) {
@@ -81,22 +76,31 @@ void x86::init_sse() {
     cr4 |= (1 << 10);
 
     asm volatile("mov %0, %%cr4":: "r"(cr4));
-    save_sse(default_sse_region);
 }
 
 void arch::init_sched() {
-    x86::install_irq(221, tick_ap, nullptr);
+    x86::install_irq(0, x86::handle_tick);
     x86::init_bsp();
 }
 
 void x86::init_bsp() {
+    auto processor = frg::construct<x86::processor>(memory::mm::heap, 0);
+    processor->kstack = (size_t) memory::pmm::stack(x86::initialStackSize);
+    processor->ctx = vmm::boot;
+
+    x86::wrmsr(x86::gsBase, processor);
+    x86::cpus.push_back(processor);
+    x86::tss::init();
+    
     init_syscalls();
     init_sse();
+    save_sse(default_sse_region);
     init_idle();
 }
 
 void x86::init_ap() {
     init_syscalls();
+    init_sse();
     init_idle();
 }
 
@@ -136,7 +140,7 @@ void arch::stop_thread(sched::thread *task) {
 
 void x86::stop_thread(sched::thread *task) {
     auto cpu = task->cpu;
-    apic::lapic::ipi(cpu, 253);
+    apic::lapic::ipi(cpu, 32);
     while (task->cpu != -1) { asm volatile("pause"); };
 }
 
@@ -157,12 +161,35 @@ void arch::init_context(sched::thread *task, void (*main)(), uint64_t rsp, uint8
     task->ctx.reg.cr3 = x86::get_cr3(task->mem_ctx->get_page_map());
 }
 
-void arch::copy_context(sched::thread *original, sched::thread *task) {
-    task->ctx.reg = original->ctx.reg;
+void arch::fork_context(sched::thread *original, sched::thread *task, irq_regs *r) {
+    task->ctx.reg.rax = 0;
+    task->ctx.reg.rbx = r->rbx;
+    task->ctx.reg.rcx = r->rcx;
+    task->ctx.reg.rdx = r->rdx;
+    task->ctx.reg.rbp = r->rbp;
+    task->ctx.reg.rdi = r->rdi;
+    task->ctx.reg.rsi = r->rsi;
+    task->ctx.reg.r8 = r->r8;
+    task->ctx.reg.r9 = r->r9;
+    task->ctx.reg.r10 = r->r10;
+    task->ctx.reg.r11 = r->r11;
+    task->ctx.reg.r12 = r->r12;
+    task->ctx.reg.r13 = r->r13;
+    task->ctx.reg.r14 = r->r14;
+    task->ctx.reg.r15 = r->r15;
+
+    task->ctx.reg.rflags = r->r11;
+    task->ctx.reg.rip = r->rcx;
+    task->ctx.reg.rsp = r->rsp;
+
+    task->ctx.reg.cs = r->cs;
+    task->ctx.reg.ss = r->ss;
+
+    task->ctx.reg.fs = original->ctx.reg.fs;
+
     memcpy(task->ctx.sse_region, original->ctx.sse_region, 512);
     
     task->privilege = original->privilege;
-
     task->ctx.reg.cr3 = x86::get_cr3(task->mem_ctx->get_page_map());
 }
 
@@ -194,12 +221,13 @@ void arch::save_context(irq_regs *r, sched::thread *task) {
     task->ctx.reg.mxcsr = x86::get_mxcsr();
     task->ctx.reg.fcw = x86::get_fcw();
 
-    task->kstack = x86::get_locals()->tss.rsp0;
+    task->kstack = x86::get_locals()->kstack;
     task->ustack = x86::get_locals()->ustack;
 
     task->stopped = x86::tsc();
 
     size_t prev_uptime = task->uptime;
+    sched::uptime += task->uptime - prev_uptime;
     task->uptime += task->stopped - task->started;
 
     task->cpu = -1;
@@ -215,7 +243,7 @@ void arch::save_context(irq_regs *r, sched::thread *task) {
 }
 
 void arch::rstor_context(sched::thread *task, irq_regs *r) {
-    task->cpu = x86::get_locals()->lid;
+    task->cpu = x86::get_cpu();
     r->rax = task->ctx.reg.rax;
     r->rbx = task->ctx.reg.rbx;
     r->rcx = task->ctx.reg.rcx;
@@ -239,13 +267,14 @@ void arch::rstor_context(sched::thread *task, irq_regs *r) {
     r->cs = task->ctx.reg.cs;
     r->ss = task->ctx.reg.ss;
 
+    x86::wrmsr(x86::fsBase, task->ctx.reg.fs);
+
     x86::load_sse(task->ctx.sse_region);
     x86::set_mxcsr(task->ctx.reg.mxcsr);
     x86::set_fcw(task->ctx.reg.fcw);
 
     x86::get_locals()->kstack = task->kstack;
     x86::get_locals()->tss.rsp0 = task->kstack;
-    x86::get_locals()->tss.ist[0] = task->kstack;
     x86::get_locals()->ustack = task->ustack;
 
     task->started = x86::tsc();

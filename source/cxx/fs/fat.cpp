@@ -171,41 +171,28 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t of
         size_t fatSz = this->superblock->secPerFAT != 0 ? this->superblock->secPerFAT : this->superblock->ebr.nEBR.secPerFAT;
 
         size_t firstClusterLBA = superblock->rsvdSec + (superblock->n_fat * fatSz);
-        auto req = frg::construct<devfs::device::io_request>(memory::mm::heap);
 
+        size_t num_blocks;
         if (read_all) {
-            req->len = cluster_chain.size();
+            num_blocks = cluster_chain.size();
         } else {
-            req->len = util::ceil(offset + len, clus_size);
-            while (req->len > cluster_chain.size()) req->len--;
+            num_blocks = util::ceil(offset + len, clus_size);
+            while (num_blocks > cluster_chain.size()) num_blocks--;
         }
 
-        req->blocks_completed = 0;
-        req->blocks_failed = 0;
-
-        req->blocks = (devfs::device::io_request::block **) kmalloc(req->len * sizeof(devfs::device::io_request::block *));
         auto clusters = cluster_chain.begin();
-        for (size_t i = 0; i < req->len; i++) {
+        for (size_t i = 0; i < num_blocks; i++) {
             auto clus = *clusters;
-            auto zone = frg::construct<devfs::device::io_request::block>(memory::mm::heap);
-
-            zone->buf = clus_buf + (i * clus_size);
-            zone->len = clus_size;
-            zone->offset = cluster_to_lba(firstClusterLBA, clus, superblock->secPerClus) * superblock->bytesPerSec;
-            zone->req = req;
-            req->blocks[i] = zone;
+            auto res = devfs->read(this->source, clus_buf + (i * clus_size), clus_size,
+                cluster_to_lba(firstClusterLBA, clus, superblock->secPerClus) * superblock->bytesPerSec);
+            if (res < 0) {
+                kfree(clus_buf);
+                return {};
+            }
 
             clusters++;
         }
-        
-        devfs->request_io(this->source, req, false, true);
-        if (req->blocks_failed > 0 || req->blocks_completed != req->len) {            
-            frg::destruct(memory::mm::heap, req);
-            kfree(clus_buf);
-            return {};
-        }
 
-        frg::destruct(memory::mm::heap, req);
         char *ret = nullptr;
         if (buf == nullptr) {
             if (!read_all) ret = (char *) kmalloc(len);
@@ -226,6 +213,7 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t of
     }
 }
 
+static log::subsystem logger = log::make_subsystem("FS");
 void vfs::fatfs::init_fs(node *root, node *source) {
     filesystem::init_fs(root, source);
 
@@ -267,8 +255,8 @@ void vfs::fatfs::init_fs(node *root, node *source) {
 
     this->last_free = -1;
     this->root->inum = this->superblock->ebr.nEBR.rootClus;
-    this->root->meta->st_ino = this->root->inum; 
-    kmsg("[FAT32]: Initialized");
+    this->root->meta->st_ino = this->root->inum;
+    kmsg(logger, "Initialized");
 }
 
 bool fat_name_matches(const char *name, const char *other, size_t other_len) {
@@ -394,7 +382,7 @@ vfs::node *vfs::fatfs::lookup(node *parent, frg::string_view name) {
     return nullptr;
 }
 
-ssize_t vfs::fatfs::read(node *file, void *buf, size_t len, off_t offset) {    
+ssize_t vfs::fatfs::read(node *file, void *buf, size_t len, off_t offset) {
     auto clus = file->inum;
     auto res = rw_clusters(clus, buf, offset, len);
 

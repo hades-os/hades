@@ -5,16 +5,17 @@
 #include "lai/helpers/pci.h"
 #include "mm/pmm.hpp"
 #include "sys/pci.hpp"
-#include "sys/x86/apic.hpp"
 #include "util/log/log.hpp"
 #include "util/misc.hpp"
-#include "util/string.hpp"
 #include <cstdint>
 #include <mm/common.hpp>
 #include <mm/mm.hpp>
 #include <cstddef>
 #include <util/io.hpp>
 #include <driver/net/e1000.hpp>
+
+static log::subsystem logger = log::make_subsystem("E1000");
+log::subsystem netlog = log::make_subsystem("NET");
 
 e1000::device *net_dev;
 void e1000::device::write(uint16_t off, uint32_t value) {
@@ -268,8 +269,9 @@ void e1000::device::arp_handle(void *pkt, size_t len) {
             arp_table.insert(src_ip, arp_mac);
 
             char *ipv4_str = (char *) kmalloc(16);
-            kmsg("[NET] [ARP]: ", net::ipv4_ntoa(src_ip, ipv4_str), ", is at: ", util::hex(src_mac[0]), ":", util::hex(src_mac[1]), ":", util::hex(src_mac[2]),
-                                    ":", util::hex(src_mac[3]), ":", util::hex(src_mac[4]), ":", util::hex(src_mac[5]));
+
+            kmsg(netlog, "%s is at %x:%x:%x:%x:%x:%x", net::ipv4_ntoa(src_ip, ipv4_str), src_mac[0], src_mac[1], src_mac[2],
+                src_mac[3], src_mac[4], src_mac[5]);
             break;
         }
 
@@ -321,8 +323,7 @@ bool e1000::device::init() {
         write(0x5200 + (i * 4), 0);
     }
 
-    kmsg("[NET]: E1000 MAC: ", util::hex(mac[0]), ":", util::hex(mac[1]), ":", util::hex(mac[2]),
-                            ":", util::hex(mac[3]), ":", util::hex(mac[4]), ":", util::hex(mac[5]));
+    kmsg(logger, "MAC: %x:%x:%x:%x:%x:%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     write(reg_fcal, 0);
     write(reg_fcah, 0);
@@ -357,7 +358,7 @@ void e1000::device::send(const void *buf, size_t len) {
     while ((tx_descs[old_tx_cur]->status & tx_desc::tx_bit_done) == 0) { asm volatile("pause"); }
 }
 
-void e1000::irq_handler(size_t irq, arch::irq_regs *r, void *private_data) {
+void e1000::irq_handler(arch::irq_regs *r) {
     uint32_t status = net_dev->read(reg_icr);
     if (status & 0x04) {
         // TODO: read link speed
@@ -373,13 +374,13 @@ void e1000::init() {
     if (!(pci_dev = pci::get_device(intel_id, emu_id))
         && !(pci_dev = pci::get_device(intel_id, i217_id))
         && !(pci_dev = pci::get_device(intel_id, lm_id))) {
-        kmsg("[NET]: No E1000 Network Controllers found");
+        kmsg(netlog, "No E1000 Network Controllers found");
         return;
     }
 
     pci::bar net_bar;
     if (!pci_dev->read_bar(0, net_bar)) {
-        kmsg("[NET]: E1000: Invalid BAR0");
+        kmsg(logger, "Invalid BAR0");
         return;
     }
 
@@ -406,16 +407,16 @@ void e1000::init() {
     acpi_resource_t irq_resource;
     auto err = lai_pci_route_pin(&irq_resource, 0, pci_dev->get_bus(), pci_dev->get_slot(), pci_dev->get_func(), pci_dev->read_pin());
     if (err > 0) {
-        kmsg("[NET]: E1000: Unable to initialize interrupts");
+        kmsg(logger, "Unable to initialize interrupts");
         frg::destruct(memory::mm::heap, net_dev);
         return;
     }
 
-    arch::route_irq(irq_resource.base, 2);
-    arch::install_irq(2, e1000::irq_handler, nullptr);
+    arch::route_irq(irq_resource.base, 3);
+    arch::install_irq(3, e1000::irq_handler);
 
     net_dev->init();
-    kmsg("[NET]: E1000 device initialized");
+    kmsg(logger, "device initialized");
 
     net_dev->arp_probe();
 }

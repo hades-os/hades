@@ -1,3 +1,4 @@
+#include "mm/common.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <mm/mm.hpp>
@@ -11,6 +12,44 @@
 #include <sys/sched/signal.hpp>
 #include <sys/sched/sched.hpp>
 #include <arch/x86/smp.hpp>
+
+const char *exceptions[] = {
+	"Divide by zero",
+	"Debug",
+	"NMI",
+	"Breakpoint",
+	"Overflow",
+	"Bound Range Exceeded",
+	"Invalid Opcode",
+	"Device Not Available", 
+	"Double fault", 
+	"Co-processor Segment Overrun",
+	"Invalid TSS",
+	"Segment not present",
+	"Stack-Segment Fault",
+	"GPF",
+	"Page Fault",
+	"Reserved",
+	"x87 Floating Point Exception",
+	"Alignment check",
+	"Machine check",
+	"SIMD floating-point exception",
+	"Virtualization Excpetion",
+	"Deadlock",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Security Exception",
+	"Reserved",
+	"Triple Fault",
+	"FPU error"
+};
 
 void arch::irq_on() {
     x86::irq_on();
@@ -29,13 +68,38 @@ void arch::route_irq(size_t irq, size_t vector) {
     x86::route_irq(irq, vector);
 }
 
-void arch::install_irq(size_t irq, irq_fn handler, void *private_data) {
-    x86::install_irq(irq, handler, private_data);
+void arch::install_irq(size_t irq, irq_fn handler) {
+    x86::install_irq(irq, handler);
 }
 
-x86::irq_handler handlers[224];
+x86::irq_fn handlers[224];
 x86::irq_ptr x86_ptr = {};
 x86::irq_entry x86_entries[256] = { { 0 } };
+
+static log::subsystem logger = log::make_subsystem("IRQ");
+void trace(arch::irq_regs *r) {
+    kmsg(logger, "stracktrace: ");
+
+    size_t max_frames = 10;
+    size_t parsed = 0;
+
+    uint64_t rbp = (uint64_t) memory::add_virt(r->rbp);
+    while (true) {
+        uint64_t *stack = (uint64_t *) rbp;
+
+        if (!stack[0]) {
+            break;
+        }
+
+        rbp = memory::add_virt(stack[0]);
+        kmsg(logger, "  rip %lx, rbp: %lx", stack[1], stack[0]);
+
+        parsed++;
+        if (!rbp || parsed == max_frames) {
+            break;
+        }
+    }
+}
 
 extern "C" {
     void x86_irq_handler(arch::irq_regs *r) {
@@ -43,71 +107,98 @@ extern "C" {
             x86::swapgs();
         }
 
-        if (r->int_no < 32) {
-            uint64_t cr3 = x86::read_cr3();
-            vmm::boot->swap_in();
-            if (r->cs != 0x1B) {
-                uint64_t cr2 = 0;
-                asm volatile("movq %%cr2, %0" : "=r"(cr2));
-                x86::stop_all_cpus();
+        uint64_t cr3 = x86::read_cr3();
+        uint64_t cr2 = 0;
+        asm volatile("movq %%cr2, %0" : "=r"(cr2));
 
-                kmsg("Exception on CPU ", x86::get_locals()->lid, "\n",
-                     "    RAX: ", r->rax, ", RBX: ", r->rbx, "\n",
-                     "    RCX: ", r->rcx, ", RDX: ", r->rdx, "\n",
-                     "    RBP: ", util::hex(r->rbp), ", RDI: ", r->rdi, "\n",
-                     "    RSI: ", r->rsi, ", R8: ", r->r8, "\n",
-                     "    R9: ", r->r9, ", R10: ", r->r10, ", R11: ", r->r11, ", R12: ", r->r12, ", R13: ", r->r13, ", R14: ", r->r14, ", R15: ", r->r15, "\n"
-                     "    RSP: ", util::hex(r->rsp), ", ERR: ", util::hex(r->err), ", INT: ", util::hex(r->int_no), ", RIP: ", util::hex(r->rip), "\n", 
-                     "    CR2: ", util::hex(cr2), ", CR3: ", util::hex(cr3), "\n",
-                     "    CS: ", r->cs, ", SS: ", r->ss, ", RFLAGS: ", r->rflags);
-
-                if (r->int_no == 14) {
-                    kmsg("# PF Flags: ");
-                    if (r->err & (1 << 0)) { kmsg("  P"); } else { kmsg("  NP"); }
-                    if (r->err & (1 << 1)) { kmsg("  W"); } else { kmsg("  R"); }
-                    if (r->err & (1 << 2)) { kmsg("  U"); } else { kmsg("  S"); }
-                    if (r->err & (1 << 3)) { kmsg("  RES"); }
-                }
-
-                while (true) { asm volatile("hlt"); }
-            } else {
-                if (r->int_no == 14) {
-                    if (!x86::handle_pf(r)) {
-                        goto fault;
-                    } else {
-                        x86::write_cr3(cr3);
-                        goto end_isr;
-                    }
-                }
-
-                fault:
-                    uint64_t cr2 = 0;
-                    asm volatile("movq %%cr2, %0" : "=r"(cr2));
-
-                    kmsg("Userspace exception: ", util::hex(r->int_no), ", ERR: ", util::hex(r->err), ", pid: ", x86::get_locals()->pid, ", tid: ", x86::get_locals()->tid);
-                    kmsg("CR3:", util::hex(cr3), ", CR2: ", util::hex(cr2), ", RIP: ", util::hex(r->rip), ", RBP: ", util::hex(r->rbp), ", RSP: ", util::hex(r->rsp));
-                    kmsg("RAX: ", r->rax, ", RBX: ", r->rbx, "\n",
-                        "    RCX: ", r->rcx, ", RDX: ", r->rdx, "\n",
-                        "    RBP: ", util::hex(r->rbp), ", RDI: ", r->rdi, "\n",
-                        "    RSI: ", r->rsi, ", R8: ", r->r8, "\n",
-                        "    R9: ", r->r9, ", R10: ", r->r10, ", R11: ", r->r11, ", R12: ", r->r12, ", R13: ", r->r13, ", R14: ", r->r14, ", R15: ", r->r15, "\n"
-                        "    RSP: ", util::hex(r->rsp), ", ERR: ", util::hex(r->err), ", INT: ", util::hex(r->int_no), ", RIP: ", util::hex(r->rip), ", CR2: ", util::hex(cr2), "\n",
-                        "    CS: ", r->cs, ", SS: ", r->ss, ", RFLAGS: ", r->rflags);
-                    if (r->int_no == 14) {
-                        kmsg("# PF Flags: ");
-                        if (r->err & (1 << 0)) { kmsg("  P"); } else { kmsg("  NP"); }
-                        if (r->err & (1 << 1)) { kmsg("  W"); } else { kmsg("  R"); }
-                        if (r->err & (1 << 2)) { kmsg("  U"); } else { kmsg("  S"); }
-                        if (r->err & (1 << 3)) { kmsg("  RES"); }
-                    }
-
-                    sched::signal::send_process(nullptr, x86::get_process(), SIGKILL);
-                    sched::swap_task(r);
+        if (r->int_no == 14) {
+            if (x86::handle_pf(r)) {
+                x86::write_cr3(cr3);
+                goto end_isr;
             }
         }
 
-        if (handlers[r->int_no - 32].fn) {
-            handlers[r->int_no - 32].fn(r->int_no - 32, r, handlers[r->int_no - 32].private_data);
+        if (r->int_no < 32) {
+            vmm::boot->swap_in();
+            if (r->cs != 0x1B) {
+                x86::stop_all_cpus();
+
+                kmsg(logger, log::level::ERR, "%s exception on CPU %u, pid: %lu, tid: %lu \n"\
+                                            "RAX: %lx, RBX: %lx \n"\
+                                            "RCX: %lx, RDX: %lx\n"\
+                                            "RBP: %lx, RDI: %lx\n"\
+                                            "RSI: %lx, R8: %lx\n"\
+                                            "R9: %lx, R10: %lx, R11: %lx, R12: %lx, R13: %lx, R14: %lx, R15: %lx\n"\
+                                            "RSP: %lx\n"\
+                                            "ERR: %lx, RIP: %lx\n"\
+                                            "CR2: %lx, CR3: %lx\n"\
+                                            "CS: %x, SS: %x, RFLAGS: %lx\n",
+                                exceptions[r->int_no], x86::get_cpu(), x86::get_locals()->pid, x86::get_locals()->tid,
+                                r->rax, r->rbx, 
+                                r->rcx, r->rdx, 
+                                r->rbp, r->rdi, 
+                                r->rsi, r->r8,
+                                r->r9, r->r10, r->r11, r->r12, r->r13, r->r14, r->r15,
+                                r->rsp,
+                                r->err, r->rip,
+                                cr2, cr3,
+                                r->cs, r->ss, r->rflags);                
+                if (r->int_no == 14) {
+                    kmsg(logger, "# PF Flags: ");
+                    if (r->err & (1 << 0)) { kmsg(logger, "  P"); } else { kmsg(logger, "  NP"); }
+                    if (r->err & (1 << 1)) { kmsg(logger, "  W"); } else { kmsg(logger, "  R"); }
+                    if (r->err & (1 << 2)) { kmsg(logger, "  U"); } else { kmsg(logger, "  S"); }
+                    if (r->err & (1 << 3)) { kmsg(logger, "  RES"); }
+                }
+
+                trace(r);
+                while (true) { asm volatile("hlt"); }
+            } else {
+                kmsg(logger, log::level::ERR, "%s user exception on CPU %u, pid: %lu, tid: %lu \n"\
+                                            "RAX: %lx, RBX: %lx \n"\
+                                            "RCX: %lx, RDX: %lx\n"\
+                                            "RBP: %lx, RDI: %lx\n"\
+                                            "RSI: %lx, R8: %lx\n"\
+                                            "R9: %lx, R10: %lx, R11: %lx, R12: %lx, R13: %lx, R14: %lx, R15: %lx\n"\
+                                            "RSP: %lx\n"\
+                                            "ERR: %lx, RIP: %lx\n"\
+                                            "CR2: %lx, CR3: %lx\n"\
+                                            "CS: %x, SS: %x, RFLAGS: %lx",
+                                exceptions[r->int_no], x86::get_cpu(), x86::get_locals()->pid, x86::get_locals()->tid,
+                                r->rax, r->rbx, 
+                                r->rcx, r->rdx, 
+                                r->rbp, r->rdi, 
+                                r->rsi, r->r8,
+                                r->r9, r->r10, r->r11, r->r12, r->r13, r->r14, r->r15,
+                                r->rsp,
+                                r->err, r->rip,
+                                cr2, cr3,
+                                r->cs, r->ss, r->rflags);
+
+                if (r->int_no == 14) {
+                    kmsg(logger, "# PF Flags: ");
+                    if (r->err & (1 << 0)) { kmsg(logger, "  P"); } else { kmsg(logger, "  NP"); }
+                    if (r->err & (1 << 1)) { kmsg(logger, "  W"); } else { kmsg(logger, "  R"); }
+                    if (r->err & (1 << 2)) { kmsg(logger, "  U"); } else { kmsg(logger, "  S"); }
+                    if (r->err & (1 << 3)) { kmsg(logger, "  RES"); }
+                }
+
+                auto task = x86::get_thread();
+
+                x86::get_locals()->task = nullptr;
+                x86::get_locals()->pid = -1;
+
+                task->state = sched::thread::DEAD;                    
+                sched::threads[task->tid] = (sched::thread *) 0;
+                task->proc->kill(255);
+
+                sched::swap_task(r);
+                goto end_isr;
+            }
+        }
+
+        if (handlers[r->int_no - x86::IRQ0]) {
+            handlers[r->int_no - x86::IRQ0](r);
         }
 
         end_isr:
@@ -136,14 +227,12 @@ void x86::set_ist(uint8_t num, uint8_t idx) {
 }
 
 void x86::route_irq(size_t irq, size_t vector) {
-    apic::ioapic::route(0, irq, vector, 0);
+    apic::ioapic::route(0, irq, vector + x86::IRQ0, 0);
 }
 
-void x86::install_irq(size_t irq, irq_fn handler, void *private_data) {
-    handlers[irq].fn = handler;
-    handlers[irq].private_data = private_data;    
+void x86::install_irq(size_t irq, irq_fn handler) {
+    handlers[irq] = handler;
 }
-
 
 void x86::irq_on() {
     asm volatile("sti");
@@ -431,7 +520,7 @@ void x86::init_irqs() {
     x86::set_ist(0, 2);
     x86::set_ist(1, 2);
     x86::set_ist(2, 2);
-    x86::set_ist(3, 2);
+    x86::set_ist(3,  2);
     x86::set_ist(4, 2);
     x86::set_ist(5, 2);
     x86::set_ist(6, 2);
@@ -463,5 +552,5 @@ void x86::init_irqs() {
     x86::set_ist(251, 2);
 
     x86::set_ist(32, 1);
-    x86::set_ist(253, 1);
+    x86::set_ist(33, 1);
 }

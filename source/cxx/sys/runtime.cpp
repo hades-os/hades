@@ -7,9 +7,10 @@
 #include <util/log/panic.hpp>
 #include <new>
 
+static log::subsystem logger = log::make_subsystem("FRG");
 extern "C" {
 	void FRG_INTF(log)(const char *cstring) {
-        kmsg("[FRG | INFO]: ", cstring);
+        kmsg(logger, cstring);
     }
 
 	void FRG_INTF(panic)(const char *cstring) {

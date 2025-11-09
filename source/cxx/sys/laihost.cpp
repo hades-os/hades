@@ -1,4 +1,5 @@
-#include <sys/sched/sched.hpp>
+#include <arch/x86/types.hpp>
+#include <arch/x86/hpet.hpp>
 #include <sys/acpi.hpp>
 #include <sys/pci.hpp>
 #include <cstddef>
@@ -9,9 +10,10 @@
 #include <mm/common.hpp>
 #include <lai/host.h>
 
+static log::subsystem logger = log::make_subsystem("LAI");
 extern "C" {
     void laihost_log(int level, const char *msg) {
-        kmsg(msg);
+        kmsg(logger, msg);
     }
 
     __attribute__((noreturn))
@@ -100,7 +102,7 @@ extern "C" {
     }
 
     void laihost_sleep(uint64_t ms) {
-        sched::sleep(ms);
+        hpet::msleep(ms);
     }
 
     uint64_t laihost_timer() {

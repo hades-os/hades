@@ -176,7 +176,7 @@ void flush() {
     }
 }
 
-void ps2_handler(size_t irq, arch::irq_regs *r, void *private_data) {
+void ps2_handler(arch::irq_regs *r) {
     if (!tty::active_tty) {
         flush();
         return;
@@ -219,8 +219,8 @@ void kb::init() {
     disable();
     flush();
 
-    arch::route_irq(1, 1);
-    arch::install_irq(1, ps2_handler, nullptr);
+    arch::route_irq(2, 2);
+    arch::install_irq(2, ps2_handler);
 
     enable();
 }

@@ -6,38 +6,44 @@
 #include <sys/sched/signal.hpp>
 
 extern "C" {
+    [[noreturn]]
     extern void x86_sigreturn_exit(arch::irq_regs *r);
 }
 
 void x86::sigreturn_kill(sched::process *proc, ssize_t status) {
+    irq_off();
+
+    auto task = get_thread();
+    x86::get_locals()->task = nullptr;
+    x86::get_locals()->pid = -1;
+
+    task->state = sched::thread::DEAD;
+    task->dispatch_signals = false;
+
+    sched::threads[task->tid] = (sched::thread *) 0;
+
     proc->kill(status);
-    for (;;) {
-        asm volatile("hlt");
+    while (true) {
+        do_tick();
     }
 }
 
-void x86::sigreturn_default(sched::process *proc, sched::thread *task, bool block_signals) {
+void x86::sigreturn_default(sched::process *proc, sched::thread *task) {
     irq_off();
 
-    auto sig_queue = &proc->sig_queue;
-    sig_queue->sig_lock.irq_acquire();
+    auto ctx = &task->sig_ctx;
+    ctx->lock.irq_acquire();
 
-    auto signal = &sig_queue->queue[task->sig_context.signum - 1];
-    sig_queue->sigdelivered |= SIGMASK(task->sig_context.signum);
+    auto signal = &ctx->queue[task->ucontext.signum - 1];
+
+    ctx->sigdelivered |= SIGMASK(task->ucontext.signum);
     signal->notify_queue->arise(x86::get_thread());
     frg::destruct(memory::mm::heap, signal->notify_queue);
 
-    sig_queue->sig_lock.irq_release();
+    ctx->lock.irq_release();
 
-    auto regs = &task->sig_context.ctx.reg;
+    auto regs = &task->ucontext.ctx.reg;
     task->ctx.reg = *regs;
-
-    memory::pmm::free((void *) (task->sig_context.stack - (4 * memory::page_size)));
-
-    if (block_signals) {
-        task->state = sched::thread::READY;
-        proc->block_signals = true;
-    }
 
     x86::get_locals()->ustack = task->ustack;
     x86::get_locals()->kstack = task->kstack;
@@ -50,8 +56,11 @@ void x86::sigreturn_default(sched::process *proc, sched::thread *task, bool bloc
 
     x86::set_fcw(regs->fcw);
     x86::set_mxcsr(regs->mxcsr);
-    x86::load_sse(task->sig_context.ctx.sse_region);
+    x86::load_sse(task->ucontext.ctx.sse_region);
     
+    task->dispatch_signals = false;
+    memory::pmm::free((void *) (task->ucontext.stack - (4 * memory::page_size)));
+
     x86_sigreturn_exit(&iretq_regs);
 }
 
@@ -77,8 +86,7 @@ void sig_default(sched::process *proc, sched::thread *task, int sig) {
 		case SIGVTALRM:
 		case SIGPROF:
 		case SIGSYS:
-            x86::sigreturn_kill(proc, status);
-            break;
+            return x86::sigreturn_kill(proc, status);
         case SIGSTOP:
         case SIGTTIN:
         case SIGTTOU:
@@ -93,7 +101,7 @@ void sig_default(sched::process *proc, sched::thread *task, int sig) {
             break;
     }
 
-    x86::sigreturn_default(proc, task, false);
+    x86::sigreturn_default(proc, task);
 }
 
 void arch::init_default_sigreturn(sched::thread *task, arch::thread_ctx *ctx, sched::signal::signal *signal, sched::signal::ucontext *context) {
@@ -117,7 +125,7 @@ void arch::init_default_sigreturn(sched::thread *task, arch::thread_ctx *ctx, sc
 
     ctx->reg.mxcsr = 0x1F80;
     ctx->reg.fcw = 0x33F;
-    memset(task->ctx.sse_region, 0, 512);
+    memset(ctx->sse_region, 0, 512);
 }
 
 void arch::init_user_sigreturn(sched::thread *task, arch::thread_ctx *ctx, 
@@ -135,7 +143,6 @@ void arch::init_user_sigreturn(sched::thread *task, arch::thread_ctx *ctx,
     stack &= -1611;
     stack -= sizeof(sched::signal::siginfo);
     sched::signal::siginfo *info = (sched::signal::siginfo *) stack;
-    *info = *signal->info;
 
     info->si_signo = signal->signum;
 
@@ -144,8 +151,9 @@ void arch::init_user_sigreturn(sched::thread *task, arch::thread_ctx *ctx,
     *uctx = *context;
 
     stack -= sizeof(uint64_t);
+    *(uint64_t *) stack = (uint64_t) action->sa_restorer;
 
-    task->sig_context = *context;
+    task->ucontext = *context;
 
     ctx->reg.ss = 0x23;
     ctx->reg.cs = 0x1B;
@@ -155,7 +163,7 @@ void arch::init_user_sigreturn(sched::thread *task, arch::thread_ctx *ctx,
 
     ctx->reg.mxcsr = 0x1F80;
     ctx->reg.fcw = 0x33F;
-    memset(task->ctx.sse_region, 0, 512);
+    memset(ctx->sse_region, 0, 512);
 
     // [[noreturn]] sigenter_handler(void *handler_rip, bool is_sigaction, int sig, siginfo *info, ucontext_t *ctx)
     if (task->proc->trampoline) {

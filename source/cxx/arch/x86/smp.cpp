@@ -17,43 +17,35 @@
 #include <util/stivale.hpp>
 #include <util/string.hpp>
 
-frg::vector<x86::processor *, memory::mm::heap_allocator> cpus{};
+frg::vector<x86::processor *, memory::mm::heap_allocator> x86::cpus{};
 
 void arch::init_smp() {
     x86::init_smp();
-    x86::tss::init();
-}
-
-void x86::send_ipis() {
-    auto info = x86::get_locals();
-    for (auto cpu : cpus) {
-        if (info->lid == cpu->lid) {
-            continue;
-        }
-
-        apic::lapic::ipi(cpu->lid, 253);
-    }
 }
 
 void arch::stop_all_cpus() {
-    auto info = x86::get_locals();
+    x86::stop_all_cpus();
+}
+
+void x86::stop_all_cpus() {
     for (auto cpu : cpus) {
-        if (info->lid == cpu->lid) {
+        if (cpu->processor_id == x86::get_cpu()) {
             continue;
         }
         
-        apic::lapic::ipi(cpu->lid, 251);
+        apic::lapic::ipi(cpu->processor_id, (1 << 14) | 251);
     }
 }
 
 [[noreturn]]
-static inline void processorPanic(size_t irq, arch::irq_regs *r, void *private_data) {
+static inline void processorPanic(arch::irq_regs *r) {
     x86::irq_off();
     while (true) {
         asm volatile("pause");
     }
 }
 
+static log::subsystem logger = log::make_subsystem("SMP");
 static inline util::lock cpuBootupLock{};
 extern "C" {
     void processorEntry(stivale::boot::info::processor *entry_ctx) {
@@ -64,16 +56,17 @@ extern "C" {
 
         apic::lapic::setup();
         x86::hook_irqs();
-        x86::irq_on();
-
-        kmsg("[CPU", cpu->lid, "] ", "kstack: ", util::hex(cpu->kstack));
-
-        cpuBootupLock.release();
 
         cpu->ctx->swap_in();
         x86::init_ap();
         x86::tss::init();
 
+        kmsg(logger, "[CPU %u online]", x86::get_cpu());
+
+        cpuBootupLock.release();
+
+        apic::lapic::set_timer(1);
+        x86::irq_on();
         while (true) {
             asm volatile("pause");
         }
@@ -85,20 +78,18 @@ extern "C" {
 };
 
 void x86::init_smp() {
-    x86::install_irq(219, &processorPanic, nullptr);
+    x86::install_irq(219, processorPanic);
 
     auto procs = stivale::parser.smp();
     for (auto stivale_cpu = procs->begin(); stivale_cpu != procs->end(); stivale_cpu++) {
         size_t lapic_id = stivale_cpu->lapic_id;
+        if (lapic_id == get_cpu()) continue;
+
         auto processor = frg::construct<x86::processor>(memory::mm::heap, lapic_id);
+
         processor->kstack = (size_t) memory::pmm::stack(x86::initialStackSize);
         processor->ctx = vmm::boot;
- 
-        if (!lapic_id) {
-            x86::wrmsr(x86::gsBase, processor);
-            cpus.push_back(processor);
-            continue;
-        }
+        cpus.push_back(processor);
 
         stivale_cpu->extra_argument = (size_t) processor;
         stivale_cpu->target_stack = processor->kstack;
@@ -137,9 +128,6 @@ void x86::tss::init() {
 
     tss->ist[0] = (uint64_t) memory::pmm::stack(4);
     tss->ist[1] = (uint64_t) memory::pmm::stack(4);
-    tss->rsp0 = tss->ist[0];
-
-    kmsg("TSS: ", util::hex(tss->ist[0]));
 
     asm volatile("ltr %%ax" :: "a"(TSS_OFFSET));
     tssLock.release();
@@ -154,11 +142,15 @@ sched::process *x86::get_process() {
 }
 
 size_t x86::get_pid() {
-    return get_locals()->proc->pid;
+    return get_locals()->pid;
 }
 
 int64_t x86::get_tid() {
     return get_locals()->tid;
+}
+
+uint64_t x86::get_cpu() {
+    return apic::lapic::id();
 }
 
 void x86::set_errno(int errno) {
@@ -189,9 +181,14 @@ pid_t arch::get_pid() {
     return x86::get_pid();
 }
 
+uint64_t arch::get_cpu() {
+    return x86::get_cpu();
+}
+
 void arch::set_process(sched::process *process) {
     x86::get_locals()->proc = process;
-    x86::get_locals()->pid = process->pid;
+    if (process) x86::get_locals()->pid = process->pid;
+    else x86::get_locals()->pid = -1;
 }
 
 void arch::set_thread(sched::thread *task) {
