@@ -53,7 +53,7 @@ bool sched::process_env::load_elf(const char *path, shared_ptr<vfs::fd> fd) {
             return false;
         }
 
-        fd = vfs::open(proc->ns->mount_ns, nullptr, interp_path, fd->table.lock(), 0, 0, 0, 0);
+        fd = vfs::open(proc->mount_ns, nullptr, interp_path, fd->table.lock(), 0, 0, 0, 0);
         if (!fd) {
             proc->allocator.deallocate(interp_path);
             return false;

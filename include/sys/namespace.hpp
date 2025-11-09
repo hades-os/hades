@@ -25,6 +25,7 @@ namespace ns {
 
             prs::allocator allocator;
 
+            weak_ptr<pid> self;
             weak_ptr<pid> parent;
             prs::vector<shared_ptr<pid>, prs::allocator>
                 children;
@@ -69,7 +70,8 @@ namespace ns {
     static size_t zero = 0;
     struct mount {
         private:
-            weak_ptr<ns::mount> self;
+            weak_ptr<mount> self;
+
             shared_ptr<vfs::node> resolve_root;
             weak_ptr<vfs::node> true_root;
 

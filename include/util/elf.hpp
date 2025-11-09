@@ -144,7 +144,7 @@ namespace elf {
         
         file(const file& other):
             allocator(other.allocator), symbols(other.symbols) {}
-
+            
         bool init(shared_ptr<vfs::fd> fd);
         void load();
         bool load_interp(char **interp_path);

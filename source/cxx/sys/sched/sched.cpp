@@ -36,8 +36,7 @@ sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *
 }
 
 sched::process *ns::pid::create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege) {
-    auto ns_accessor = prs::make_unique<ns::accessor>(prs::allocator{slab::create_resource()}, )
-    sched::process *proc = prs::construct<sched::process>(prs::allocator{slab::create_resource()}, this->parent);
+    sched::process *proc = prs::construct<sched::process>(prs::allocator{slab::create_resource()}, self.lock());
 
     proc->fds = vfs::make_table();
 
@@ -118,7 +117,7 @@ sched::process *sched::fork(process *original, thread *caller, arch::irq_regs *r
     proc->main_thread->proc = proc;
     proc->threads.push_back(proc->main_thread);
 
-    pid_t pid = original->ns->pid_ns->add_process(proc);
+    pid_t pid = original->pid_ns->add_process(proc);
     proc->pid = pid;
     proc->main_thread->pid = pid;
 
@@ -208,7 +207,7 @@ void sched::process::kill(int exit_code) {
         if (group->leader_pid == this->pid) {
             if (group->process_count == 0) {
                 group->sess->remove_group(group);
-                ns->pid_ns->remove_process_group(group->pgid);
+                pid_ns->remove_process_group(group->pgid);
     
                 prs::destruct(prs::allocator{slab::create_resource()}, group);
             } else {
@@ -253,7 +252,7 @@ void sched::process::kill(int exit_code) {
     
             sess->groups.clear();
     
-            ns->pid_ns->remove_session(sess->sid);
+            pid_ns->remove_session(sess->sid);
             prs::destruct(prs::allocator{slab::create_resource()}, sess);
         }
     }
@@ -317,7 +316,7 @@ void sched::process::add_thread(thread *task) {
 
 void reap_process(sched::process *zombie) {
     auto task = zombie->main_thread;
-    zombie->ns->pid_ns->remove_process(zombie->pid);
+    zombie->pid_ns->remove_process(zombie->pid);
 
     prs::destruct(prs::allocator{slab::create_resource()}, task);
     prs::destruct(prs::allocator{slab::create_resource()}, zombie);

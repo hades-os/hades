@@ -5,6 +5,7 @@
 #include "mm/arena.hpp"
 #include "prs/allocator.hpp"
 #include "prs/rbtree.hpp"
+#include "sys/namespace.hpp"
 #include <arch/x86/types.hpp>
 #include <ipc/wire.hpp>
 #include <cstddef>
@@ -214,7 +215,9 @@ namespace sched {
             prs::vector<process *, prs::allocator> zombies;            
             shared_ptr<vfs::fd_table> fds;
             shared_ptr<vfs::node> cwd;
-            unique_ptr<ns::accessor> ns;
+
+            shared_ptr<ns::pid> pid_ns;
+            shared_ptr<ns::mount> mount_ns;
 
             util::spinlock lock;
 
@@ -268,10 +271,10 @@ namespace sched {
 
             frg::tuple<int, pid_t> waitpid(pid_t pid, thread *waiter, int options);
 
-            process(unique_ptr<ns::accessor> ns): 
+            process(shared_ptr<ns::pid> pid_ns): 
                 allocator(arena::create_resource()),
                 threads(allocator), children(allocator), zombies(allocator), 
-                ns(std::move(ns)),
+                pid_ns(pid_ns),
                 lock(), sig_lock(), env(allocator),
                 wire() {};
     };

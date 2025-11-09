@@ -54,6 +54,14 @@ namespace prs {
                 }                   
             }
 
+            allocator& operator=(allocator& other) {
+                if (other._resource) {
+                    if (other._resource->_count.fetch_add(1)) {
+                        _resource = other._resource;
+                    }
+                }
+            }
+
             void *allocate(size_t bytes,
                 size_t alignment = alignof(std::max_align_t)) const {
                 prs::assert(_resource != nullptr);
