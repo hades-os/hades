@@ -8,7 +8,9 @@
 #include "fs/cache.hpp"
 #include "lai/core.h"
 #include "lai/helpers/sci.h"
+#include "mm/arena.hpp"
 #include "mm/common.hpp"
+#include "mm/slab.hpp"
 #include "sys/sched/signal.hpp"
 #include "util/types.hpp"
 #include <cstddef>
@@ -65,12 +67,14 @@ static void run_init() {
 }
 
 static void show_splash(shared_ptr<vfs::fd_table> table) {
+    arena::allocator allocator{};
+
     auto splash_fd = vfs::open(nullptr, "/home/racemus/hades.bmp", table, 0, O_RDONLY, 0, 0);
 
-    auto info = frg::construct<vfs::node::statinfo>(memory::mm::heap);
+    auto info = frg::construct<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
     vfs::stat(nullptr, "/home/racemus/hades.bmp", info, 0);
      
-    auto buffer = kmalloc(info->st_size);
+    auto buffer = allocator.allocate(info->st_size);
     vfs::read(splash_fd, buffer, info->st_size);
 
     video::vesa::display_bmp(buffer, info->st_size);

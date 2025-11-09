@@ -3,6 +3,8 @@
 
 #include "frg/string.hpp"
 #include "fs/poll.hpp"
+#include "mm/arena.hpp"
+#include "mm/boot.hpp"
 #include "mm/common.hpp"
 #include "util/types.hpp"
 #include <cstddef>
@@ -118,14 +120,16 @@ namespace vfs {
             };
 
             struct device {
-                frg::vector<device *, mm::allocator> bus_devices;
+                arena::allocator allocator;
+
+                frg::vector<device *, arena::allocator> bus_devices;
                 devfs::busdev *bus;
 
                 ssize_t major;
                 ssize_t minor;
 
                 device_class cls;
-                device(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux, device_class cls) : bus_devices(), bus(bus), major(major), minor(minor), cls(cls) {};
+                device(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux, device_class cls): allocator(), bus_devices(allocator), bus(bus), major(major), minor(minor), cls(cls) {};
 
                 // virtual void *mmap(node *file, void *addr, size_t len, size_t offset) { return nullptr; }
             };
@@ -143,8 +147,8 @@ namespace vfs {
                 protected:
                     virtual ssize_t arise(ssize_t event) = 0;
                 public:
-                    frg::vector<shared_ptr<poll::queue>, mm::allocator> queues;
-                    shared_ptr<node> file;
+                    frg::vector<shared_ptr<poll::producer>, arena::allocator> outputs;
+                        shared_ptr<node> file;
 
                     virtual ssize_t on_open(shared_ptr<fd> fd, ssize_t flags) = 0;
                     virtual ssize_t on_close(shared_ptr<fd> fd, ssize_t flags) = 0;
@@ -153,11 +157,11 @@ namespace vfs {
                     virtual ssize_t write(void *buf, size_t len, size_t offset) = 0;
                     virtual ssize_t ioctl(size_t req, void *buf) = 0;
 
-                    virtual ssize_t poll(shared_ptr<poll::queue> queue) = 0;
+                    virtual ssize_t poll(shared_ptr<poll::producer> producer) = 0;
 
                     virtual ssize_t force_dismount() = 0;
 
-                    filedev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux, device_class cls): device(bus, major, minor, aux, cls), queues() {};
+                    filedev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux, device_class cls): device(bus, major, minor, aux, cls), outputs(allocator) {};
             };
 
             struct blockdev: filedev {
@@ -170,9 +174,9 @@ namespace vfs {
                         size_t begin;
                         partition(size_t blocks, size_t begin) : blocks(blocks), begin(begin) { };
                     };
-                    frg::vector<partition, mm::allocator> part_list;
-
-                    frg::vector<filesystem *, mm::allocator> fs_list;
+                    
+                    frg::vector<partition, arena::allocator> part_list;
+                    frg::vector<filesystem *, arena::allocator> fs_list;
 
                     size_t blocks;
                     size_t block_size;
@@ -186,7 +190,7 @@ namespace vfs {
                     virtual ssize_t write(void *buf, size_t len, size_t offset) override { return 0; }
                     virtual ssize_t ioctl(size_t req, void *buf) override { return 0; }
 
-                    virtual ssize_t poll(shared_ptr<poll::queue> queue) override { return POLLIN | POLLOUT; }
+                    virtual ssize_t poll(shared_ptr<poll::producer> producer) override { return POLLIN | POLLOUT; }
 
                     virtual ssize_t force_dismount() override { return -ENOTSUP; }
 
@@ -204,7 +208,7 @@ namespace vfs {
                     virtual ssize_t write(void *buf, size_t len, size_t offset) override { return 0; }
                     virtual ssize_t ioctl(size_t req, void *buf) override { return 0; }
 
-                    virtual ssize_t poll(shared_ptr<poll::queue> queue) override { return 0; }
+                    virtual ssize_t poll(shared_ptr<poll::producer> producer) override { return 0; }
 
                     virtual ssize_t force_dismount() override { return -ENOTSUP; }
 
@@ -230,7 +234,7 @@ namespace vfs {
             static void probe();
 
             struct device_list {
-                frg::vector<device *, mm::allocator> list;
+                frg::vector<device *, arena::allocator> list;
                 size_t last_index;
 
                 device_list(): list(), last_index(0) {}
@@ -240,7 +244,7 @@ namespace vfs {
                 size_t,
                 device_list,
                 frg::hash<size_t>,
-                mm::allocator>
+                boot::allocator>
             device_map{frg::hash<size_t>()};
 
             static void append_device(device *dev, ssize_t major);

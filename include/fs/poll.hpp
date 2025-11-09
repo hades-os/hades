@@ -2,6 +2,7 @@
 #define POLL_HPP
 
 #include "ipc/wire.hpp"
+#include "mm/arena.hpp"
 #include "mm/mm.hpp"
 #include "util/types.hpp"
 #include <util/lock.hpp>
@@ -12,58 +13,81 @@ namespace sched {
     class thread;
 };
 
+namespace vfs {
+    struct descriptor;
+}
+
 namespace poll {
-    struct queue;
+    struct producer;
     struct table;
 
-    shared_ptr<queue> create_queue();
+    shared_ptr<producer> create_producer(weak_ptr<vfs::descriptor> desc);
     shared_ptr<table> create_table();
 
-    struct queue {
+    union producer_context {
+        void * p;
+        int number;
+        uint32_t  number_32;
+        uint64_t  number_64;
+    };
+
+    struct producer {
         private:
             friend struct table;
-            friend shared_ptr<queue> create_queue();
+            friend shared_ptr<producer> create_producer(weak_ptr<vfs::descriptor> desc);
 
-            shared_ptr<queue> self;
+            shared_ptr<poll::producer> self;
+            weak_ptr<vfs::descriptor> desc;
+            producer_context ctx;
 
-            frg::vector<shared_ptr<table>, mm::allocator> tables;
+            frg::vector<shared_ptr<table>, arena::allocator> tables;
             util::spinlock lock;
         public:
-            queue(): tables(), lock() {}
-            ~queue();
+            producer(weak_ptr<vfs::descriptor> desc): desc(desc), tables(arena::allocator()), lock() {}
+            ~producer();
 
-            queue(queue&& other): tables(other.tables), lock() {}
+            producer(producer&& other): tables(std::move(other.tables)), lock() {}
 
             void arise(ssize_t event);      
     };
 
     struct table {
         private:
-            friend struct queue;
+            friend struct producer;
             friend shared_ptr<table> create_table();
  
             shared_ptr<table> self;
 
-            frg::vector<ssize_t, mm::allocator> events;
+            struct event {
+                shared_ptr<poll::producer> producer;
+                ssize_t events;
+            };
 
-            frg::vector<shared_ptr<queue>, mm::allocator> queues;
-            shared_ptr<queue> latest_queue;
+            arena::allocator allocator;
+
+            frg::vector<event, arena::allocator> events;
+
+            frg::vector<shared_ptr<producer>, arena::allocator> producers;
+            shared_ptr<producer> latest_producer;
             ssize_t latest_event;
 
             ipc::wire wire;
             
             util::spinlock lock;
 
-            void arise(ssize_t event, shared_ptr<queue> waker);
+            void arise(ssize_t event, shared_ptr<producer> waker);
         public:
-            table(): self(), events(), queues(), wire(), lock() {}
+            table(): self(), allocator(),
+                events(allocator), producers(allocator), wire(), lock() {}
             ~table();
 
-            frg::tuple<shared_ptr<queue>, ssize_t> wait(bool allow_signals, sched::timespec *timeout);
-            frg::vector<ssize_t, mm::allocator> &get_events();
+            frg::tuple<shared_ptr<producer>, ssize_t> wait(bool allow_signals, sched::timespec *timeout);
+            frg::vector<event, arena::allocator> &get_events() {
+                return events;
+            }
 
-            void connect(shared_ptr<queue> queue);
-            void disconnect(shared_ptr<queue> queue);      
+            void connect(shared_ptr<producer> producer);
+            void disconnect(shared_ptr<producer> producer);      
     };
 }
 

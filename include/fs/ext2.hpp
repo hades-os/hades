@@ -2,6 +2,7 @@
 #define EXT2_HPP
 
 #include "frg/tuple.hpp"
+#include "mm/arena.hpp"
 #include "util/types.hpp"
 #include <frg/vector.hpp>
 #include <cstddef>
@@ -93,15 +94,20 @@ namespace vfs {
 
             struct data {
                 struct ent {
-                    dirent *dent;
+                    dirent dent;
                     char *name;
+
+                    arena::allocator allocator;
 
                     shared_ptr<ent> next;
 
+                    ent(): allocator() {}
                     ~ent() {
                         while (next) {
                             next = std::move(next->next);
                         }
+
+                        allocator.deallocate(name);
                     }
                 };
 
@@ -109,7 +115,9 @@ namespace vfs {
                 data(shared_ptr<ent> head): head(head) {}
             };
 
-            super *superblock;
+            arena::allocator allocator;
+
+            unique_ptr<ext2fs::super, arena::allocator> superblock;
             uint64_t block_size;
             uint64_t frag_size;
             uint64_t bgd_count;
@@ -156,7 +164,8 @@ namespace vfs {
             }
         public:
             ext2fs(shared_ptr<node> root, weak_ptr<node> device):
-                vfs::filesystem(root, device) {}
+                vfs::filesystem(root, device), 
+                allocator(), superblock(allocator) {}
 
             bool load() override;
 

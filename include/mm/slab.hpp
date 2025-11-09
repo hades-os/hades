@@ -37,7 +37,7 @@ namespace slab {
     struct slab {
         size_t free_objects;
         size_t total_objects;
-
+        
         uint8_t *bitmap;
         void *buffer;
 
@@ -50,19 +50,33 @@ namespace slab {
     };
 
     cache *create(size_t object_size);
-    cache *get_by_pointer(void *ptr);
+    cache *get_by_size(size_t object_size);
 
     struct allocator: mm::allocator {
         private:
-            cache *root_cache;
+            size_t object_size;
+            mutable cache *base_cache;
         public:
-            void *allocate(size_t size);
-            void *reallocate(void *ptr, size_t size);
+            void *allocate(size_t, size_t _ = 0) const override;
+            void deallocate(void *ptr) const override;
+            
+            using mm::allocator::deallocate;
+            using mm::allocator::free;
 
-            void deallocate(void *ptr);
-
-            allocator(cache *root_cache): root_cache(root_cache) {}
+            allocator(size_t object_size, cache *base_cache): mm::allocator(), object_size(object_size), base_cache(base_cache) {}
+            allocator(const allocator& other):
+                mm::allocator(),
+                object_size(other.object_size), base_cache(other.base_cache) {}
     };
 };
+
+namespace mm {
+    slab::allocator slab(size_t object_size);
+
+    template<typename T>
+    slab::allocator slab() {
+        return slab(sizeof(T));
+    }    
+}
 
 #endif

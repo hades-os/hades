@@ -4,6 +4,7 @@
 #include "frg/list.hpp"
 #include "ipc/evtable.hpp"
 #include "mm/common.hpp"
+#include "mm/slab.hpp"
 #include "mm/vmm.hpp"
 #include "smarter/smarter.hpp"
 #include "sys/sched/sched.hpp"
@@ -106,7 +107,7 @@ ssize_t cache::holder::request_page(void *buffer, size_t offset, size_t buffer_l
         return false;
     }
 
-    shared_ptr<holder::request> req = smarter::allocate_shared<holder::request>(memory::mm::heap);
+    shared_ptr<holder::request> req = smarter::allocate_shared<holder::request>(mm::slab<holder::request>());
 
     req->offset = offset;
     req->page_offset = page_offset;
@@ -156,7 +157,7 @@ ssize_t cache::holder::request_io(void *buffer, size_t offset, size_t len, bool 
 }
 
 cache::holder *cache::create_cache(vfs::devfs::blockdev *backing_device) {
-    auto cache = frg::construct<cache::holder>(memory::mm::heap, backing_device);
+    auto cache = frg::construct<cache::holder>(mm::slab<cache::holder>(), backing_device);
     return *caches.push_back(cache);
 }
 

@@ -70,32 +70,32 @@ bool init_symbols(elf::file *file) {
     return true;
 }
 
-bool elf::file::init(shared_ptr<vfs::fd> fd) {
+bool elf::file::init(shared_ptr<vfs::fd> fd, arena::allocator allocator) {
     this->fd = fd;
 
-    elf64_hdr *hdr = (elf64_hdr *) kmalloc(64);
+    elf64_hdr *hdr = (elf64_hdr *) allocator.allocate(64);
     auto res = vfs::read(fd, hdr, 64);
     if (res != 64) {
-        kfree(hdr);
+        allocator.deallocate(hdr);
         return false;
     }
 
     res = check_hdr(hdr);
     if (!res) {
-        kfree(hdr);
+        allocator.deallocate(hdr);
         return false;
     }
 
     this->header = hdr;
-    this->phdrs = (elf64_phdr *) kcalloc(hdr->ph_num, sizeof(elf64_phdr));
-    this->shdrs = (elf64_shdr *) kcalloc(hdr->sh_num, sizeof(elf64_shdr));
+    this->phdrs = (elf64_phdr *) allocator.allocate(hdr->ph_num * sizeof(elf64_phdr));
+    this->shdrs = (elf64_shdr *) allocator.allocate(hdr->sh_num * sizeof(elf64_shdr));
 
     vfs::lseek(fd, hdr->shoff, SEEK_SET);
     res = vfs::read(fd, shdrs, hdr->sh_num * sizeof(elf64_shdr));
     if (res < 0) {
-        kfree(hdr);
-        kfree(phdrs);
-        kfree(shdrs);
+        allocator.deallocate(hdr);
+        allocator.deallocate(phdrs);
+        allocator.deallocate(shdrs);
 
         return false;
     }
@@ -103,87 +103,87 @@ bool elf::file::init(shared_ptr<vfs::fd> fd) {
     vfs::lseek(fd, hdr->phoff, SEEK_SET);
     res = vfs::read(fd, phdrs, hdr->ph_num * sizeof(elf64_phdr));
     if (res < 0) {
-        kfree(hdr);
-        kfree(phdrs);
-        kfree(shdrs);
+        allocator.deallocate(hdr);
+        allocator.deallocate(phdrs);
+        allocator.deallocate(shdrs);
 
         return false;
     }
 
     shstrtab_hdr = shdrs + header->shstrndx;
-    shstrtab = pmm::alloc(util::ceil(shstrtab_hdr->sh_size, memory::page_size));
+    shstrtab = allocator.allocate(util::ceil(shstrtab_hdr->sh_size, memory::page_size), memory::page_size);
 
     vfs::lseek(fd, shstrtab_hdr->sh_offset, SEEK_SET);
     res = vfs::read(fd, shstrtab, shstrtab_hdr->sh_size);
 
     if ((size_t) res != shstrtab_hdr->sh_size) {
-        kfree(hdr);
-        kfree(phdrs);
-        kfree(shdrs);
-        pmm::free(shstrtab);
+        allocator.deallocate(hdr);
+        allocator.deallocate(phdrs);
+        allocator.deallocate(shdrs);
+        allocator.deallocate(shstrtab);
 
         return false;
     }
 
     strtab_hdr = find_section(this, SHT_STRTAB, ".strtab");
     if (strtab_hdr == nullptr) {
-        kfree(hdr);
-        kfree(phdrs);
-        kfree(shdrs);
-        pmm::free(shstrtab);
+        allocator.deallocate(hdr);
+        allocator.deallocate(phdrs);
+        allocator.deallocate(shdrs);
+        allocator.deallocate(shstrtab);
 
         return false;
     }
 
-    strtab = pmm::alloc(util::ceil(strtab_hdr->sh_size, memory::page_size));
+    strtab = allocator.allocate(util::ceil(strtab_hdr->sh_size, memory::page_size), memory::page_size);
 
     vfs::lseek(fd, strtab_hdr->sh_offset, SEEK_SET);
     res = vfs::read(fd, strtab, strtab_hdr->sh_size);
 
     if ((size_t) res != strtab_hdr->sh_size) {
-        kfree(hdr);
-        kfree(phdrs);
-        kfree(shdrs);
-        pmm::free(shstrtab);
-        pmm::free(strtab);
+        allocator.deallocate(hdr);
+        allocator.deallocate(phdrs);
+        allocator.deallocate(shdrs);
+        allocator.deallocate(shstrtab);
+        allocator.deallocate(strtab);
 
         return false;
     }
 
     symtab_hdr = find_section(this, SHT_SYMTAB, ".symtab");
     if (symtab_hdr == nullptr) {
-        kfree(hdr);
-        kfree(phdrs);
-        kfree(shdrs);
+        allocator.deallocate(hdr);
+        allocator.deallocate(phdrs);
+        allocator.deallocate(shdrs);
         pmm::free(shstrtab);
         pmm::free(strtab);
 
         return false;
     }
 
-    symtab = pmm::alloc(util::ceil(symtab_hdr->sh_size, memory::page_size));
+    symtab =  allocator.allocate(util::ceil(symtab_hdr->sh_size, memory::page_size), memory::page_size);
 
     vfs::lseek(fd, symtab_hdr->sh_offset, SEEK_SET);
     res = vfs::read(fd, symtab, symtab_hdr->sh_size);
     if ((size_t) res != symtab_hdr->sh_size) {
-        kfree(hdr);
-        kfree(phdrs);
-        kfree(shdrs);
-        pmm::free(shstrtab);
-        pmm::free(strtab);
-        pmm::free(symtab);
+        allocator.deallocate(hdr);
+        allocator.deallocate(phdrs);
+        allocator.deallocate(shdrs);
+        allocator.deallocate(shstrtab);
+        allocator.deallocate(strtab);
+        allocator.deallocate(symtab);
 
         return false;
     }
 
     res = init_symbols(this);
     if (!res) {
-        kfree(hdr);
-        kfree(phdrs);
-        kfree(shdrs);
-        pmm::free(shstrtab);
-        pmm::free(strtab);
-        pmm::free(symtab);
+        allocator.deallocate(hdr);
+        allocator.deallocate(phdrs);
+        allocator.deallocate(shdrs);
+        allocator.deallocate(shstrtab);
+        allocator.deallocate(strtab);
+        allocator.deallocate(symtab);
 
         return false;
     }
@@ -217,7 +217,7 @@ void elf::file::load() {
     }
 }
 
-bool elf::file::load_interp(char **interp_path) {
+bool elf::file::load_interp(char **interp_path, arena::allocator allocator) {
     elf64_phdr *interp_hdr = nullptr;
 
     for (size_t i = 0; i < header->ph_num; i++) {
@@ -231,7 +231,7 @@ bool elf::file::load_interp(char **interp_path) {
         return false;
     }
 
-    *interp_path = (char *) kmalloc(interp_hdr->p_filesz + 1);
+    *interp_path = (char *) allocator.allocate(interp_hdr->p_filesz + 1);
 
     vfs::lseek(fd, interp_hdr->p_offset, SEEK_SET);
     vfs::read(fd, *interp_path, interp_hdr->p_filesz);

@@ -1,9 +1,8 @@
 #ifndef LOG_HPP
 #define LOG_HPP
 
-#include <util/lock.hpp>
-#include <sys/x86/apic.hpp>
-#include <util/io.hpp>
+#include <cstdint>
+#include <cstddef>
 
 namespace util {
     static constexpr auto digits_upper = "0123456789ABCDEF";

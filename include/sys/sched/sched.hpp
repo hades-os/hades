@@ -3,6 +3,7 @@
 
 #include "arch/types.hpp"
 #include "frg/list.hpp"
+#include "mm/arena.hpp"
 #include <arch/x86/types.hpp>
 #include <ipc/wire.hpp>
 #include <cstddef>
@@ -134,7 +135,6 @@ namespace sched {
             pid_t pid;
 
             ipc::wire wire;
-
             frg::rbtree_hook hook;
 
             void start();
@@ -204,11 +204,12 @@ namespace sched {
         public:
             char name[50];
 
+            arena::allocator allocator;
             vmm::vmm_ctx *mem_ctx;
 
-            frg::vector<thread *, mm::allocator> threads;
-            frg::vector<process *, mm::allocator> children;
-            frg::vector<process *, mm::allocator> zombies;            
+            frg::vector<thread *, arena::allocator> threads;
+            frg::vector<process *, arena::allocator> children;
+            frg::vector<process *, arena::allocator> zombies;            
             shared_ptr<vfs::fd_table> fds;
             shared_ptr<vfs::node> cwd;
 
@@ -264,7 +265,9 @@ namespace sched {
 
             frg::tuple<int, pid_t> waitpid(pid_t pid, thread *waiter, int options);
 
-            process(): lock(), sig_lock(), wire() {};
+            process(): allocator(),
+                threads(allocator), children(allocator), zombies(allocator), 
+                lock(), sig_lock(), wire() {};
     };
 
     class process_group {
@@ -276,7 +279,7 @@ namespace sched {
             bool is_orphan;
 
             session *sess;
-            frg::vector<process *, mm::allocator> procs;
+            frg::vector<process *, arena::allocator> procs;
             size_t process_count;
 
             process_group(process *leader): pgid(leader->pid), leader_pid(leader->pid), is_orphan(false), sess(nullptr), procs(), process_count(1) {
@@ -303,7 +306,7 @@ namespace sched {
             pid_t sid;
             pid_t leader_pgid;
             process *leader;
-            frg::vector<process_group *, mm::allocator> groups;
+            frg::vector<process_group *, arena::allocator> groups;
             size_t group_count;
 
             tty::device *tty;

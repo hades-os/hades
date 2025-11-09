@@ -2,6 +2,7 @@
 #include "frg/tuple.hpp"
 #include "fs/vfs.hpp"
 #include "mm/mm.hpp"
+#include "mm/slab.hpp"
 #include "smarter/smarter.hpp"
 #include "util/log/log.hpp"
 #include <algorithm>
@@ -14,7 +15,6 @@
 static log::subsystem logger = log::make_subsystem("EXT2");
 
 bool vfs::ext2fs::load() {
-    this->superblock = (ext2fs::super *) kmalloc(sizeof(ext2fs::super));
     if (this->device.expired()) {
         return false;
     }
@@ -25,14 +25,12 @@ bool vfs::ext2fs::load() {
     }
 
     auto devfs = source->fs.lock();
-    if (devfs->read(source, superblock, sizeof(ext2fs::super), 1024) < 0) {
+    if (devfs->read(source, superblock.get(), sizeof(ext2fs::super), 1024) < 0) {
         kmsg(logger, "superblock: read error");
-        kfree(superblock);
         return false;
     }
 
     if (superblock->signature != EXT2_SIGNATURE) {
-        kfree(superblock);
         return false;
     }
 
@@ -43,7 +41,6 @@ bool vfs::ext2fs::load() {
     ext2fs::inode inode;
     if (read_inode_entry(&inode, 2) == -1) {
         kmsg(logger, "error reading root inode");
-        kfree(superblock);
         return false;
     }
 
@@ -60,7 +57,7 @@ bool vfs::ext2fs::load() {
     root->meta->st_nlink = 1;
 
     auto [_, head] = read_dirents(&inode);
-    root->as_data(smarter::allocate_shared<data>(memory::mm::heap, head));
+    root->as_data(smarter::allocate_shared<data>(mm::slab<data>(), head));
 
     kmsg(logger,
         "ext2fs: inode count: %u, block count: %u, blocks per group: %u, block size: %u, bgd count: %u",
@@ -85,24 +82,24 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
         auto [res, head] = read_dirents(&dir_inode);
         if (res < 0) return {};
 
-        private_data = smarter::allocate_shared<data>(memory::mm::heap, head);
+        private_data = smarter::allocate_shared<data>(mm::slab<data>(), head);
     }
 
     auto file = private_data->head;
     while (file) {
         ext2fs::inode inode;
-        if (read_inode_entry(&inode, file->dent->inode_index) == -1) {
+        if (read_inode_entry(&inode, file->dent.inode_index) == -1) {
             return {};
         }
 
-        if (strncmp(file->name, name.data(), std::max((size_t) file->dent->name_length, name.size()))!= 0) {
+        if (strncmp(file->name, name.data(), std::max((size_t) file->dent.name_length, name.size()))!= 0) {
             file = file->next;
             continue;
         }
 
         int node_type;
         mode_t node_mode = inode.permissions & 0xFFF;
-        switch (file->dent->dir_type) {
+        switch (file->dent.dir_type) {
             case 1:
                 node_type = node::type::FILE;
                 node_mode |= S_IFREG;
@@ -134,16 +131,16 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
                 node_mode |= S_IFLNK;
                 break;
             default:
-                kmsg(logger, log::level::WARN, "unknown dirent type %d on %s", file->dent->dir_type, file->name);
+                kmsg(logger, log::level::WARN, "unknown dirent type %d on %s", file->dent.dir_type, file->name);
                 node_type = node::type::FILE;
                 node_mode |= S_IFREG;
 
                 break;
         }
 
-        auto inode_index = file->dent->inode_index;
-        auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, parent, 0, node_type, inode_index);
-        auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
+        auto inode_index = file->dent.inode_index;
+        auto node = smarter::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, parent, 0, node_type, inode_index);
+        auto meta = smarter::allocate_shared<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
 
         node->meta = meta;
 
@@ -153,7 +150,7 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
         meta->st_mode = node_mode;
         meta->st_blksize = block_size;
         meta->st_blkcnt = util::ceil(meta->st_size, meta->st_blksize);
-        meta->st_ino = file->dent->inode_index;
+        meta->st_ino = file->dent.inode_index;
         meta->st_nlink = 1;
 
         parent->children.push_back(node);
@@ -175,19 +172,19 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
         auto [res, head] = read_dirents(&dir_inode);
         if (res < 0) return {};
 
-        private_data = smarter::allocate_shared<data>(memory::mm::heap, head);
+        private_data = smarter::allocate_shared<data>(mm::slab<data>(), head);
     }
 
     auto file = private_data->head;
     while (file) {
         ext2fs::inode inode;
-        if (read_inode_entry(&inode, file->dent->inode_index) == -1) {
+        if (read_inode_entry(&inode, file->dent.inode_index) == -1) {
             return -1;
         }
 
         int node_type;
         mode_t node_mode = inode.permissions & 0xFFF;
-        switch (file->dent->dir_type) {
+        switch (file->dent.dir_type) {
             case 1:
                 node_type = node::type::FILE;
                 node_mode |= S_IFREG;
@@ -219,7 +216,7 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
                 node_mode |= S_IFLNK;
                 break;
             default:
-                kmsg(logger, log::level::WARN, "unknown dirent type %d on %s", file->dent->dir_type, file->name);
+                kmsg(logger, log::level::WARN, "unknown dirent type %d on %s", file->dent.dir_type, file->name);
                 node_type = node::type::FILE;
                 node_mode |= S_IFREG;
 
@@ -228,12 +225,12 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
 
         // filesystem *fs, path name, node *parent, ssize_t flags, ssize_t type, ssize_t inum = -1
 
-        auto inode_index = file->dent->inode_index;
-        auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, file->name, dir, 0, node_type, inode_index);
-        auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
+        auto inode_index = file->dent.inode_index;
+        auto node = smarter::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, file->name, dir, 0, node_type, inode_index);
+        auto meta = smarter::allocate_shared<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
 
         node->meta = meta;
-        node->as_data(smarter::allocate_shared<data>(memory::mm::heap, file));
+        node->as_data(smarter::allocate_shared<data>(mm::slab<data>(), file));
 
         meta->st_uid = inode.uid;
         meta->st_gid = inode.gid;
@@ -241,7 +238,7 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
         meta->st_size = read_inode_size(&inode);
         meta->st_blksize = block_size;
         meta->st_blkcnt = util::ceil(meta->st_size, meta->st_blksize);
-        meta->st_ino = file->dent->inode_index;
+        meta->st_ino = file->dent.inode_index;
         meta->st_nlink = 1;
 
         dir->children.push_back(node);
@@ -258,12 +255,11 @@ ssize_t vfs::ext2fs::read(shared_ptr<node> file, void *buf, size_t len, off_t of
         return -1;
     }
 
-    void *read_buffer = kmalloc(len);
+    void *read_buffer = allocator.allocate(len);
     ssize_t bytes_read = read_inode(&inode, read_buffer, len, offset);
     ssize_t bytes_copied = arch::copy_to_user(buf, read_buffer, len);
 
-    kfree(read_buffer);
-
+    allocator.deallocate(read_buffer);
     return (bytes_copied < bytes_read) ? bytes_copied : bytes_read;
 }
 
@@ -273,10 +269,11 @@ ssize_t vfs::ext2fs::write(shared_ptr<node> file, void *buf, size_t len, off_t o
         return -1;
     }
 
-    void *write_buffer = kmalloc(len);
+    void *write_buffer = allocator.allocate(len);
     ssize_t bytes_written = arch::copy_from_user(write_buffer, buf, len);
     write_inode(&inode, file->inum, write_buffer, bytes_written, offset);
 
+    allocator.deallocate(write_buffer);
     return bytes_written;
 }
 
@@ -371,8 +368,8 @@ ssize_t vfs::ext2fs::create(shared_ptr<node> dst, path name, int64_t type, int64
         return -1;
     }
 
-    auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, type, inum);
-    auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
+    auto node = smarter::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, type, inum);
+    auto meta = smarter::allocate_shared<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
 
     meta->st_ino = inum;
     meta->st_uid = parent_inode.uid;
@@ -414,8 +411,8 @@ ssize_t vfs::ext2fs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t 
         return -1;
     }
 
-    auto node = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, node::type::DIRECTORY, inum);
-    auto meta = smarter::allocate_shared<vfs::node::statinfo>(memory::mm::heap);
+    auto node = smarter::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, node::type::DIRECTORY, inum);
+    auto meta = smarter::allocate_shared<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
 
     meta->st_ino = inum;
     meta->st_uid = parent_inode.uid;
@@ -438,27 +435,28 @@ ssize_t vfs::ext2fs::readlink(shared_ptr<node> file) {
         return -EBADF;
     }
 
-    char *buffer = (char *) kmalloc(8192);
+    char *buffer = (char *) allocator.allocate(8192);
     int len = 0;
 
     if ((len = read_symlink(&inode, buffer)) == -1) {
-        kfree(buffer);
+        allocator.deallocate(buffer);
         return -ENAMETOOLONG;
     }
 
     file->link_target = std::move(vfs::path{buffer});
+    allocator.deallocate(buffer);
     return 0;
 }
 
 ssize_t vfs::ext2fs::unlink(shared_ptr<node> dst) {
     auto private_data = dst->data_as<data>();
-    return free_inode(private_data->head->dent->inode_index);
+    return free_inode(private_data->head->dent.inode_index);
 }
 
 int vfs::ext2fs::write_dirent(inode *dir, int dir_inode, const char *name, int inode, int type) {
-    void *buffer = kmalloc(read_inode_size(dir) + block_size);
+    void *buffer = allocator.allocate(read_inode_size(dir) + block_size);
     if (read_inode(dir, buffer, read_inode_size(dir), 0) == -1) {
-        kfree(buffer);
+        allocator.deallocate(buffer);
         return -1;
     }
 
@@ -486,14 +484,14 @@ int vfs::ext2fs::write_dirent(inode *dir, int dir_inode, const char *name, int i
         dirent->dir_type = 0;
 
         if (write_inode(dir, dir_inode, buffer, read_inode_size(dir), 0) == -1) {
-            kfree(buffer);
+            allocator.deallocate(buffer);
             return -1;
         }
 
         break;
     }
 
-    kfree(buffer);
+    allocator.deallocate(buffer);
     return 0;
 }
 
@@ -512,10 +510,10 @@ frg::tuple<
     int,
     shared_ptr<vfs::ext2fs::data::ent>
 > vfs::ext2fs::read_dirents(inode *inode) {
-    void *buffer = kmalloc(read_inode_size(inode));
+    void *buffer = allocator.allocate(read_inode_size(inode));
 
     if (read_inode(inode, buffer, read_inode_size(inode), 0) == -1) {
-        kfree(buffer);
+        allocator.deallocate(buffer);
         return {-1, {}};
     }
 
@@ -524,12 +522,12 @@ frg::tuple<
 
     for (size_t headway = 0; headway < read_inode_size(inode);) {
         ext2fs::dirent *dirent = (ext2fs::dirent *) ((char *) buffer + headway);
-        auto ent = smarter::allocate_shared<data::ent>(memory::mm::heap);
+        auto ent = smarter::allocate_shared<data::ent>(mm::slab<data::ent>());
 
-        char *name = (char *) kmalloc(dirent->name_length + 1);
+        char *name = (char *) ent->allocator.allocate(dirent->name_length + 1);
         memcpy(name, (char *) dirent + sizeof(ext2fs::dirent), dirent->name_length);
 
-        ent->dent = dirent;
+        ent->dent = *dirent;
         ent->name = name;
 
         if (!head)
@@ -542,6 +540,7 @@ frg::tuple<
         headway += dirent->entry_size;
     }
 
+    allocator.deallocate(buffer);
     return {0, head};
 }
 
@@ -897,16 +896,16 @@ int vfs::ext2fs::free_block(uint32_t block) {
         return -1;
     }
 
-    uint8_t *bitmap = (uint8_t *) kmalloc(block_size);
+    uint8_t *bitmap = (uint8_t *) allocator.allocate(block_size);
     if (devfs->read(source, bitmap, block_size, bgd.block_addr_bitmap * block_size) < 0) {
         kmsg(logger, "read error");
 
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return -1;
     }
 
     if (!util::bit_test(bitmap, bitmap_index)) {
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return 0;
     }
 
@@ -914,17 +913,17 @@ int vfs::ext2fs::free_block(uint32_t block) {
     if (devfs->write(source, bitmap, block_size, bgd.block_addr_bitmap * block_size) < 0) {
         kmsg(logger, "write error");
 
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return -1;
     }
 
     bgd.unallocated_inodes--;
     if (write_bgd(&bgd, bgd_index) == -1) {
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return -1;
     }
 
-    kfree(bitmap);
+    allocator.deallocate(bitmap);
     return 0;
 }
 
@@ -948,16 +947,16 @@ int vfs::ext2fs::free_inode(uint32_t inode) {
         return -1;
     }
 
-    uint8_t *bitmap = (uint8_t *) kmalloc(block_size);
+    uint8_t *bitmap = (uint8_t *) allocator.allocate(block_size);
     if (devfs->read(source, bitmap, block_size, bgd.block_addr_inode * block_size) < 0) {
         kmsg(logger, "read error");
 
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return -1;
     }
 
     if (!util::bit_test(bitmap, bitmap_index)) {
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return 0;
     }
 
@@ -965,17 +964,17 @@ int vfs::ext2fs::free_inode(uint32_t inode) {
     if (devfs->write(source, bitmap, block_size, bgd.block_addr_inode * block_size) < 0) {
         kmsg(logger, "write error");
 
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return -1;
     }
 
     bgd.unallocated_inodes--;
     if (write_bgd(&bgd, bgd_index) == -1) {
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return -1;
     }
 
-    kfree(bitmap);
+    allocator.deallocate(bitmap);
     return 0;
 }
 
@@ -1033,10 +1032,10 @@ int vfs::ext2fs::bgd_allocate_inode(bgd *bgd, int bgd_index) {
         return -1;
     }
 
-    uint8_t *bitmap = (uint8_t *) kmalloc(block_size);
+    uint8_t *bitmap = (uint8_t *) allocator.allocate(block_size);
     if (devfs->read(source, bitmap, block_size, bgd->block_addr_inode * block_size) < 0) {
         kmsg(logger, "read error");
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return -1;
     }
 
@@ -1046,28 +1045,28 @@ int vfs::ext2fs::bgd_allocate_inode(bgd *bgd, int bgd_index) {
 
             if (devfs->write(source, bitmap, block_size, bgd->block_addr_inode * block_size) < 0) {
                 kmsg(logger, "write error");
-                kfree(bitmap);
+                allocator.deallocate(bitmap);
                 return -1;
             }
 
             bgd->unallocated_inodes--;
             if (write_bgd(bgd, bgd_index) == -1) {
-                kfree(bitmap);
+                allocator.deallocate(bitmap);
                 return -1;
             }
 
             if (devfs->write(source, bitmap, block_size, bgd->block_addr_inode * block_size) < 0) {
                 kmsg(logger, "write error");
-                kfree(bitmap);
+                allocator.deallocate(bitmap);
                 return -1;
             }
 
-            kfree(bitmap);
+            allocator.deallocate(bitmap);
             return i;
         }
     }
 
-    kfree(bitmap);
+    allocator.deallocate(bitmap);
     return 0;
 }
 
@@ -1087,10 +1086,10 @@ int vfs::ext2fs::bgd_allocate_block(bgd *bgd, int bgd_index) {
         return -1;
     }
 
-    uint8_t *bitmap = (uint8_t *) kmalloc(block_size);
+    uint8_t *bitmap = (uint8_t *) allocator.allocate(block_size);
     if (devfs->read(source, bitmap, block_size, bgd->block_addr_bitmap * block_size) < 0) {
         kmsg(logger, "read error");
-        kfree(bitmap);
+        allocator.deallocate(bitmap);
         return -1;
     }
 
@@ -1100,28 +1099,28 @@ int vfs::ext2fs::bgd_allocate_block(bgd *bgd, int bgd_index) {
 
             if (devfs->write(source, bitmap, block_size, bgd->block_addr_bitmap * block_size) < 0) {
                 kmsg(logger, "write error");
-                kfree(bitmap);
+                allocator.deallocate(bitmap);
                 return -1;
             }
 
             bgd->unallocated_blocks--;
             if (write_bgd(bgd, bgd_index) == -1) {
-                kfree(bitmap);
+                allocator.deallocate(bitmap);
                 return -1;
             }
 
             if (devfs->write(source, bitmap, block_size, bgd->block_addr_bitmap * block_size) < 0) {
                 kmsg(logger, "write error");
-                kfree(bitmap);
+                allocator.deallocate(bitmap);
                 return -1;
             }
 
-            kfree(bitmap);
+            allocator.deallocate(bitmap);
             return i;
         }
     }
 
-    kfree(bitmap);
+    allocator.deallocate(bitmap);
     return 0;
 }
 

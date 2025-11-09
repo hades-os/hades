@@ -60,9 +60,12 @@ main_sources = files(
     'source/cxx/ipc/link.cpp',
 
     'source/cxx/mm/ctx.cpp',
-    'source/cxx/mm/mm.cpp',
     'source/cxx/mm/pmm.cpp',
     'source/cxx/mm/vmm.cpp',
+
+    'source/cxx/mm/arena.cpp',
+    'source/cxx/mm/boot.cpp',
+    'source/cxx/mm/slab.cpp',
 
     'source/cxx/sys/sched/management.cpp',
     'source/cxx/sys/sched/sched.cpp',

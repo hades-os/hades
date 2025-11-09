@@ -35,26 +35,26 @@ bool sched::process_env::load_elf(const char *path, shared_ptr<vfs::fd> fd) {
     }
 
     file.ctx = proc->mem_ctx;
-    auto res = file.init(fd);
+    auto res = file.init(fd, proc->allocator);
     if (!res) return false;
 
     file.load_aux();
     file.load();
 
     entry = file.aux.at_entry;
-    has_interp = file.load_interp(&interp_path);
+    has_interp = file.load_interp(&interp_path, proc->allocator);
 
     vfs::close(fd);
 
     if (has_interp) {
         if (fd->table.expired()) {
-            kfree(interp_path);
+            proc->allocator.deallocate(interp_path);
             return false;
         }
 
         fd = vfs::open(nullptr, interp_path, fd->table.lock(), 0, 0, 0, 0);
         if (!fd) {
-            kfree(interp_path);
+            proc->allocator.deallocate(interp_path);
             return false;
         }
 
@@ -62,9 +62,9 @@ bool sched::process_env::load_elf(const char *path, shared_ptr<vfs::fd> fd) {
         interp.load_offset = 0x40000000;
         interp.fd = fd;
 
-        res = interp.init(fd);
+        res = interp.init(fd, proc->allocator);
         if (!res) {
-            kfree(interp_path);
+            proc->allocator.deallocate(interp_path);
             vfs::close(fd);
             return false;
         }
@@ -76,7 +76,7 @@ bool sched::process_env::load_elf(const char *path, shared_ptr<vfs::fd> fd) {
         vfs::close(fd);
     }
 
-    file_path = (char *) kmalloc(strlen(path) + 1);
+    file_path = (char *) proc->allocator.allocate(strlen(path) + 1);
     strcpy(file_path, path);
 
     is_loaded = true;
@@ -136,16 +136,16 @@ void sched::process_env::load_params(char **argv, char **envp) {
         }        
     }
 
-    params.argv = (char **) kmalloc(sizeof (char *) * params.argc);
-    params.envp = (char **) kmalloc(sizeof (char *) * params.envc);
+    params.argv = (char **) proc->allocator.allocate(sizeof (char *) * params.argc);
+    params.envp = (char **) proc->allocator.allocate(sizeof (char *) * params.envc);
 
     for (size_t i = 0; i < (size_t) params.argc; i++) {
-        params.argv[i] = (char *) kmalloc(strlen(argv[i]) + 1);
+        params.argv[i] = (char *) proc->allocator.allocate(strlen(argv[i]) + 1);
         strcpy(params.argv[i], argv[i]);
     }
 
     for (size_t i = 0; i < (size_t) params.envc; i++) {
-        params.envp[i] = (char *) kmalloc(strlen(envp[i]) + 1);
+        params.envp[i] = (char *) proc->allocator.allocate(strlen(envp[i]) + 1);
         strcpy(params.envp[i], envp[i]);
     }
 }

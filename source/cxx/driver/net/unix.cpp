@@ -5,6 +5,7 @@
 #include <mm/mm.hpp>
 #include <smarter/smarter.hpp>
 #include "frg/string.hpp"
+#include "mm/slab.hpp"
 
 /**
         socket(weak_ptr<vfs::network> network, shared_ptr<node> fs_node,
@@ -20,9 +21,9 @@ shared_ptr<vfs::socket> net::unix::create(int type, int protocol) {
         case SOCK_DGRAM:;
         case SOCK_STREAM:;
         case SOCK_SEQPACKET:
-            auto socket = smarter::allocate_shared<vfs::socket>(memory::mm::heap,
+            auto socket = smarter::allocate_shared<vfs::socket>(mm::slab<vfs::socket>(),
                 self);
-            auto data = smarter::allocate_shared<unix::data>(memory::mm::heap);
+            auto data = smarter::allocate_shared<unix::data>(socket->allocator);
             socket->as_data(data);
 
             return socket;

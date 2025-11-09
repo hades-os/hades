@@ -5,6 +5,7 @@
 #include "fs/poll.hpp"
 #include "fs/vfs.hpp"
 #include "ipc/wire.hpp"
+#include "mm/arena.hpp"
 #include "util/lock.hpp"
 #include "util/ring.hpp"
 #include "util/types.hpp"
@@ -56,6 +57,7 @@ namespace tty {
     struct device: vfs::devfs::chardev {
         private:
             ipc::wire wire;
+            arena::allocator allocator;
         public:
             util::spinlock lock;
             int ref;
@@ -112,7 +114,7 @@ namespace tty {
             ssize_t read(void *buf, size_t count, size_t offset) override;
             ssize_t write(void *buf, size_t count, size_t offset) override;
             ssize_t ioctl(size_t req, void *buf) override;
-            ssize_t poll(shared_ptr<poll::queue> queue) override;
+            ssize_t poll(shared_ptr<poll::producer> producer) override;
     };
 
     struct self: vfs::devfs::chardev {

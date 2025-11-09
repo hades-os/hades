@@ -3,8 +3,10 @@
 
 #include <cstddef>
 #include <fs/dev.hpp>
+#include <frg/allocation.hpp>
 #include <driver/matchers.hpp>
 #include <driver/majtable.hpp>
+#include <mm/boot.hpp>
 
 // match_data is bus-specific
 
@@ -17,16 +19,16 @@ namespace dtable {
     };
 
     static entry entries[] = {
-        { .match_data = {MATCH_ANY, MATCH_ANY, 0x1, 0x6, 0x1}, .major = majors::AHCIBUS, .matcher = new pci::ahcibus::matcher()},
-        { .match_data = {0}, .major=majors::AHCI, .matcher = new ahci::matcher()},
-        { .match_data = {0x8086, 0x100e, MATCH_ANY, MATCH_ANY, MATCH_ANY}, .major = majors::NET, .matcher = new pci::net::matcher()},
-        { .match_data = {0}, .major=majors::FB, .matcher = new fb::matcher()},
-        { .match_data = {0}, .major=majors::KB, .matcher = new kb::matcher()},
-        { .match_data = {0}, .major=majors::PTM, .matcher = new tty::ptm::matcher()},
-        { .match_data = {0}, .major=majors::PTS, .matcher = new tty::pts::matcher()},
-        { .match_data = {0}, .major=majors::PTMX, .matcher = new tty::ptmx::matcher()},
-        { .match_data = {0}, .major=majors::SELF_TTY, .matcher = new tty::self::matcher()},
-        { .match_data = {0}, .major=majors::VT, .matcher = new vt::matcher()}
+        { .match_data = {MATCH_ANY, MATCH_ANY, 0x1, 0x6, 0x1}, .major = majors::AHCIBUS, .matcher = frg::construct<pci::ahcibus::matcher>(mm::boot())},
+        { .match_data = {0}, .major=majors::AHCI, .matcher = frg::construct<ahci::matcher>(mm::boot())},
+        { .match_data = {0x8086, 0x100e, MATCH_ANY, MATCH_ANY, MATCH_ANY}, .major = majors::NET, .matcher = frg::construct<pci::net::matcher>(mm::boot())},
+        { .match_data = {0}, .major=majors::FB, .matcher = frg::construct<fb::matcher>(mm::boot())},
+        { .match_data = {0}, .major=majors::KB, .matcher = frg::construct<kb::matcher>(mm::boot())},
+        { .match_data = {0}, .major=majors::PTM, .matcher = frg::construct<tty::ptm::matcher>(mm::boot())},
+        { .match_data = {0}, .major=majors::PTS, .matcher = frg::construct<tty::pts::matcher>(mm::boot())},
+        { .match_data = {0}, .major=majors::PTMX, .matcher = frg::construct<tty::ptmx::matcher>(mm::boot())},
+        { .match_data = {0}, .major=majors::SELF_TTY, .matcher = frg::construct<tty::self::matcher>(mm::boot())},
+        { .match_data = {0}, .major=majors::VT, .matcher = frg::construct<vt::matcher>(mm::boot())}
     };
 
     vfs::devfs::matcher *lookup_by_data(int *match_data, size_t len);

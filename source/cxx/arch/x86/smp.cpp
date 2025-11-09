@@ -1,3 +1,4 @@
+#include "mm/boot.hpp"
 #include "util/types.hpp"
 #include <arch/x86/types.hpp>
 #include <arch/types.hpp>
@@ -78,7 +79,7 @@ extern "C" {
     extern void smp64_start(stivale::boot::info::processor *_);
 };
 
-frg::vector<x86::processor *, mm::allocator> x86::cpus{};
+frg::vector<x86::processor *, boot::allocator> x86::cpus{};
 
 void arch::stop_all_cpus() {
     x86::stop_all_cpus();
@@ -149,9 +150,9 @@ void x86::init_smp() {
         size_t lapic_id = stivale_cpu->lapic_id;
         if (lapic_id == get_cpu()) continue;
 
-        auto processor = frg::construct<x86::processor>(memory::mm::heap, lapic_id,
-            frg::construct<x86::run_tree>(memory::mm::heap));
-
+        auto processor = frg::construct<x86::processor>(mm::slab<x86::processor>(), lapic_id,
+        frg::construct<x86::run_tree>(mm::slab<x86::run_tree>()));
+        
         processor->kstack = (size_t) pmm::stack(x86::initialStackSize);
         processor->ctx = vmm::boot;
         cpus.push_back(processor);

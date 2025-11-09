@@ -1,4 +1,5 @@
 #include "driver/dtable.hpp"
+#include "mm/slab.hpp"
 #include "util/lock.hpp"
 #include "util/types.hpp"
 #include <driver/tty/tty.hpp>
@@ -10,16 +11,16 @@
 
 util::spinlock ptmx_lock{};
 void tty::ptmx::init() {
-    ptmx *device = frg::construct<ptmx>(memory::mm::heap, vfs::devfs::mainbus, dtable::majors::PTMX, -1, nullptr);
+    ptmx *device = frg::construct<ptmx>(mm::slab<ptmx>(), vfs::devfs::mainbus, dtable::majors::PTMX, -1, nullptr);
     vfs::devfs::append_device(device, dtable::majors::PTMX);
 }
 
 ssize_t tty::ptmx::on_open(shared_ptr<vfs::fd> fd, ssize_t flags) {
     util::lock_guard ptmx_guard{ptmx_lock};
 
-    tty::pts *pts = frg::construct<tty::pts>(memory::mm::heap);
-    tty::ptm *ptm = frg::construct<tty::ptm>(memory::mm::heap, vfs::devfs::mainbus, dtable::majors::PTM, -1, pts);
-    tty::device *pts_tty = frg::construct<tty::device>(memory::mm::heap, vfs::devfs::mainbus, dtable::majors::PTS, -1, pts);
+    tty::pts *pts = frg::construct<tty::pts>(mm::slab<tty::pts>());
+    tty::ptm *ptm = frg::construct<tty::ptm>(mm::slab<tty::ptm>(), vfs::devfs::mainbus, dtable::majors::PTM, -1, pts);
+    tty::device *pts_tty = frg::construct<tty::device>(mm::slab<tty::device>(), vfs::devfs::mainbus, dtable::majors::PTS, -1, pts);
 
     pts->tty = pts_tty;
     pts->master = ptm;
@@ -49,7 +50,7 @@ void tty::pts::flush(tty::device *tty) {
 
 ssize_t tty::ptm::read(void *buf, size_t len, size_t offset) {
     size_t count;
-    char *chars = (char *) kmalloc(len);
+    char *chars = (char *) allocator.allocate(len);
     char *chars_ptr = chars;
 
     in_lock.lock();
@@ -65,22 +66,22 @@ ssize_t tty::ptm::read(void *buf, size_t len, size_t offset) {
 
     auto copied = arch::copy_to_user(buf, chars, count);
     if (copied < count) {
-        kfree(chars);
+        allocator.deallocate(chars);
         return count - copied;
     }
 
-    kfree(chars);
+    allocator.deallocate(chars);
     return count;
 }
 
 ssize_t tty::ptm::write(void *buf, size_t len, size_t offset) {
     size_t count;
-    char *chars = (char *) kmalloc(len);
+    char *chars = (char *) allocator.allocate(len);
     char *chars_ptr = chars;
 
     auto copied = arch::copy_from_user(chars, buf, len);
     if (copied < len) {
-        kfree(chars);
+        allocator.deallocate(chars);
         return len - copied;
     }
 
@@ -94,7 +95,7 @@ ssize_t tty::ptm::write(void *buf, size_t len, size_t offset) {
         chars_ptr++;
     }
 
-    kfree(chars);
+    allocator.deallocate(chars);
     return count;
 }
 

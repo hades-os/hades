@@ -110,7 +110,7 @@ void net::ipv4::ipv4_send(net::device *dev, uint32_t dest_ip,
     }
     
     size_t eth_pkt_len = sizeof(net::eth) + sizeof(pkt::ipv4) + len;
-    char *eth_pkt = (char *) kmalloc(eth_pkt_len);
+    char *eth_pkt = (char *) dev->allocator.allocate(eth_pkt_len);
 
     net::eth *eth_hdr = (net::eth *) eth_pkt;
     memcpy(eth_hdr->dest, gateway_mac, net::eth_alen);
@@ -136,13 +136,13 @@ void net::ipv4::ipv4_send(net::device *dev, uint32_t dest_ip,
     memcpy((char *) ipv4_pkt + sizeof(pkt::ipv4), buf, len);
 
     dev->send(eth_pkt, eth_pkt_len);
-    kfree(eth_pkt);
+    dev->allocator.deallocate(eth_pkt);
 }
 
 void net::ipv4::icmp_send(net::device *dev, uint32_t dest_ip, 
         uint8_t type, uint8_t code, uint32_t rem, void *buf, size_t len) {
     size_t icmp_pkt_len = sizeof(pkt::icmp) + len;
-    pkt::icmp *icmp_pkt = (pkt::icmp *) kmalloc(icmp_pkt_len);
+    pkt::icmp *icmp_pkt = (pkt::icmp *) dev->allocator.allocate(icmp_pkt_len);
     memcpy((char *) icmp_pkt + sizeof(pkt::icmp), buf, len);
     
     icmp_pkt->type = type;
@@ -156,7 +156,7 @@ void net::ipv4::icmp_send(net::device *dev, uint32_t dest_ip,
     icmp_pkt->checksum = htons(checksum.finalize());
 
     ipv4_send(dev, dest_ip, 1, icmp_pkt, icmp_pkt_len);
-    kfree(icmp_pkt);
+    dev->allocator.deallocate(icmp_pkt);
 }
 
 void net::ipv4::icmp_handle(net::device *dev, uint32_t src_ip, void *pkt, size_t len) {

@@ -8,9 +8,12 @@
 #include <util/string.hpp>
 #include <mm/mm.hpp>
 #include <mm/common.hpp>
+#include "mm/boot.hpp"
+#include "util/io.hpp"
 #include <lai/host.h>
 
 static log::subsystem logger = log::make_subsystem("LAI");
+static boot::allocator allocator = mm::boot();
 extern "C" {
     void laihost_log(int level, const char *msg) {
         kmsg(logger, msg);
@@ -19,26 +22,19 @@ extern "C" {
     __attribute__((noreturn))
     void laihost_panic(const char *msg) {
         panic(msg);
+        __builtin_unreachable();
     }
 
     void *laihost_malloc(size_t size) {
-        return kmalloc(size);
+        return allocator.allocate(size);
     }
 
     void *laihost_realloc(void *old, size_t newsize, size_t oldsize) {
-        if (old == nullptr) return kmalloc(newsize);
-
-        void *ptr = kmalloc(newsize);
-        size_t len = newsize > oldsize ? oldsize : newsize;
-
-        memcpy(ptr, old, len);
-        kfree(old);
-
-        return ptr;
+        return allocator.reallocate(old, newsize);
     }
 
     void laihost_free(void *ptr, size_t size) {
-        kfree(ptr);
+        allocator.deallocate(ptr);
     }
 
     void *laihost_map(size_t address, size_t count) {

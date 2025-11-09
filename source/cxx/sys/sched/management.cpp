@@ -3,17 +3,18 @@
 #include <sys/sched/sched.hpp>
 #include <util/lock.hpp>
 #include <util/types.hpp>
+#include "mm/boot.hpp"
 
 static util::spinlock process_lock{};
-static frg::rcu_radixtree<sched::process *, mm::allocator>
+static frg::rcu_radixtree<sched::process *, boot::allocator>
     process_tree{};
 
 static util::spinlock process_group_lock{};
-static frg::rcu_radixtree<sched::process_group *, mm::allocator>
+static frg::rcu_radixtree<sched::process_group *, boot::allocator>
     process_group_tree{};
 
 static util::spinlock session_lock{};
-static frg::rcu_radixtree<sched::session *, mm::allocator>
+static frg::rcu_radixtree<sched::session *, boot::allocator>
     session_tree{};
 
 pid_t sched::add_process(sched::process *proc) {

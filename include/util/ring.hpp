@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <mm/mm.hpp>
 #include <util/string.hpp>
+#include "mm/arena.hpp"
 
 namespace util {
     template <typename T>
@@ -13,6 +14,8 @@ namespace util {
             size_t size;
             int head;
             int tail;
+
+            arena::allocator allocator;
         public:
             size_t items;
 
@@ -27,7 +30,7 @@ namespace util {
 
 template <typename T>
 util::ring<T>::ring(size_t size) {
-    this->data = (T *) kmalloc(sizeof(T) * size);
+    this->data = (T *) allocator.allocate(sizeof(T) * size);
     this->size = size;
     this->head = -1;
     this->tail = -1;

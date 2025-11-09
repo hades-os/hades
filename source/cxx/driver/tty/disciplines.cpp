@@ -70,7 +70,7 @@ void tty::device::handle_kbd() {
 }
 
 ssize_t tty::device::read_canon(void *buf, size_t len) {
-    char *chars = (char *) kmalloc(len);
+    char *chars = (char *) allocator.allocate(len);
     char *chars_ptr = chars;
 
     size_t count = 0;
@@ -90,22 +90,22 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
 
             if (line_queue->items == 0) {
                 canon.pop(&line_queue);
-                frg::destruct(memory::mm::heap, line_queue);
+                frg::destruct(allocator, line_queue);
             }
 
             auto copied = arch::copy_to_user(buf, chars, count);
             if (copied < count) {
-                kfree(chars);
+                allocator.deallocate(chars);
                 return count - copied;
             }
 
-            kfree(chars);
+            allocator.deallocate(chars);
             return count;
         }
 
         char c, special;
         size_t items = 0;
-        line_queue = frg::construct<util::ring<char>>(memory::mm::heap, max_canon_lines);
+        line_queue = frg::construct<util::ring<char>>(allocator, max_canon_lines);
         canon.push(line_queue);
 
         while (true) {
@@ -114,7 +114,7 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
 
                 auto [evt, _] = wire.wait(evtable::KB_PRESS, true);
                 if (evt < 0) {
-                    kfree(chars);
+                    allocator.deallocate(chars);
                     return -1;
                 }
             }
@@ -171,13 +171,13 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
     cc_t min = termios.c_cc[VMIN];
     cc_t time = termios.c_cc[VTIME];
 
-    char *chars = (char *) kmalloc(len);
+    char *chars = (char *) allocator.allocate(len);
     char *chars_ptr = chars;
     size_t count = 0;
 
     if (min == 0 && time == 0) {
         if (__atomic_load_n(&in.items, __ATOMIC_RELAXED) == 0) {
-            kfree(chars);
+            allocator.deallocate(chars);
             return 0;
         }
 
@@ -202,11 +202,11 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
 
         auto copied = arch::copy_to_user(buf, chars, count);
         if (copied < count) {
-            kfree(chars);
+            allocator.deallocate(chars);
             return count - copied;
         }
 
-        kfree(chars);
+        allocator.deallocate(chars);
         return count;
     } else if (min > 0 && time == 0) {
         for (;;) {
@@ -214,7 +214,7 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
 
             auto [evt, _] = wire.wait(evtable::KB_PRESS, true);
             if (evt < 0) {
-                kfree(chars);
+                allocator.deallocate(chars);
                 return -1;
             }
         }
@@ -237,15 +237,15 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
 
         auto copied = arch::copy_to_user(buf, chars, count);
         if (copied < count) {
-            kfree(chars);
+            allocator.deallocate(chars);
             return count - copied;
         }
 
-        kfree(chars);
+        allocator.deallocate(chars);
         return count;
     } else {
         // TODO: time != but min < 0
-        kfree(chars);
+        allocator.deallocate(chars);
         return -1;
     }
 }

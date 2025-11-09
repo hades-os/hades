@@ -1,8 +1,7 @@
 #ifndef ELF_HPP
 #define ELF_HPP
 
-
-#include "util/types.hpp"
+#include <util/types.hpp>
 #include <fs/vfs.hpp>
 #include <frg/vector.hpp>
 #include <mm/mm.hpp>
@@ -135,13 +134,13 @@ namespace elf {
         void *strtab;
         void *symtab;
 
-        frg::vector<symbol, mm::allocator> symbols;
+        frg::vector<symbol, arena::allocator> symbols;
 
         symbol *find_symbol(uintptr_t addr);
 
-        bool init(shared_ptr<vfs::fd> fd);
+        bool init(shared_ptr<vfs::fd> fd, arena::allocator allocator);
         void load();
-        bool load_interp(char **interp_path);
+        bool load_interp(char **interp_path, arena:: allocator allocator);
         void load_aux();
     };
 

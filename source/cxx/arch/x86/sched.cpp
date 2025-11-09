@@ -2,6 +2,7 @@
 #include "arch/x86/pit.hpp"
 #include "ipc/evtable.hpp"
 #include "mm/mm.hpp"
+#include "mm/slab.hpp"
 #include "sys/sched/time.hpp"
 #include "sys/x86/apic.hpp"
 #include "util/log/log.hpp"
@@ -95,8 +96,8 @@ void arch::init_sched() {
 }
 
 void x86::init_bsp() {
-    auto processor = frg::construct<x86::processor>(memory::mm::heap, apic::lapic::id(),
-        frg::construct<x86::run_tree>(memory::mm::heap));
+    auto processor = frg::construct<x86::processor>(mm::slab<x86::processor>(), apic::lapic::id(),
+        frg::construct<x86::run_tree>(mm::slab<x86::run_tree>()));
 
     processor->kstack = (size_t) pmm::stack(x86::initialStackSize);
     processor->ctx = vmm::boot;
@@ -381,7 +382,7 @@ int arch::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *
     return x86::do_futex(vaddr, op, expected, timeout);
 }
 
-frg::hash_map<uint64_t, sched::futex *, frg::hash<uint64_t>, mm::allocator> futex_list{frg::hash<uint64_t>()};
+static frg::hash_map<uint64_t, sched::futex *, frg::hash<uint64_t>, boot::allocator> futex_list{frg::hash<uint64_t>()};
 ssize_t x86::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *timeout) {
     auto process = x86::get_process();
 
@@ -402,7 +403,7 @@ ssize_t x86::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespe
 
             sched::futex *futex;
             if (!futex_list.contains(paddr)) {
-                futex = frg::construct<sched::futex>(memory::mm::heap, paddr);
+                futex = frg::construct<sched::futex>(mm::slab<sched::futex>(), paddr);
                 futex_list[paddr] = futex;
             } else {
                 futex = futex_list[paddr];

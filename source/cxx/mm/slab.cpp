@@ -164,10 +164,10 @@ bool slab::cache::has_object(void *ptr) {
     return false;
 }
 
-slab::cache *slab::get_by_pointer(void *ptr) {
+slab::cache *slab::get_by_size(size_t object_size) {
     cache *current = root_cache;
     while (current) {
-        if (current->has_object(ptr))
+        if (current->object_size == object_size)
             return current;
 
         current = current->next;
@@ -201,51 +201,20 @@ slab::cache *slab::create(size_t object_size) {
     return new_cache;
 }
 
-void *slab::allocator::allocate(size_t size) {
-    if (!size)
-        return nullptr;
-    
-    size_t round_size = util::pow2_ceil(size + 1);
-    if (round_size <= 16) {
-        round_size = 32;
-    }
+void *slab::allocator::allocate(size_t, size_t _) const {
+    if (!base_cache)
+        base_cache = create(object_size);
 
-    cache *current = root_cache;
-    while (current) {
-        if (current->object_size == round_size)
-            return current->allocate();
-    
-        current = current->next;
-    }
-
-    current = create(round_size);
-    return current->allocate();
+    return base_cache->allocate();
 }
 
-void *slab::allocator::reallocate(void *ptr, size_t size) {
-    if (!ptr)
-        return nullptr;
-
-    cache *current = get_by_pointer(ptr);
-    if (current && current->object_size >= size)
-        return ptr;
-
-    void *res = allocate(size);
-    memcpy(res, ptr, current->object_size);
-    current->deallocate(ptr);
-
-    return ptr;
-}
-
-void slab::allocator::deallocate(void *ptr) {
+void slab::allocator::deallocate(void *ptr) const {
     if (!ptr)
         return;
     
-    cache *current = get_by_pointer(ptr);
-    if (current)
-        current->deallocate(ptr);
+    base_cache->deallocate(ptr);
 }
 
-mm::allocator mm::slab(size_t object_size) {
-    return slab::allocator(root_cache);
+slab::allocator mm::slab(size_t object_size) {
+    return slab::allocator(object_size, slab::get_by_size(object_size));
 }

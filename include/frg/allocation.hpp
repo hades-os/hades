@@ -11,7 +11,7 @@
 namespace frg FRG_VISIBILITY {
 
 template<typename T, typename Allocator, typename... Args>
-T *construct(Allocator &allocator, Args &&... args) {
+T *construct(const Allocator &allocator, Args &&... args) {
 	void *pointer = allocator.allocate(sizeof(T));
 	return new(pointer) T(std::forward<Args>(args)...);
 }
@@ -24,7 +24,7 @@ T *construct_n(Allocator &allocator, size_t n, Args &&... args) {
 }
 
 template<typename T, typename Allocator>
-void destruct(Allocator &allocator, T *pointer) {
+void destruct(const Allocator &allocator, T *pointer) {
 	if(!pointer)
 		return;
 	pointer->~T();
