@@ -57,6 +57,18 @@ namespace io {
         }
     };
 
+    namespace mmio {
+        template<typename S>
+        void write(uint64_t addr, S val) {
+            (*((volatile S*) addr)) = val;
+        }
+
+        template<typename S>
+        S read(uint64_t addr) {
+            return *((volatile S*) (addr));
+        }
+    };
+
     template<typename V>
     void wrmsr(uint64_t msr, V value) {
         uint32_t low = ((uint64_t) value) & 0xFFFFFFFF;

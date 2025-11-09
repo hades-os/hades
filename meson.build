@@ -30,6 +30,7 @@ main_sources = files(
 	'source/cxx/driver/ahci.cpp',
 	'source/cxx/driver/part.cpp',
     'source/cxx/driver/keyboard.cpp',
+    'source/cxx/driver/net/e1000.cpp',
     'source/cxx/util/elf.cpp'
 )
 main_includes = include_directories('include')

@@ -1,4 +1,5 @@
 #include "driver/keyboard.hpp"
+#include "driver/net/e1000.hpp"
 #include "driver/tty/tty.hpp"
 #include "driver/tty/pty.hpp"
 #include "mm/common.hpp"
@@ -81,12 +82,14 @@ static void kern_task() {
     ahci::init();
     vfs::mount("/dev/sda1", "/", vfs::fslist::FAT, nullptr, vfs::mflags::OVERLAY);
 
-    kb::init();
+    e1000::init();
+
+/*    kb::init();
     tty::self::init();
     tty::ptmx::init();
 
     auto boot_table = vfs::make_table();
-    show_splash(boot_table);
+    show_splash(boot_table); */
 
     while (true) {
         asm volatile("hlt");

@@ -19,6 +19,14 @@ public:
 };
 
 template<>
+class hash<uint32_t> {
+public:
+	unsigned int operator() (uint32_t v) const {
+		return v;
+	}
+};
+
+template<>
 class hash<int64_t> {
 public:
 	unsigned int operator() (int64_t v) const {
