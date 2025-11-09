@@ -54,41 +54,35 @@ constexpr int S_IFSOCK = 0x0c000;
 
 constexpr int DEFAULT_MODE = S_IRWXU | S_IRWXG | S_IRWXO;
 
-constexpr int O_CREAT = 0x000010;
-constexpr int O_APPEND = 0x000008;
-constexpr int O_CLOEXEC = 0x004000;
-constexpr int O_EXCL = 0x000040;
-constexpr int O_DIRECTORY = 0x000020;
-constexpr int O_NOFOLLOW = 0x000100;
-constexpr int O_TRUNC = 0x000200;
-constexpr int O_NOCTTY = 0x000080;
-constexpr int O_NONBLOCK = 0x000400;
-constexpr int O_DSYNC = 0x000800;
-constexpr int O_RSYNC = 0x001000;
-constexpr int O_SYNC = 0x002000;
-constexpr int O_ACCMODE = 0x0007;
-constexpr int O_EXEC = 1;
-constexpr int O_RDONLY = 2;
-constexpr int O_RDWR = 3;
-constexpr int O_WRONLY = 5;
-constexpr int O_PATH = 0x008000;
-constexpr int O_LARGEFILE = 0x010000;
-constexpr int O_NOATIME = 0x020000;
-constexpr int O_ASYNC = 0x040000;
-constexpr int O_TMPFILE = 0x080000;
-constexpr int O_DIRECT = 0x100000;
+constexpr int O_PATH = 010000000;
+constexpr int O_ACCMODE = (03 | O_PATH);
 
-constexpr int AT_FDCWD = -100;
-constexpr int AT_EMPTY_PATH = 1;
-constexpr int AT_SYMLINK_FOLLOW = 2;
-constexpr int AT_SYMLINK_NOFOLLOW = 4;
-constexpr int AT_REMOVEDIR = 8;
-constexpr int AT_EACCESS = 512;
-constexpr int AT_NO_AUTOMOUNT = 1024;
-constexpr int AT_STATX_SYNC_AS_STAT = 0;
-constexpr int AT_STATX_FORCE_SYNC = 2048;
-constexpr int AT_STATX_DONT_SYNC = 4096;
-constexpr int AT_STATX_SYNC_TYPE = 6144;
+constexpr int O_RDONLY = 00;
+constexpr int O_WRONLY = 01;
+constexpr int O_RDWR = 02;
+
+constexpr int O_CREAT = 0100;
+constexpr int O_EXCL = 0200;
+constexpr int O_NOCTTY = 0400;
+
+constexpr int O_TRUNC = 01000;
+constexpr int O_APPEND = 02000;
+constexpr int O_NONBLOCK = 04000;
+constexpr int O_DSYNC = 010000;
+constexpr int O_ASYNC = 020000;
+constexpr int O_DIRECT = 040000;
+constexpr int O_DIRECTORY = 0200000;
+constexpr int O_NOFOLLOW = 0400000;
+constexpr int O_CLOEXEC = 02000000;
+
+constexpr int O_SYNC = 04010000;
+constexpr int O_RSYNC = 04010000;
+constexpr int O_LARGEFILE = 0100000;
+constexpr int O_NOATIME = 01000000;
+constexpr int O_TMPFILE = 020000000;
+
+constexpr int O_EXEC = O_PATH;
+constexpr int O_SEARCH = O_PATH;
 
 constexpr int SEEK_SET = 1;
 constexpr int SEEK_CUR = 2;
@@ -99,22 +93,60 @@ constexpr int R_OK = 2;
 constexpr int W_OK = 4;
 constexpr int X_OK = 8;
 
-constexpr int F_DUPFD = 1;
-constexpr int F_DUPFD_CLOEXEC = 2;
-constexpr int F_GETFD = 3;
-constexpr int F_SETFD = 4;
-constexpr int F_GETFL = 5;
-constexpr int F_SETFL = 6;
-constexpr int F_GETLK = 7;
-constexpr int F_SETLK = 8;
-constexpr int F_SETLKW = 9;
-constexpr int F_GETOWN = 10;
-constexpr int F_SETOWN = 11;
+constexpr int F_DUPFD = 0;
+constexpr int F_GETFD = 1;
+constexpr int F_SETFD = 2;
+constexpr int F_GETFL = 3;
+constexpr int F_SETFL = 4;
 
-constexpr int F_RDLCK = 1;
+constexpr int F_SETOWN = 8;
+constexpr int F_GETOWN = 9;
+constexpr int F_SETSIG = 10;
+constexpr int F_GETSIG = 11;
+
+constexpr int F_GETLK = 5;
+constexpr int F_SETLK = 6;
+constexpr int F_SETLKW = 7;
+
+constexpr int F_SETOWN_EX = 15;
+constexpr int F_GETOWN_EX = 16;
+
+constexpr int F_GETOWNER_UIDS = 17;
+
+constexpr int F_SETLEASE = 1024;
+constexpr int F_GETLEASE = 1025;
+constexpr int F_NOTIFY = 1026;
+constexpr int F_DUPFD_CLOEXEC = 1030;
+constexpr int F_SETPIPE_SZ = 1031;
+constexpr int F_GETPIPE_SZ = 1032;
+constexpr int F_ADD_SEALS = 1033;
+constexpr int F_GET_SEALS = 1034;
+
+constexpr int F_SEAL_SEAL = 0x0001;
+constexpr int F_SEAL_SHRINK = 0x0002;
+constexpr int F_SEAL_GROW = 0x0004;
+constexpr int F_SEAL_WRITE = 0x0008;
+
+constexpr int F_OFD_GETLK = 36;
+constexpr int F_OFD_SETLK = 37;
+constexpr int F_OFD_SETLKW = 38;
+
+constexpr int F_RDLCK = 0;
+constexpr int F_WRLCK = 1;
 constexpr int F_UNLCK = 2;
-constexpr int F_WRLCK = 3;
 constexpr int FD_CLOEXEC = 1;
+
+constexpr int AT_FDCWD = -100;
+constexpr int AT_EMPTY_PATH = 0x1000;
+constexpr int AT_SYMLINK_FOLLOW = 0x400;
+constexpr int AT_SYMLINK_NOFOLLOW = 0x100;
+constexpr int AT_REMOVEDIR = 0x200;
+constexpr int AT_EACCESS = 0x200;
+constexpr int AT_NO_AUTOMOUNT = 0x800;
+constexpr int AT_STATX_SYNC_AS_STAT = 0;
+constexpr int AT_STATX_FORCE_SYNC = 0x2000;
+constexpr int AT_STATX_DONT_SYNC = 0x4000;
+constexpr int AT_STATX_SYNC_TYPE = 0x6000;
 
 constexpr size_t DT_UNKNOWN = 0;
 constexpr size_t DT_FIFO = 1;

@@ -51,12 +51,12 @@ main_sources = files(
     'source/cxx/fs/cache.cpp',
     'source/cxx/fs/dev.cpp',
     'source/cxx/fs/ext2.cpp',
+    'source/cxx/fs/poll.cpp',
     'source/cxx/fs/rootfs.cpp',
     'source/cxx/fs/syscall.cpp',
     'source/cxx/fs/vfs.cpp',
 
     'source/cxx/ipc/wire.cpp',
-    'source/cxx/ipc/mux.cpp',
     'source/cxx/ipc/link.cpp',
 
     'source/cxx/mm/ctx.cpp',
