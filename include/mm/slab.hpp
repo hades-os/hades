@@ -9,7 +9,7 @@
 #include "prs/list.hpp"
 
 namespace slab {
-    struct slab_resource;
+    struct cache;
     struct slab {
         size_t free_objects;
         size_t total_objects;
@@ -17,7 +17,7 @@ namespace slab {
         uint8_t *bitmap;
         void *buffer;
 
-        slab_resource *owner;
+        cache *owner;
         slab *next;
         slab *prev;
 
@@ -25,13 +25,8 @@ namespace slab {
         bool deallocate(void *ptr);
     };
 
-    static slab_resource *create_resource(size_t object_size);
-    template<typename T>
-    static slab_resource *create_resource() {
-        return create_resource(sizeof(T));
-    }
-
-    struct slab_resource: prs::memory_resource {
+    struct slab_resource;
+    struct cache {
         private:
             util::spinlock lock;
 
@@ -43,28 +38,39 @@ namespace slab {
             slab *head_partial;
             slab *head_full;
 
-            slab_resource *next;
+            cache *next;
 
             slab *create_slab();
             bool move_slab(slab **new_head, slab **old_head, slab *old);
 
             slab *get_by_pointer(slab *head, void *ptr);
 
+            bool has_object(slab *head, void *ptr);
+            bool has_object(void *ptr);
+        public:
+            friend struct slab;
+            friend struct slab_resource;
+
             void *do_allocate();
             bool do_deallocate(void *ptr);
 
-            bool has_object(slab *head, void *ptr);
-            bool has_object(void *ptr);
+            static cache *create(size_t object_size);
+            static cache *get_by_size(size_t object_size);
+    };
 
-            static slab_resource *create(size_t object_size);
-            static slab_resource *get_by_size(size_t object_size);
+    struct slab_resource: prs::memory_resource {
         public:
             friend slab_resource *create_resource(size_t object_size);
             friend struct slab;
 
-            void *allocate(size_t, size_t) override;
-            void deallocate(void *ptr) override;
+            ~slab_resource();
+
+            void *allocate(size_t size, size_t
+                alignment = alignof(std::max_align_t)) override;
+            void deallocate(void *ptr) override;        
     };
+
+    slab_resource *create_resource();
 };
 
 #endif
