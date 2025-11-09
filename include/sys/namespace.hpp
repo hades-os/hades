@@ -17,6 +17,8 @@ namespace sched {
 }
 
 namespace ns {
+    struct accessor;
+
     struct pid {
         private:
             util::spinlock process_lock;
@@ -26,6 +28,7 @@ namespace ns {
             prs::allocator allocator;
 
             weak_ptr<pid> self;
+            weak_ptr<accessor> accessor;
             weak_ptr<pid> parent;
             prs::vector<shared_ptr<pid>, prs::allocator>
                 children;

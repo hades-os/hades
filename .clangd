@@ -1,5 +1,5 @@
-Index:
-  StandardLibrary: No
+
 CompileFlags:
+  BuiltinHeaders: QueryDriver
   Add: [-Wno-unknown-warning-option]
   Remove: [-m*, -f*]

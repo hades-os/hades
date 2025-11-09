@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <cstddef>
 #include <mm/common.hpp>
-#include <util/log/panic.hpp>
 
 namespace mm {
     inline size_t calc_padding(uintptr_t base, size_t alignment) {

@@ -186,6 +186,8 @@ namespace prs {
             }
 
             vector &operator=(vector other) {
+                using std::swap;
+
                 swap(*this, other);
                 return *this;
             }
@@ -199,10 +201,11 @@ namespace prs {
             }
 
             void swap(vector& other) {
-                std::swap(allocator, other.allocator);
-                std::swap(_elements, other._elements);
-                std::swap(_size, other._size);
-                std::swap(_capacity, other._capacity);
+                using std::swap;
+                swap(allocator, other.allocator);
+                swap(_elements, other._elements);
+                swap(_size, other._size);
+                swap(_capacity, other._capacity);
             }
 
             const T &operator[](size_t index) const {

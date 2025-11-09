@@ -88,9 +88,11 @@ namespace prs {
             }
 
             void swap(allocator& other) {
-                std::swap(_resource, other._resource);
-            }
+                using std::swap;
 
+                swap(_resource, other._resource);
+            }
+            
             ~allocator() { 
                 if (_resource) {
                     if (!_resource->_count.fetch_sub(1)) {
