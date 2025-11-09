@@ -139,6 +139,7 @@ namespace sched {
         int do_sigaction(process *proc, int sig, sigaction *act, sigaction *old);
         void do_sigpending(process *proc, sigset_t *set);
         int do_sigprocmask(process *proc, int how, sigset_t *set, sigset_t *oldset);
+        int do_kill(pid_t pid, int sig);
         
         int wait_signal(thread *task, queue *sig_queue, sigset_t sigmask, timespec *time);
 

@@ -121,7 +121,7 @@ namespace vfs {
             void init_fs(node *root, node *source) override;
             
             node *lookup(node *parent, frg::string_view name) override;
-            ssize_t lsdir(node *dir) override;
+            ssize_t readdir(node *dir) override;
             
             ssize_t read(node *file, void *buf, size_t len, size_t offset) override;
             ssize_t write(node *file, void *buf, size_t len, size_t offset) override;

@@ -320,7 +320,7 @@ char *fat_stitch_name(const char *name) {
     return tmp;
 }
 
-vfs::ssize_t vfs::fatfs::lsdir(node *dir) {
+vfs::ssize_t vfs::fatfs::readdir(node *dir) {
     auto res = rw_clusters(dir->inum, nullptr, 0, 0, true);
 
     fatEntry *ents = (fatEntry *) res.get<0>();

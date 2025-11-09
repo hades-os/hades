@@ -49,7 +49,7 @@ tty::ssize_t tty::device::on_open(vfs::fd *fd, ssize_t flags) {
         }
     }
 
-    if ((sess == nullptr) && (!((flags & vfs::oflags::NOCTTY) == vfs::oflags::NOCTTY)) &&
+    if ((sess == nullptr) && (!((flags & vfs::O_NOCTTY) == vfs::O_NOCTTY)) &&
         (smp::get_process() && smp::get_process()->group->pgid == smp::get_process()->sess->leader_pgid)) {
         sess = smp::get_process()->sess;
         fg = smp::get_process()->group;

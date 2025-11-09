@@ -9,10 +9,10 @@
 #include <fs/dev.hpp>
 
 void vfs::devfs::init() {
-    vfs::mkdir(nullptr, "/dev", 0, mode::RDWR);
+    vfs::mkdir(nullptr, "/dev", 0, O_RDWR);
     vfs::mount("/", "/dev", fslist::DEVFS, mflags::NOSRC);
 
-    vfs::mkdir(nullptr, "/dev/pts", 0, mode::RDWR);
+    vfs::mkdir(nullptr, "/dev/pts", 0, O_RDWR);
     kmsg("[VFS] Initial devfs mounted.");
 }
 

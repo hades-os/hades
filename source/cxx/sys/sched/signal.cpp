@@ -1,4 +1,5 @@
 
+#include "fs/vfs.hpp"
 #include "mm/common.hpp"
 #include "mm/mm.hpp"
 #include "mm/pmm.hpp"
@@ -86,6 +87,43 @@ int sched::signal::do_sigprocmask(process *proc, int how, sigset_t *set, sigset_
 
     sig_queue->sigmask &= ~(SIGMASK(SIGKILL) | SIGMASK(SIGSTOP));
     sig_queue->sig_lock.irq_release();
+
+    return 0;
+}
+
+int sched::signal::do_kill(sched::pid_t pid, int sig) {
+    if (!is_valid(sig)) {
+        return -vfs::error::INVAL;
+    }
+
+    auto sender = smp::get_process();
+    if (pid > 0) {
+        process *target = processes[pid];
+        if (!target) {
+            // TODO: esrch
+            return -vfs::error::INVAL;
+        }
+
+        send_process(sender, target, sig);
+    } else if (pid == 0 || pid == -1) {
+        send_group(sender, sender->group, sig);
+    } else {
+        auto session = sender->sess;
+        auto group = session->groups[pid];
+        if (group == nullptr) {
+            // TODO: esrch
+            return -vfs::error::INVAL;
+        }
+
+        for (size_t i = 0; i < group->procs.size(); i++) {
+            auto target = group->procs[i];
+            if (!target) {
+                continue;
+            }
+
+            send_process(target, sender, sig);
+        }
+    }
 
     return 0;
 }
@@ -226,6 +264,8 @@ void sigreturn_default(sched::process *proc, sched::thread *task, bool block_sig
     auto regs = &task->sig_context.regs;
     task->reg = *regs;
 
+    memory::pmm::free((void *) task->sig_context.stack);
+
     if (block_signals) {
         task->state = sched::thread::READY;
         proc->block_signals = true;
@@ -257,6 +297,9 @@ void sigreturn_default(sched::process *proc, sched::thread *task, bool block_sig
         .rsp = regs->rsp,
         .ss = regs->ss,
     };
+
+    smp::get_locals()->ustack = task->ustack;
+    smp::get_locals()->kstack = task->kstack;
 
     if (regs->cs & 0x3) {
         io::swapgs();
@@ -437,7 +480,7 @@ bool sched::signal::is_blocked(process *proc, int sig) {
     proc->sig_queue.sig_lock.irq_acquire();
     if (proc->sig_queue.sigmask & SIGMASK(sig)) {
         proc->sig_queue.sig_lock.irq_release();
-        return false;        
+        return false;
     }
 
     proc->sig_queue.sig_lock.irq_release();
@@ -453,7 +496,7 @@ bool sched::signal::is_ignored(process *proc, int sig) {
     sigaction *act = &proc->sigactions[sig - 1];
     if (act->handler.sa_sigaction == SIG_IGN) {
         proc->sig_queue.sig_lock.irq_release();
-        return true;        
+        return true;
     }
 
     proc->sig_queue.sig_lock.irq_release();
