@@ -1,4 +1,3 @@
-#include "mm/boot.hpp"
 #include "util/types.hpp"
 #include <arch/x86/types.hpp>
 #include <arch/types.hpp>
@@ -79,7 +78,7 @@ extern "C" {
     extern void smp64_start(stivale::boot::info::processor *_);
 };
 
-frg::vector<x86::processor *, boot::allocator> x86::cpus{};
+frg::vector<x86::processor *, arena::allocator> x86::cpus{};
 
 void arch::stop_all_cpus() {
     x86::stop_all_cpus();

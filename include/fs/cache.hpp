@@ -11,6 +11,7 @@
 #include <ipc/link.hpp>
 #include <mm/mm.hpp>
 #include <util/types.hpp>
+#include "prs/list.hpp"
 
 namespace cache {
     void halt_sync();
@@ -59,8 +60,7 @@ namespace cache {
 
             void halt_syncing();
 
-            frg::default_list_hook<holder> hook;
-
+            prs::list_hook hook;
             holder(vfs::devfs::blockdev *backing_device): lock(), 
                 address_tree(), backing_device(backing_device),
                 link(),

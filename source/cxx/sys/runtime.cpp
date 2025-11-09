@@ -5,10 +5,10 @@
 #include <sys/runtime.hpp>
 #include <util/log/log.hpp>
 #include <util/log/panic.hpp>
-#include "mm/boot.hpp"
+#include "mm/arena.hpp"
 
 static log::subsystem logger = log::make_subsystem("FRG");
-static boot::allocator allocator = mm::boot();
+static arena::allocator allocator{};
 extern "C" {
 	void FRG_INTF(log)(const char *cstring) {
         kmsg(logger, cstring);
@@ -16,6 +16,10 @@ extern "C" {
 
 	void FRG_INTF(panic)(const char *cstring) {
         panic("[FRG | PANIC]: %s", cstring);
+    }
+
+    void abort() {
+        panic("[CXX]: Abort");
     }
 
     void *__dso_handle = 0;

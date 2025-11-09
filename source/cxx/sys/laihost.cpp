@@ -8,12 +8,12 @@
 #include <util/string.hpp>
 #include <mm/mm.hpp>
 #include <mm/common.hpp>
-#include "mm/boot.hpp"
+#include "mm/arena.hpp"
 #include "util/io.hpp"
 #include <lai/host.h>
 
 static log::subsystem logger = log::make_subsystem("LAI");
-static boot::allocator allocator = mm::boot();
+static arena::allocator allocator{};
 extern "C" {
     void laihost_log(int level, const char *msg) {
         kmsg(logger, msg);

@@ -101,14 +101,14 @@ poll::table::~table() {
 }
 
 shared_ptr<poll::table> poll::create_table() {
-    auto table = smarter::allocate_shared<poll::table>(mm::slab<poll::table>());
+    auto table = prs::allocate_shared<poll::table>(mm::slab<poll::table>());
     table->self = table;
 
     return table;
 }
 
 shared_ptr<poll::producer> poll::create_producer(weak_ptr<vfs::descriptor> desc) {
-    auto producer = smarter::allocate_shared<poll::producer>(mm::slab<poll::producer>(), desc);
+    auto producer = prs::allocate_shared<poll::producer>(mm::slab<poll::producer>(), desc);
     producer->self = producer;
 
     return producer;

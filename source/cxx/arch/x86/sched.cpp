@@ -382,7 +382,7 @@ int arch::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *
     return x86::do_futex(vaddr, op, expected, timeout);
 }
 
-static frg::hash_map<uint64_t, sched::futex *, frg::hash<uint64_t>, boot::allocator> futex_list{frg::hash<uint64_t>()};
+static frg::hash_map<uint64_t, sched::futex *, frg::hash<uint64_t>, arena::allocator> futex_list{frg::hash<uint64_t>()};
 ssize_t x86::do_futex(uintptr_t vaddr, int op, uint32_t expected, sched::timespec *timeout) {
     auto process = x86::get_process();
 

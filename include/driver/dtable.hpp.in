@@ -6,7 +6,7 @@
 #include <frg/allocation.hpp>
 #include <driver/matchers.hpp>
 #include <driver/majtable.hpp>
-#include <mm/boot.hpp>
+#include <mm/arena.hpp>
 
 // match_data is bus-specific
 
@@ -17,7 +17,8 @@ namespace dtable {
         ssize_t major;
         vfs::devfs::matcher *matcher;
     };
-
+    
+    static arena::allocator allocator{};
     static entry entries[] = {
 @@DTABLE_ENTRIES@@
     };

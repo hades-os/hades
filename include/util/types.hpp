@@ -1,11 +1,11 @@
 #ifndef TYPES_HPP
 #define TYPES_HPP
 
-#include <smarter/smarter.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <frg/unique.hpp>
 #include <mm/mm.hpp>
+#include <prs/shared.hpp>
 
 using pid_t = int;
 using tid_t = int;
@@ -187,13 +187,13 @@ using bus_size_t = size_t;
 using bus_handle_t = uintptr_t;
 
 template<typename T, typename A>
-using unique_ptr = frg::unique_ptr<T, A>;
+using unique_ptr = prs::unique_ptr<T, A>;
 
 template <typename T>
-using shared_ptr = smarter::shared_ptr<T>;
+using shared_ptr = prs::shared_ptr<T>;
 
 template<typename  T>
-using weak_ptr = smarter::weak_ptr<T>;
+using weak_ptr = prs::weak_ptr<T>;
 
 constexpr char alpha_lower[] = "abcdefghijklmnopqrstuvwxyz";
 

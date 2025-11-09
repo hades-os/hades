@@ -82,7 +82,7 @@ namespace vfs {
                     }
                 }
 
-                this->meta = smarter::allocate_shared<statinfo>(mm::slab<statinfo>());
+                this->meta = prs::allocate_shared<statinfo>(mm::slab<statinfo>());
             }
 
         public:
@@ -138,12 +138,12 @@ namespace vfs {
 
             template<typename T>
             shared_ptr<T> data_as() {
-                return smarter::reinterpret_pointer_cast<T>(this->data);
+                return prs::reinterpret_pointer_cast<T>(this->data);
             }
 
             template<typename T>
             void as_data(shared_ptr<T> data) {
-                this->data = smarter::reinterpret_pointer_cast<void *>(data);
+                this->data = prs::reinterpret_pointer_cast<void *>(data);
             }
 
             bool has_access(uid_t uid, gid_t gid, int mode) {
@@ -367,12 +367,12 @@ namespace vfs {
 
         template<typename T>
         shared_ptr<T> data_as() {
-            return smarter::reinterpret_pointer_cast<T>(this->data);
+            return prs::reinterpret_pointer_cast<T>(this->data);
         }
 
         template<typename T>
         void as_data(shared_ptr<T> data) {
-            this->data = smarter::reinterpret_pointer_cast<void *>(data);
+            this->data = prs::reinterpret_pointer_cast<void *>(data);
         }
     };
 

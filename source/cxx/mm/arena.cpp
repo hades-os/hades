@@ -173,5 +173,8 @@ void *arena::allocator::reallocate(void *ptr, size_t size) const {
 }
 
 void arena::allocator::deallocate(void *ptr) const { 
+    if (!ptr)
+        return;
+        
     arena.deallocate(ptr);
 }

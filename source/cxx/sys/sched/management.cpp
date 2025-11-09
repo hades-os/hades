@@ -3,19 +3,20 @@
 #include <sys/sched/sched.hpp>
 #include <util/lock.hpp>
 #include <util/types.hpp>
-#include "mm/boot.hpp"
+#include "mm/arena.hpp"
 
 static util::spinlock process_lock{};
-static frg::rcu_radixtree<sched::process *, boot::allocator>
-    process_tree{};
+static arena::allocator allocator{};
+static frg::rcu_radixtree<sched::process *, arena::allocator>
+    process_tree{allocator};
 
 static util::spinlock process_group_lock{};
-static frg::rcu_radixtree<sched::process_group *, boot::allocator>
-    process_group_tree{};
+static frg::rcu_radixtree<sched::process_group *, arena::allocator>
+    process_group_tree{allocator};
 
 static util::spinlock session_lock{};
-static frg::rcu_radixtree<sched::session *, boot::allocator>
-    session_tree{};
+static frg::rcu_radixtree<sched::session *, arena::allocator>
+    session_tree{allocator};
 
 pid_t sched::add_process(sched::process *proc) {
     util::lock_guard guard{process_lock};

@@ -4,7 +4,6 @@
 #include "frg/string.hpp"
 #include "fs/poll.hpp"
 #include "mm/arena.hpp"
-#include "mm/boot.hpp"
 #include "mm/common.hpp"
 #include "util/types.hpp"
 #include <cstddef>
@@ -244,7 +243,7 @@ namespace vfs {
                 size_t,
                 device_list,
                 frg::hash<size_t>,
-                boot::allocator>
+                arena::allocator>
             device_map{frg::hash<size_t>()};
 
             static void append_device(device *dev, ssize_t major);

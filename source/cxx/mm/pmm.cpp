@@ -221,6 +221,7 @@ void append_region(pmm::region *region, pmm::region **curr) {
     }
 }
 
+static bool initialized = false;
 void pmm::init(stivale::boot::tags::region_map *info) {
     nr_pages = info->page_count();
 
@@ -244,10 +245,25 @@ void pmm::init(stivale::boot::tags::region_map *info) {
     }
 
     kmsg(logger, "Free memory: %lu bytes", nr_usable * memory::page_size);
+    initialized = true;
 }
 
+extern "C" char __boot_heap_start[];
+extern "C" char __boot_heap_end[];
+
+static char *boot_heap = __boot_heap_start;
+static char *boot_heap_end = __boot_heap_end;
+static char *boot_heap_current = __boot_heap_start;
+constexpr size_t boot_heap_max = 128 * memory::page_size;
 void *pmm::alloc(size_t req_pages) {
     util::lock_guard guard{pmm_lock};
+
+    if (!initialized) {
+        void *res = boot_heap_current;
+        boot_heap_current += (req_pages * memory::page_size);
+
+        return res;
+    }
 
     find_region:
         pmm::region *region = pmm::head;
@@ -255,16 +271,16 @@ void *pmm::alloc(size_t req_pages) {
             region = region->next;
         }
 
-    auto ret = alloc_block(region, (req_pages + 1) * memory::page_size);
-    if (ret == nullptr) {
+    auto res = alloc_block(region, (req_pages + 1) * memory::page_size);
+    if (res == nullptr) {
         goto find_region;
     }
 
-    if (ret == nullptr) {
+    if (res == nullptr) {
         panic("Out of Memory!");
     }
 
-    auto alloc = (pmm::allocation *) ret;
+    auto alloc = (pmm::allocation *) res;
     memset(alloc, 0, (req_pages + 1) * memory::page_size);
     alloc->reg = region;
 
@@ -280,6 +296,8 @@ void *pmm::phys(size_t req_pages) {
 }
 
 void pmm::free(void *address) {
+    if (!initialized) return;
+
     util::lock_guard guard{pmm_lock};
 
     pmm::allocation *alloc = (pmm::allocation *) (((char *) address) - memory::page_size);

@@ -3,6 +3,7 @@
 
 #include "frg/tuple.hpp"
 #include "mm/arena.hpp"
+#include "mm/slab.hpp"
 #include "util/types.hpp"
 #include <frg/vector.hpp>
 #include <cstddef>
@@ -165,7 +166,7 @@ namespace vfs {
         public:
             ext2fs(shared_ptr<node> root, weak_ptr<node> device):
                 vfs::filesystem(root, device), 
-                allocator(), superblock(allocator) {}
+                allocator(), superblock(prs::make_unique<ext2fs::super>(mm::slab<ext2fs::super>())) {}
 
             bool load() override;
 
