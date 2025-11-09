@@ -1,13 +1,13 @@
 #ifndef SIG_HPP
 #define SIG_HPP
 
-#include <sys/irq.hpp>
+#include <arch/x86/types.hpp>
 #include <cstddef>
 #include <cstdint>
-#include <sys/sched/regs.hpp>
 #include <sys/sched/wait.hpp>
 #include <sys/sched/time.hpp>
 #include <util/types.hpp>
+#include <arch/types.hpp>
 
 #define SIG_ERR ((void*) -1)
 #define SIG_DFL ((void*) 0)
@@ -104,11 +104,8 @@ namespace sched {
             ucontext *prev;
             size_t stack;
             
-            sched::regs regs;
+            arch::thread_ctx ctx;
             
-            alignas(16)
-            char sse_region[512];
-
             sigset_t signum;
         };
 
@@ -147,7 +144,7 @@ namespace sched {
         bool send_group(process *sender, process_group *target, int sig);
         bool check_perms(process *sender, process *target);
         bool is_valid(int sig);
-        int process_signals(process *proc, sched::regs *r, char *sse_region);
+        int process_signals(process *proc, arch::thread_ctx *ctx);
 
         bool is_blocked(process *proc, int sig);
         bool is_ignored(process *proc, int sig);

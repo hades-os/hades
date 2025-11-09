@@ -1,7 +1,8 @@
 #ifndef SCHED_HPP
 #define SCHED_HPP
 
-#include "sys/sched/wait.hpp"
+#include <arch/x86/types.hpp>
+#include <sys/sched/wait.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <frg/hash.hpp>
@@ -11,10 +12,8 @@
 #include <fs/vfs.hpp>
 #include <mm/mm.hpp>
 #include <mm/vmm.hpp>
-#include <sys/irq.hpp>
 #include <sys/sched/wait.hpp>
 #include <sys/sched/signal.hpp>
-#include <sys/sched/regs.hpp>
 #include <util/lock.hpp>
 #include <util/elf.hpp>
 #include <util/types.hpp>
@@ -65,19 +64,10 @@ namespace sched {
     void sleep(size_t time);
     void init();
 
-    void send_ipis();
+    thread *create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege);
+    process *create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege);
 
-    void init_syscalls();
-    void init_idle();
-    void init_sse();
-
-    void init_bsp();
-    void init_ap();
-
-    thread *create_thread(void (*main)(), uint64_t rsp, memory::vmm::vmm_ctx *ctx, uint8_t privilege);
-    process *create_process(char *name, void (*main)(), uint64_t rsp, memory::vmm::vmm_ctx *ctx, uint8_t privilege);
-
-    thread *fork(thread *original, memory::vmm::vmm_ctx *ctx);
+    thread *fork(thread *original, vmm::vmm_ctx *ctx);
     process *fork(process *original, thread *caller);
 
     int do_futex(uintptr_t vaddr, int op, int expected, timespec *timeout);    
@@ -85,18 +75,7 @@ namespace sched {
     process *find_process(pid_t pid);
 
     int64_t pick_task();
-    void swap_task(irq::regs *r);
-    void tick_bsp(irq::regs *r);
-    void retick();
-
-    uint16_t get_fcw();
-    void set_fcw(uint16_t);
-
-    uint32_t get_mxcsr();
-    void set_mxcsr(uint32_t mxcsr);
-
-    void save_sse(char *sse_region);
-    void load_sse(char *sse_region);
+    void swap_task(arch::irq_regs *r);
 
     struct futex {
         util::lock lock;
@@ -129,11 +108,7 @@ namespace sched {
 
     class thread {
         public:
-            regs reg;
-
-            alignas(16)
-            char sse_region[512];
-
+            arch::thread_ctx ctx;
             signal::ucontext sig_context;
 
             uintptr_t sig_kstack;
@@ -142,7 +117,7 @@ namespace sched {
             uintptr_t kstack;
             uintptr_t ustack;
 
-            memory::vmm::vmm_ctx *mem_ctx;
+            vmm::vmm_ctx *mem_ctx;
 
             uint64_t started;
             uint64_t stopped;
@@ -199,10 +174,13 @@ namespace sched {
         process *proc;
 
         bool load_elf(const char *path, vfs::fd *fd);
+        void set_entry();
+
         void place_params(char **envp, char **argv, thread *target);
 
         uint64_t *place_args(uint64_t* location);
         uint64_t *place_auxv(uint64_t *location);
+
         void load_params(char **argv, char** envp);
     };
 
@@ -210,7 +188,7 @@ namespace sched {
         public:
             char name[50];
 
-            memory::vmm::vmm_ctx *mem_ctx;
+            vmm::vmm_ctx *mem_ctx;
 
             frg::vector<thread *, memory::mm::heap_allocator> threads;
             frg::vector<process *, memory::mm::heap_allocator> children;
@@ -231,7 +209,7 @@ namespace sched {
             session *sess;
 
             bool block_signals;
-            uint64_t sigenter_rip;
+            arch::entry_trampoline trampoline;
             util::lock sig_lock;
             signal::queue sig_queue;
             signal::sigaction sigactions[SIGNAL_MAX];
@@ -293,11 +271,6 @@ namespace sched {
     inline frg::vector<sched::thread *, memory::mm::heap_allocator> threads{};
 
     extern util::lock sched_lock;
-
-    constexpr uint64_t EFER = 0xC0000080;
-    constexpr uint64_t STAR = 0xC0000081;
-    constexpr uint64_t LSTAR = 0xC0000082;
-    constexpr uint64_t SFMASK = 0xC0000084;
 };
 
 #endif

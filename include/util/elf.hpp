@@ -2,7 +2,7 @@
 #define ELF_HPP
 
 
-#include "fs/vfs.hpp"
+#include <fs/vfs.hpp>
 #include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <mm/vmm.hpp>
@@ -119,7 +119,7 @@ namespace elf {
     struct file {
         uintptr_t load_offset;
         vfs::fd *fd;
-        memory::vmm::vmm_ctx *ctx;
+        vmm::vmm_ctx *ctx;
 
         elf64_hdr *header;
         elf::aux aux;

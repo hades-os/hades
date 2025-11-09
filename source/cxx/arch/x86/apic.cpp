@@ -1,5 +1,7 @@
+#include <mm/common.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <arch/x86/types.hpp>
 #include <sys/acpi.hpp>
 #include <sys/x86/apic.hpp>
 #include <util/io.hpp>
@@ -13,7 +15,7 @@ namespace apic {
                 panic("[IOAPIC] Invalid IOAPIC access of ", ioapic);
             }
 
-            volatile uint32_t *base = (volatile uint32_t *) (acpi::madt::ioapics[ioapic]->address + memory::common::virtualBase);
+            volatile uint32_t *base = (volatile uint32_t *) (acpi::madt::ioapics[ioapic]->address + memory::x86::virtualBase);
             *base = reg;
             return *(base + 4);
         }
@@ -23,7 +25,7 @@ namespace apic {
                 panic("[IOAPIC] Invalid IOAPIC access of ", ioapic);
             }
 
-            volatile uint32_t *base = (volatile uint32_t *) (acpi::madt::ioapics[ioapic]->address + memory::common::virtualBase);
+            volatile uint32_t *base = (volatile uint32_t *) (acpi::madt::ioapics[ioapic]->address + memory::x86::virtualBase);
             *base = reg;
             *(base + 4) = data;
         }
@@ -87,65 +89,65 @@ namespace apic {
     };
 
     void remap() {
-        uint8_t master_mask = io::ports::read<uint8_t>(0x21);
-        uint8_t slave_mask  = io::ports::read<uint8_t>(0xA1);
+        uint8_t master_mask = io::readb(0x21);
+        uint8_t slave_mask  = io::readb(0xA1);
 
         if (master_mask == 0xFF && slave_mask == 0xFF) {
             return;
         }
 
-        io::ports::write<uint8_t>(0x20, 0x11);
-        io::ports::io_wait();
-        io::ports::write<uint8_t>(0xA0, 0x11);
-        io::ports::io_wait();
+        io::writeb(0x20, 0x11);
+        io::wait();
+        io::writeb(0xA0, 0x11);
+        io::wait();
 
-        io::ports::write<uint8_t>(0x21, 0x20);
-        io::ports::io_wait();
-        io::ports::write<uint8_t>(0xA1, 0x40);
-        io::ports::io_wait();
+        io::writeb(0x21, 0x20);
+        io::wait();
+        io::writeb(0xA1, 0x40);
+        io::wait();
 
-        io::ports::write<uint8_t>(0x21, 4);
-        io::ports::io_wait();
-        io::ports::write<uint8_t>(0xA1, 2);
-        io::ports::io_wait();
+        io::writeb(0x21, 4);
+        io::wait();
+        io::writeb(0xA1, 2);
+        io::wait();
 
-        io::ports::write<uint8_t>(0x21, 1);
-        io::ports::io_wait();
-        io::ports::write<uint8_t>(0xA1, 1);
-        io::ports::io_wait();
+        io::writeb(0x21, 1);
+        io::wait();
+        io::writeb(0xA1, 1);
+        io::wait();
 
-        io::ports::write<uint8_t>(0x21, master_mask);
-        io::ports::io_wait();
-        io::ports::write<uint8_t>(0xA1, slave_mask);
-        io::ports::io_wait();
-        io::ports::write<uint8_t>(0xA1, 0xFF);
-        io::ports::write<uint8_t>(0x21, 0xFF);
+        io::writeb(0x21, master_mask);
+        io::wait();
+        io::writeb(0xA1, slave_mask);
+        io::wait();
+        io::writeb(0xA1, 0xFF);
+        io::writeb(0x21, 0xFF);
     };
 
     namespace lapic {
         uint32_t read(uint32_t reg) {
-            size_t base = (size_t) get_base() + memory::common::virtualBase;
+            size_t base = (size_t) get_base() + memory::x86::virtualBase;
             return *(volatile uint32_t *) (base + reg);
         }
 
         void write(uint32_t reg, uint32_t data) {
-            size_t base = (size_t) get_base() + memory::common::virtualBase;
+            size_t base = (size_t) get_base() + memory::x86::virtualBase;
             *((volatile uint32_t *) (base + reg)) = data;
         }
 
         void *get_base() {
-            return (void *) (io::rdmsr<uint64_t>(0x1B) & 0xfffff000);
+            return (void *) (x86::rdmsr<uint64_t>(0x1B) & 0xfffff000);
         };
 
         void set_base(void *base) {
             uint32_t rdx = (uint64_t) base >> 32;
             uint32_t rax = ((uint64_t) base & ~0xFFF) | LAPIC_BASE_MSR_ENABLE;
 
-            io::wrmsr(LAPIC_BASE_MSR, ((uint64_t) rdx) >> 32 | rax);
+            x86::wrmsr(LAPIC_BASE_MSR, ((uint64_t) rdx) >> 32 | rax);
         }
 
         void setup() {
-            if (!(io::rdmsr<size_t>(LAPIC_BASE_MSR) & LAPIC_BASE_MSR_ENABLE)) {
+            if (!(x86::rdmsr<size_t>(LAPIC_BASE_MSR) & LAPIC_BASE_MSR_ENABLE)) {
                 lapic::set_base(lapic::get_base());
             }
             lapic::write(LAPIC_REG_SIVR, apic::lapic::read(LAPIC_REG_SIVR) | LAPIC_BASE_MSR_BSP);

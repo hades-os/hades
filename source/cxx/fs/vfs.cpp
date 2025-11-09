@@ -300,11 +300,11 @@ ssize_t vfs::write(vfs::fd *fd, void *buf, size_t len) {
 
     auto desc = fd->desc;
     if (!desc->node) {
-        if ((size_t) desc->pos >= memory::common::page_size) {
+        if ((size_t) desc->pos >= memory::page_size) {
             return -EINVAL;
         }
 
-        if ((size_t) (desc->pos + len) > memory::common::page_size) {
+        if ((size_t) (desc->pos + len) > memory::page_size) {
             len = desc->info->st_size - desc->pos;
         }
 
@@ -557,8 +557,8 @@ vfs::fd_pair vfs::open_pipe(fd_table *table, ssize_t flags) {
     auto pipe = frg::construct<vfs::pipe>(memory::mm::heap);
     pipe->read = read->desc;
     pipe->write = write->desc;
-    pipe->len = memory::common::page_size;
-    pipe->buf = kmalloc(memory::common::page_size);
+    pipe->len = memory::page_size;
+    pipe->buf = kmalloc(memory::page_size);
     pipe->data_written = false;
 
     auto stat = frg::construct<node::statinfo>(memory::mm::heap);

@@ -5,12 +5,13 @@
 #include <cstdint>
 #include <frg/vector.hpp>
 #include <mm/mm.hpp>
+#include <mm/vmm.hpp>
 #include <mm/pmm.hpp>
 #include <sys/acpi.hpp>
 #include <sys/sched/sched.hpp>
 #include <util/lock.hpp>
 
-namespace smp {
+namespace x86 {
     namespace tss {
         constexpr auto TSS_OFFSET = 0x28;
         constexpr auto TSS_STACK_SIZE = 4;
@@ -63,7 +64,7 @@ namespace smp {
 
         size_t lid;
 
-        smp::tss::entry tss;
+        x86::tss::entry tss;
 
         int64_t tid, idle_tid;
         size_t pid;
@@ -71,16 +72,12 @@ namespace smp {
         sched::thread *task;
         sched::process *proc;
 
-        void *ctx;
+        vmm::vmm_ctx *ctx;
 
         processor(size_t lid) : lid(lid) { }
     };
 
-    inline frg::vector<processor *, memory::mm::heap_allocator> cpus{};
-
-    void init();
-
-    smp::processor *get_locals();
+    x86::processor *get_locals();
 
     sched::thread *get_thread();
     sched::process *get_process();
@@ -89,6 +86,9 @@ namespace smp {
     int64_t get_tid();
 
     void set_errno(int errno);
+
+    void init_smp();
+    void stop_all_cpus();
 };
 
 #endif

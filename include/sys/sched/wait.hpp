@@ -1,10 +1,8 @@
 #ifndef WAIT_HPP
 #define WAIT_HPP
 
-#include <cstddef>
 #include <frg/tuple.hpp>
 #include <util/lock.hpp>
-#include <cstdint>
 #include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <sys/sched/time.hpp>

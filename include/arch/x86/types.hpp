@@ -1,25 +1,124 @@
-#ifndef IRQ_HPP
-#define IRQ_HPP
+#ifndef ARCH_X86_64_TYPES
+#define ARCH_X86_64_TYPES
 
 #include <cstddef>
 #include <cstdint>
+#include <mm/common.hpp>
+#include <sys/sched/time.hpp>
+#include <util/types.hpp>
 
-namespace irq {
-    constexpr size_t IRQ0 = 34;
+namespace vfs {
+    struct fd;
+}
 
-    struct [[gnu::packed]] regs {
-        uint64_t r15, r14, r13, r12, r11, r10, r9, r8, 
+namespace sched {
+    struct process_env;
+    class process;
+    class thread;
+}
+
+namespace vmm {
+    using vmm_ctx_map = uint64_t *;
+
+    enum class page_flags: uint64_t {
+        PRESENT = (1 << 0),
+        WRITE = (1 << 1),
+        USER =  (1 << 2),
+        LARGE = (1 << 7),
+
+        FIXED = (1 << 8),
+        COW = (1 << 9),
+        SHARED = (1 << 10),
+        FILE = (1 << 11),
+
+        EXEC = (1ULL << 63)
+    };
+
+    inline constexpr page_flags
+    operator&(page_flags x, page_flags y) {
+        return static_cast<page_flags>
+        (static_cast<int>(x) & static_cast<int>(y));
+    }
+
+    inline constexpr page_flags
+    operator|(page_flags x, page_flags y) {
+        return static_cast<page_flags>
+        (static_cast<int>(x) | static_cast<int>(y));
+    }
+
+    inline constexpr page_flags
+    operator^(page_flags x, page_flags y) {
+        return static_cast<page_flags>
+        (static_cast<int>(x) ^ static_cast<int>(y));
+    }
+
+    inline constexpr page_flags
+    operator~(page_flags x) {
+        return static_cast<page_flags>(~static_cast<int>(x));
+    }
+
+    inline page_flags &
+    operator&=(page_flags & x, page_flags y) {
+        x = x & y;
+        return x;
+    }
+
+    inline page_flags &
+    operator|=(page_flags & x, page_flags y) {
+        x = x | y;
+        return x;
+    }
+
+    inline page_flags &
+    operator^=(page_flags & x, page_flags y) {
+        x = x ^ y;
+        return x;
+    }
+};
+
+namespace arch {
+    struct [[gnu::packed]] irq_regs {
+        uint64_t r15, r14, r13, r12, r11, r10, r9, r8,
                  rsi, rdi, rbp, rdx, rcx, rbx, rax;
         uint64_t int_no, err;
         uint64_t rip, cs, rflags, rsp, ss;
     };
 
-    struct [[gnu::packed]] ptr {
+    struct [[gnu::packed]] sched_regs {
+        uint64_t rax, rbx, rcx, rdx, rbp, rdi, rsi, r8, r9, r10, r11, r12, r13, r14, r15;
+        uint64_t rsp, rip;
+
+        uint64_t ss, cs, fs;
+        uint64_t rflags;
+        uint64_t cr3;
+
+        uint32_t mxcsr;
+        uint16_t fcw;
+    };
+
+    struct thread_ctx {
+        sched_regs reg;
+
+        alignas(16)
+        char sse_region[512];
+    };
+
+    using entry_trampoline = uint64_t;
+}
+
+namespace x86 {
+    arch::irq_regs sched_to_irq(arch::sched_regs *r);
+    arch::sched_regs irq_to_sched(arch::irq_regs *r);
+
+    void *copy_to_user(void *dst, const void *src, size_t length);
+    void *copy_from_user(void *dst, const void *src, size_t length);
+
+    struct [[gnu::packed]] irq_ptr {
         uint16_t limit;
         uint64_t base;
     };
 
-    struct [[gnu::packed]] entry {
+    struct [[gnu::packed]] irq_entry {
         uint16_t base_lo;
         uint16_t sel;
         uint8_t ist;
@@ -29,26 +128,134 @@ namespace irq {
         uint32_t always0;
     };
 
-    inline irq::ptr ptr;
-    inline irq::entry entries[256] = { { 0 } };
-    
-    using handler = void (*)(irq::regs *regs);
+    void init_irqs();
+    void hook_irqs();
+    void irq_on();
+    void irq_off();
 
-    inline void on() {
-        asm volatile("sti");
-    }
+    using irq_fn = void(*)(size_t irq, arch::irq_regs *r, void *private_data);
+    struct irq_handler {
+        irq_fn fn;
+        void *private_data;
+    };
 
-    inline void off() {
-        asm volatile("cli");
-    }
+    void route_irq(size_t irq, size_t vector);
+    void install_irq(size_t irq, irq_fn handler, void *private_data);
 
-    void setup();
-    void hook();
     void set_gate(uint8_t num, uint64_t base, uint8_t flags);
     void set_ist(uint8_t num, uint8_t idx);
-    void add_handler(irq::handler handler, size_t irq);
-    inline irq::handler handlers[256] = { 0 };
-};
+
+    uint16_t get_fcw();
+    void set_fcw(uint16_t fcw);
+
+    uint32_t get_mxcsr();
+    void set_mxcsr(uint32_t mxcsr);
+
+    void save_sse(char *sse_region);
+    void load_sse(char *sse_region);
+
+    void handle_bsp(arch::irq_regs *r);
+    
+    void do_tick();
+    void send_ipis();
+
+    void init_syscalls();
+    void init_idle();
+    void init_sse();
+
+    void init_bsp();
+    void init_ap();
+
+    bool handle_pf(arch::irq_regs *r);
+    void cleanup_vmm_ctx(sched::process *process);
+    void stop_thread(sched::thread *task);
+
+    int do_futex(uintptr_t vaddr, int op, int expected, sched::timespec *timeout);
+
+    void sigreturn_kill(sched::process *proc, ssize_t status);
+    void sigreturn_default(sched::process *proc, sched::thread *task, bool block_signals);
+    void sighandler_default(sched::process *proc, sched::thread *task, int sig);
+
+    namespace loader {
+        bool load_elf(const char *path, vfs::fd *fd, sched::process_env *env);
+        void place_params(char **envp, char **argv, sched::thread *task, sched::process_env *env);
+        uint64_t *place_args(uint64_t* location, sched::process_env *env);
+        uint64_t *place_auxv(uint64_t *location, sched::process_env *env);
+        void load_params(char **argv, char** envp, sched::process_env *env);
+    }
+
+    constexpr size_t entries_per_table = 512;
+    constexpr size_t addr_mask = ~0x8000000000000FFF;
+
+    constexpr uint64_t EFER = 0xC0000080;
+    constexpr uint64_t STAR = 0xC0000081;
+    constexpr uint64_t LSTAR = 0xC0000082;
+    constexpr uint64_t SFMASK = 0xC0000084;
+
+    template<typename V>
+    void wrmsr(uint64_t msr, V value) {
+        uint32_t low = ((uint64_t) value) & 0xFFFFFFFF;
+        uint32_t high = ((uint64_t) value) >> 32;
+        asm volatile (
+            "wrmsr"
+            :
+            : "c"(msr), "a"(low), "d"(high)
+        );
+    }
+
+    template<typename V>
+    V rdmsr(uint64_t msr) {
+        uint32_t low, high;
+        asm volatile (
+            "rdmsr"
+            : "=a"(low), "=d"(high)
+            : "c"(msr)
+        );
+        return (V) (((uint64_t ) high << 32) | low);
+    }
+
+    inline uint64_t tsc() {
+        uint64_t rax, rdx;
+        asm volatile(
+            "rdtsc"
+            : "=a"(rax), "=d"(rdx)
+        );
+
+        return (rdx << 32) | rax;
+    }
+
+    inline void swapgs() {
+        asm volatile ("swapgs" ::: "memory");
+    }
+
+    inline uint64_t get_cr3(vmm::vmm_ctx_map map) {
+        return (uint64_t) memory::remove_virt(map);
+    }
+
+    inline uint64_t read_cr3() {
+        uint64_t ret;
+        asm volatile("movq %%cr3, %0;" : "=r"(ret));
+        return ret;
+    }
+
+    inline void write_cr3(uint64_t cr3) {
+        asm volatile("movq %0, %%cr3;" ::"r"(cr3) : "memory");
+
+    }
+
+    inline void swap_cr3(vmm::vmm_ctx_map map) {
+        asm volatile("mov %0, %%cr3;    \
+                    mov %%cr3, %%rax; \
+                    mov %%rax, %%cr3"
+                    :
+                    : "r"((size_t) memory::remove_virt(map))
+        );
+    }
+
+    inline void invlpg(uint64_t virt) {
+        asm volatile("invlpg (%0)":: "b"(virt) : "memory");
+    }
+}
 
 extern "C" {
     extern void isr0();
@@ -308,7 +515,7 @@ extern "C" {
     extern void isr254();
     extern void isr255();
 
-    extern void irq_handler(irq::regs *regs);
+    extern void x86_irq_handler(arch::irq_regs *regs);
 }
 
 #endif

@@ -67,8 +67,8 @@ section .text
 
         iretq
 
-    [global sigreturn_exit]
-    sigreturn_exit:
+    [global x86_sigreturn_exit]
+    x86_sigreturn_exit:
         mov rsp, rdi
 
         popaq

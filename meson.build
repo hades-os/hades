@@ -1,43 +1,60 @@
 project('hades', ['cpp', 'c'], version: '0.0.1')
 main_sources = files(
-    'source/cxx/sys/x86/apic.cpp',
-    'source/cxx/sys/acpi.cpp',
-	'source/cxx/sys/pci.cpp',
-	'source/cxx/sys/smp.cpp',
-	'source/cxx/sys/irq.cpp',
-	'source/cxx/sys/sched/sched.cpp',
-    'source/cxx/sys/sched/wait.cpp',
-    'source/cxx/sys/sched/signal.cpp',
-    'source/cxx/sys/sched/syscall.cpp',
-    'source/cxx/sys/pit.cpp',
-	'source/cxx/sys/runtime.cpp',
-    'source/cxx/sys/syscall.cpp',
-    'source/cxx/sys/laihost.cpp',
-    'source/cxx/entry.cpp',
-    'source/cxx/mm/ctx.cpp',
-	'source/cxx/mm/mm.cpp',
-    'source/cxx/mm/pmm.cpp',
-    'source/cxx/mm/vmm.cpp',
-    'source/cxx/mm/syscall.cpp',
-	'source/cxx/fs/vfs.cpp',
-	'source/cxx/fs/rootfs.cpp',
-	'source/cxx/fs/dev.cpp',
-	'source/cxx/fs/fat.cpp',
-    'source/cxx/fs/syscall.cpp',
+    'source/cxx/arch/x86/vmm/syscall.cpp',
+    'source/cxx/arch/x86/vmm/vmm.cpp',
+    'source/cxx/arch/x86/apic.cpp',
+    'source/cxx/arch/x86/core.cpp',
+    'source/cxx/arch/x86/irq.cpp',
+    'source/cxx/arch/x86/loader.cpp',
+    'source/cxx/arch/x86/pit.cpp',
+    'source/cxx/arch/x86/sched.cpp',
+    'source/cxx/arch/x86/signal.cpp',
+    'source/cxx/arch/x86/smp.cpp',
+    'source/cxx/arch/x86/syscall.cpp',
+
+    'source/cxx/driver/net/e1000.cpp',
     'source/cxx/driver/tty/tty.cpp',
     'source/cxx/driver/tty/pty.cpp',
-    'source/cxx/driver/tty/disciplines.cpp',
+    'source/cxx/driver/disciplines.cpp',
+
+    'source/cxx/driver/video/fbdev.cpp',
     'source/cxx/driver/video/vesa.cpp',
     'source/cxx/driver/video/vt.cpp',
-    'source/cxx/driver/video/fbdev.cpp',
+
+    'source/cxx/driver/ahci.cpp',
+    'source/cxx/driver/part.cpp',
+
+    'source/cxx/driver/keyboard.cpp',
+
     'source/cxx/flanterm/flanterm.cpp',
     'source/cxx/flanterm/backends/fb.cpp',
-	'source/cxx/driver/ahci.cpp',
-	'source/cxx/driver/part.cpp',
-    'source/cxx/driver/keyboard.cpp',
-    'source/cxx/driver/net/e1000.cpp',
+
+    'source/cxx/fs/dev.cpp',
+    'source/cxx/fs/fat.cpp',
+    'source/cxx/fs/rootfs.cpp',
+    'source/cxx/fs/syscall.cpp',
+    'source/cxx/fs/vfs.cpp',
+
+    'source/cxx/mm/ctx.cpp',
+    'source/cxx/mm/mm.cpp',
+    'source/cxx/mm/pmm.cpp',
+    'source/cxx/mm/vmm.cpp',
+
+    'source/cxx/sys/sched/loader.cpp',
+    'source/cxx/sys/sched/sched.cpp',
+    'source/cxx/sys/sched/signal.cpp',
+    'source/cxx/sys/sched/syscall.cpp',
+    'source/cxx/sys/sched/wait.cpp',
+
+    'source/cxx/sys/acpi.cpp',
+    'source/cxx/sys/laihost.cpp',
+    'source/cxx/sys/pci.cpp',
+    'source/cxx/sys/runtime.cpp',
+
     'source/cxx/util/elf.cpp',
-    'source/cxx/util/string.cpp'
+    'source/cxx/util/string.cpp',
+
+    'source/cxx/entry.cpp'
 )
 main_includes = include_directories('include')
 freestnd_c_hdrs = include_directories('freestnd_c_hdrs', is_system: true)

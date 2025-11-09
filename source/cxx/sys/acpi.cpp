@@ -1,5 +1,5 @@
-#include "lai/core.h"
-#include "lai/helpers/sci.h"
+#include <arch/vmm.hpp>
+#include <lai/core.h>
 #include <cstddef>
 #include <cstdint>
 #include <mm/common.hpp>
@@ -67,7 +67,7 @@ acpi::sdt *find_table(const char *sig, size_t index) {
     if (use_xsdt) {
         for (size_t i = 0; i < (_xsdt->_sdt.length - sizeof(acpi::sdt)) / 8; i++) {
             ptr = (acpi::sdt *) _xsdt->ptrs[i];
-            ptr = (acpi::sdt *) ((char *) ptr + memory::common::virtualBase);
+            ptr = (acpi::sdt *) ((char *) ptr + memory::x86::virtualBase);
             if (!strncmp(ptr->signature, sig, 4)) {
                 kmsg("[ACPI] Found table ", sig);
                 if (index == count++) {
@@ -78,7 +78,7 @@ acpi::sdt *find_table(const char *sig, size_t index) {
     } else {
         for (size_t i = 0; i < (_rsdt->_sdt.length - sizeof(acpi::sdt)) / 4; i++) {
             ptr = (acpi::sdt *) ((uint64_t) _rsdt->ptrs[i]);
-            ptr = (acpi::sdt *) ((char *) ptr + memory::common::virtualBase);
+            ptr = (acpi::sdt *) ((char *) ptr + memory::x86::virtualBase);
             if (!strncmp(ptr->signature, sig, 4)) {
                 kmsg("[ACPI] Found table ", sig);
                 if (index == count++) {
@@ -93,15 +93,15 @@ acpi::sdt *find_table(const char *sig, size_t index) {
 
 acpi::sdt *acpi::table(const char *sig, size_t index) {
     if (!strncmp(sig, "DSDT", 4)) {
-        if (use_x_dsdt) return (acpi::sdt *) (_fadt->x_dsdt + memory::common::virtualBase);
-        return (acpi::sdt *) (_fadt->dsdt + memory::common::virtualBase); 
+        if (use_x_dsdt) return (acpi::sdt *) (_fadt->x_dsdt + memory::x86::virtualBase);
+        return (acpi::sdt *) (_fadt->dsdt + memory::x86::virtualBase); 
     }
 
     return find_table(sig, index);
 }
 
 void acpi::init(stivale::boot::tags::rsdp *info) {
-    _rsdp = (acpi::rsdp *) (info->rsdp + memory::common::virtualBase);
+    _rsdp = (acpi::rsdp *) (info->rsdp + memory::x86::virtualBase);
     if (!_rsdp) {
         panic("[ACPI] RSDP Not Found!");
     }
@@ -132,10 +132,10 @@ void acpi::init(stivale::boot::tags::rsdp *info) {
         }
     }
 
-    _rsdt = memory::common::offsetVirtual(_rsdt);
-    _xsdt = memory::common::offsetVirtual(_xsdt);
+    _rsdt = memory::add_virt(_rsdt);
+    _xsdt = memory::add_virt(_xsdt);
     _fadt = (fadt *) find_table("FACP", 0);
-    if (((uint64_t) _fadt) - memory::common::virtualBase >= VMM_4GIB) {
+    if (((uint64_t) _fadt) - memory::x86::virtualBase >= vmm::limit_4g) {
         use_x_dsdt = true;
     }
 
