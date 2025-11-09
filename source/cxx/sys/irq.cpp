@@ -1,33 +1,41 @@
-#include "mm/vmm.hpp"
-#include "sys/sched.hpp"
-#include "sys/smp.hpp"
+#include "mm/common.hpp"
+#include "sys/sched/signal.hpp"
+#include <sys/sched/sched.hpp>
+#include <sys/smp.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <mm/mm.hpp>
+#include <mm/vmm.hpp>
 #include <sys/irq.hpp>
 #include <sys/x86/apic.hpp>
 #include <util/log/log.hpp>
+#include <util/log/panic.hpp>
+#include <util/io.hpp>
 
 extern "C" {
     void irq_handler(irq::regs *r) {
+        if (r->cs & 0x3) {
+            io::swapgs();
+        }
+
         if (r->int_no < 32) {
             uint64_t cr3 = memory::vmm::read_cr3();
             memory::vmm::change(memory::vmm::common::boot_ctx);
             if (r->cs != 0x1B) {
                 uint64_t cr2 = 0;
                 asm volatile("movq %%cr2, %0" : "=r"(cr2));
-
                 send_panic_ipis();
 
                 kmsg("Exception on CPU ", smp::get_locals()->lid, "\n",
                      "    RAX: ", r->rax, ", RBX: ", r->rbx, "\n",
-                     "    RCX: ", r->rcx, ", RDX: ", r->rdx, "\n", 
+                     "    RCX: ", r->rcx, ", RDX: ", r->rdx, "\n",
                      "    RBP: ", util::hex(r->rbp), ", RDI: ", r->rdi, "\n",
                      "    RSI: ", r->rsi, ", R8: ", r->r8, "\n",
                      "    R9: ", r->r9, ", R10: ", r->r10, ", R11: ", r->r11, ", R12: ", r->r12, ", R13: ", r->r13, ", R14: ", r->r14, ", R15: ", r->r15, "\n"
-                     "    RSP: ", util::hex(r->rsp), ", ERR: ", util::hex(r->err), ", INT: ", util::hex(r->int_no), ", RIP: ", util::hex(r->rip), ", CR2: ", util::hex(cr2), "\n",
+                     "    RSP: ", util::hex(r->rsp), ", ERR: ", util::hex(r->err), ", INT: ", util::hex(r->int_no), ", RIP: ", util::hex(r->rip), "\n", 
+                     "    CR2: ", util::hex(cr2), ", CR3: ", util::hex(cr3), "\n",
                      "    CS: ", r->cs, ", SS: ", r->ss, ", RFLAGS: ", r->rflags);
-                
+
                 if (r->int_no == 14) {
                     kmsg("# PF Flags: ");
                     if (r->err & (1 << 0)) { kmsg("  P"); } else { kmsg("  NP"); }
@@ -38,43 +46,53 @@ extern "C" {
 
                 while (true) { asm volatile("hlt"); }
             } else {
-                uint64_t cr2 = 0;
-                asm volatile("movq %%cr2, %0" : "=r"(cr2));
+                if (r->int_no == 14) {
+                    if (!memory::vmm::handle_pf(r)) {
+                        goto fault;
+                    } else {
+                        
+                        memory::vmm::write_cr3(cr3);
+                        goto end_isr;
+                    }
+                }
 
-                kmsg("Userspace exception: ", util::hex(r->int_no), ", ERR: ", util::hex(r->err), ", pid: ", smp::get_locals()->pid, ", tid: ", smp::get_locals()->tid);
-                kmsg("CR3:", util::hex(cr3), ", CR2: ", util::hex(cr2), ", RIP: ", util::hex(r->rip), ", RBP: ", util::hex(r->rbp), ", RSP: ", util::hex(r->rsp));
-                kmsg("RAX: ", r->rax, ", RBX: ", r->rbx, "\n",
-                     "    RCX: ", r->rcx, ", RDX: ", r->rdx, "\n", 
-                     "    RBP: ", util::hex(r->rbp), ", RDI: ", r->rdi, "\n",
-                     "    RSI: ", r->rsi, ", R8: ", r->r8, "\n",
-                     "    R9: ", r->r9, ", R10: ", r->r10, ", R11: ", r->r11, ", R12: ", r->r12, ", R13: ", r->r13, ", R14: ", r->r14, ", R15: ", r->r15, "\n"
-                     "    RSP: ", util::hex(r->rsp), ", ERR: ", util::hex(r->err), ", INT: ", util::hex(r->int_no), ", RIP: ", util::hex(r->rip), ", CR2: ", util::hex(cr2), "\n",
-                     "    CS: ", r->cs, ", SS: ", r->ss, ", RFLAGS: ", r->rflags);
+                fault:
+                    uint64_t cr2 = 0;
+                    asm volatile("movq %%cr2, %0" : "=r"(cr2));
 
-                sched::sched_lock.acquire();
+                    kmsg("Userspace exception: ", util::hex(r->int_no), ", ERR: ", util::hex(r->err), ", pid: ", smp::get_locals()->pid, ", tid: ", smp::get_locals()->tid);
+                    kmsg("CR3:", util::hex(cr3), ", CR2: ", util::hex(cr2), ", RIP: ", util::hex(r->rip), ", RBP: ", util::hex(r->rbp), ", RSP: ", util::hex(r->rsp));
+                    kmsg("RAX: ", r->rax, ", RBX: ", r->rbx, "\n",
+                        "    RCX: ", r->rcx, ", RDX: ", r->rdx, "\n",
+                        "    RBP: ", util::hex(r->rbp), ", RDI: ", r->rdi, "\n",
+                        "    RSI: ", r->rsi, ", R8: ", r->r8, "\n",
+                        "    R9: ", r->r9, ", R10: ", r->r10, ", R11: ", r->r11, ", R12: ", r->r12, ", R13: ", r->r13, ", R14: ", r->r14, ", R15: ", r->r15, "\n"
+                        "    RSP: ", util::hex(r->rsp), ", ERR: ", util::hex(r->err), ", INT: ", util::hex(r->int_no), ", RIP: ", util::hex(r->rip), ", CR2: ", util::hex(cr2), "\n",
+                        "    CS: ", r->cs, ", SS: ", r->ss, ", RFLAGS: ", r->rflags);
+                    if (r->int_no) {
+                        kmsg("# PF Flags: ");
+                        if (r->err & (1 << 0)) { kmsg("  P"); } else { kmsg("  NP"); }
+                        if (r->err & (1 << 1)) { kmsg("  W"); } else { kmsg("  R"); }
+                        if (r->err & (1 << 2)) { kmsg("  U"); } else { kmsg("  S"); }
+                        if (r->err & (1 << 3)) { kmsg("  RES"); }
+                    }
 
-                auto tid = smp::get_locals()->tid;
-                auto thread = sched::threads[tid];
-                thread->state = sched::thread::BLOCKED;
-                thread->cpu = -1;
-
-                sched::sched_lock.release();
-
-                smp::get_locals()->task = nullptr;
-                sched::swap_task(r);
-
-                sched::threads[tid] = (sched::thread *) 0;
-                frg::destruct(memory::mm::heap, thread);
-
+                    sched::signal::send_process(nullptr, smp::get_process(), SIGKILL);
+                    
+                    sched::swap_task(r);
             }
         }
-        
+
         if (irq::handlers[r->int_no]) {
             irq::handlers[r->int_no](r);
         }
-        
 
-        apic::lapic::eoi();
+        end_isr:
+            if (r->cs & 0x3) {
+                io::swapgs();
+            }
+
+            apic::lapic::eoi();
     }
 };
 
@@ -396,7 +414,7 @@ void irq::setup() {
     set_ist(30, 2);
     set_ist(31, 2);
     set_ist(251, 2);
-    /* IRQ Stacks (IST index 1) */
+    
     set_ist(32, 1);
     set_ist(253, 1);
 }

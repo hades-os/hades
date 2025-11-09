@@ -1,4 +1,3 @@
-#include "sys/sched.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <frg/allocation.hpp>
@@ -10,6 +9,7 @@
 #include <sys/irq.hpp>
 #include <sys/smp.hpp>
 #include <sys/x86/apic.hpp>
+#include <sys/sched/sched.hpp>
 #include <util/io.hpp>
 #include <util/lock.hpp>
 #include <util/log/log.hpp>
@@ -54,21 +54,6 @@ extern "C" {
     extern void smp64_start(stivale::boot::info::processor *_);
 };
 
-void initProcessor(smp::processor *cpu, stivale::boot::info::processor *stivale_cpu) {
-    if (!cpu->lid) {
-        io::wrmsr(smp::gsBase, cpu);
-        return;
-    }
-
-    auto stack = (size_t) memory::pmm::stack(smp::initialStackSize);
-    cpu->kstack = stack;
-    cpu->ctx = memory::vmm::boot();
-
-    stivale_cpu->extra_argument = (size_t) cpu;
-    stivale_cpu->target_stack = stack;
-    stivale_cpu->goto_address = (size_t) &smp64_start;
-}
-
 void smp::init() {
     irq::add_handler(&processorPanic, 251);
 
@@ -76,9 +61,18 @@ void smp::init() {
     for (auto stivale_cpu = procs->begin(); stivale_cpu != procs->end(); stivale_cpu++) {
         size_t lapic_id = stivale_cpu->lapic_id;
         auto processor = frg::construct<smp::processor>(memory::mm::heap, lapic_id);
-        
-        cpus.push_back(processor);
-        initProcessor(processor, stivale_cpu);
+        processor->kstack = (size_t) memory::pmm::stack(smp::initialStackSize);
+        processor->ctx = memory::vmm::boot();
+ 
+        if (!lapic_id) {
+            io::wrmsr(smp::gsBase, processor);
+            cpus.push_back(processor);
+            continue;
+        }
+
+        stivale_cpu->extra_argument = (size_t) processor;
+        stivale_cpu->target_stack = processor->kstack;
+        stivale_cpu->goto_address = (size_t) &smp64_start;
     }
 
     cpuBootupLock.await();

@@ -8,8 +8,8 @@
 #include <fs/dev.hpp>
 
 void vfs::devfs::init() {
-    vfs::mgr->mkdir("/dev", 0);
-    vfs::mgr->mount("/", "/dev", fslist::DEVFS, nullptr, mflags::NOSRC);
+    vfs::mkdir("/dev", 0, mode::RDWR);
+    vfs::mount("/", "/dev", fslist::DEVFS, nullptr, mflags::NOSRC);
     kmsg("[VFS] Initial devfs mounted.");
 }
 
@@ -30,7 +30,7 @@ static size_t atoi(const char *str) {
     return res;
 }
 
-static vfs::ssize_t check_spec(char *name) {
+static vfs::ssize_t find_part(char *name) {
     for (int i = 1; name[i] != '\0'; i++) {
         if (name[i] == 'p') {
             return i;
@@ -54,12 +54,12 @@ static vfs::path extract_name(vfs::path name) {
     }
 
     auto num_begin = name.begin() + split_idx;
-    auto spec_pos = check_spec(num_begin);
+    auto part_pos = find_part(num_begin);
 
     if (num_begin == name.end() - 1) {
         return frg::string_view{name}.sub_string(0, name.size() - 1);
-    } else if (spec_pos != -1) {
-        return frg::string_view{name}.sub_string(0, split_idx + spec_pos);
+    } else if (part_pos != -1) {
+        return frg::string_view{name}.sub_string(0, split_idx + part_pos);
     } else {
         return frg::string_view{name}.sub_string(0, split_idx);
     }
@@ -79,12 +79,12 @@ static vfs::ssize_t extract_part(vfs::path name) {
     }
 
     auto num_begin = name.begin() + split_idx;
-    auto spec_pos = check_spec(num_begin);
+    auto part_pos = find_part(num_begin);
 
     if (num_begin == name.end() - 1) {
         return num_begin[0] - '0';
-    } else if (spec_pos != -1) {
-        auto num = frg::string_view{name}.sub_string(split_idx + spec_pos + 1);
+    } else if (part_pos != -1) {
+        auto num = frg::string_view{name}.sub_string(split_idx + part_pos + 1);
         return atoi(num.data());
     } else {
         auto num = frg::string_view{name}.sub_string(split_idx);
@@ -104,7 +104,7 @@ bool in_use(vfs::path name) {
     }
 
     for (auto n : vfs::devfs::node_map[name]) {
-        if (vfs::mgr->in_use(n->get_path())) {
+        if (vfs::in_use(n->get_path())) {
             return true;
         }
     }
@@ -124,7 +124,7 @@ void vfs::devfs::rm(vfs::path name) {
     }
 
     for (auto n : node_map[name]) {
-        vfs::mgr->unlink(n->get_path());
+        vfs::unlink(n->get_path());
     }
 }
 
@@ -169,7 +169,7 @@ vfs::ssize_t vfs::devfs::remove(node *dest) {
     return 0;
 }
 
-vfs::node *vfs::devfs::lookup(const pathlist &filepath, vfs::path path, int64_t flags) {
+vfs::node *vfs::devfs::lookup(const pathlist &filepath, frg::string_view path, int64_t flags) {
     if (nodenames.contains(path)) {
         return nodenames[path];
     }
@@ -186,16 +186,8 @@ vfs::node *vfs::devfs::lookup(const pathlist &filepath, vfs::path path, int64_t 
         return nullptr;
     }
 
-    vfs::mgr->create(path, node::type::BLOCKDEV, 0xCAFEBABE | oflags::DYNAMIC);
+    vfs::insert_node(path, node::type::BLOCKDEV);
     return nodenames[path];
-}
-
-vfs::ssize_t vfs::devfs::create(path name, node *parent, node *nnode, int64_t type, int64_t flags) {
-    if (!(flags & 0xCAFEBABE)) {
-        return -error::INVAL;
-    }
-
-    return 0;
 }
 
 vfs::ssize_t vfs::devfs::read(node *file, void *buf, ssize_t len, ssize_t offset) {

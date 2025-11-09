@@ -1,3 +1,6 @@
+#include "mm/common.hpp"
+#include "sys/sched/mail.hpp"
+#include "sys/sched/signal.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <driver/ahci.hpp>
@@ -14,7 +17,8 @@
 #include <sys/pci.hpp>
 #include <sys/smp.hpp>
 #include <sys/irq.hpp>
-#include <sys/sched.hpp>
+#include <sys/sched/sched.hpp>
+#include <sys/pit.hpp>
 #include <util/stivale.hpp>
 #include <util/log/qemu.hpp>
 #include <util/log/serial.hpp>
@@ -37,33 +41,38 @@ void initarray_run() {
 	}
 }
 
-static void taskA() {
-    while (true) {
-        kmsg("Hello from Task A");
-    }
-}
-
-static void taskB() {
-    while (true) {
-
-    }
-}
-
 static void kern_task() {
-    auto taskAT = sched::create_thread(taskA, (uint64_t) memory::pmm::stack(2), memory::vmm::common::boot_ctx, 0);
+    auto ctx = (memory::vmm::vmm_ctx *) memory::vmm::create();
+    auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_USER | VMM_WRITE | VMM_MANAGED, (void *) ctx) + (4 * memory::common::page_size);
+    auto proc = sched::create_process("init", 0, stack, ctx, 3);
+    char *argv[] = { "/bin/init", NULL };
+    char *forkv[] = { "/bin/child", NULL };
+    char *envp[] = { "HOME=/", "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "TERM=linux", "FBDEV=/dev/fb0", NULL };
 
-    auto taskBTCtx = memory::vmm::create();
-    memory::vmm::map(0, (void *) memory::common::kernelBase, 8, VMM_PRESENT | VMM_LARGE | VMM_USER, taskBTCtx);
-    
-    if (memory::pmm::nr_pages * memory::common::page_size < VMM_4GIB) {
-        memory::vmm::map(0, (void *) memory::common::virtualBase, VMM_4GIB / memory::common::page_size_2MB, VMM_PRESENT | VMM_LARGE | VMM_WRITE | VMM_USER, taskBTCtx);
-    } else {
-        memory::vmm::map(0, (void *) memory::common::virtualBase, ((memory::pmm::nr_pages * memory::common::page_size) / memory::common::page_size_2MB), VMM_PRESENT | VMM_LARGE | VMM_WRITE | VMM_USER, taskBTCtx);
+    memory::vmm::change(proc->mem_ctx);
+    proc->env.load_elf("/sys/bin/init.elf");
+    proc->main_thread->reg.rip = proc->env.entry;
+
+    proc->env.place_params(envp, argv, proc->main_thread);
+    auto forked = sched::fork(proc, proc->main_thread);
+    auto other_forked = sched::fork(proc, proc->main_thread);
+
+    sched::signal::sigset_t newset = ~SIGMASK(SIGCHLD);
+    sched::signal::do_sigprocmask(proc, SIG_SETMASK, &newset, nullptr);
+
+    proc->start();
+    forked->start();
+    other_forked->start();
+
+    sched::exec(forked->main_thread, "/sys/bin/child.elf", forkv, envp);
+
+    sched::signal::send_process(nullptr, other_forked, SIGKILL);
+
+
+    for (;;) {
+        auto [exit_val, pid] = proc->waitpid(-1, proc->main_thread, 0);
+        kmsg("Pid: ", pid, ", reaped, exit status: ", exit_val);
     }
-
-    auto taskBT = sched::create_thread(taskB, (uint64_t) memory::pmm::stack(2), (memory::vmm::vmm_ctx *) taskBTCtx, 3);
-
-    sched::start_thread(taskBT);
 
     while (true) {
         asm volatile("hlt");
@@ -76,10 +85,10 @@ extern "C" {
         initarray_run();
         stivale::parser = {header};
 
-        kern >> log::loggers::qemu;
+        util::kern >> log::loggers::qemu;
         log::loggers::vesa::init(stivale::parser.fb());
-        kern >> log::loggers::vesa::log;
-        kern >> log::loggers::serial;
+        util::kern >> log::loggers::vesa::log;
+        util::kern >> log::loggers::serial;
 
         kmsg("Booted by ", header->brand, " version ", header->version);
 
@@ -103,20 +112,12 @@ extern "C" {
         vfs::devfs::init();
         ahci::init();
 
-        vfs::mgr->mount("/dev/sda1", "/", vfs::fslist::FAT, nullptr, vfs::mflags::OVERLAY);
-
-        auto file = vfs::mgr->open("/EFI/BOOT/BOOTX64.EFI", 0);
-        kmsg("BOOTX64.EFI FD: ", file);
-
-        auto buf = kmalloc(256);
-        auto res = vfs::mgr->read(file, buf, 256);
-
-        kmsg("READ BOOTX64.EFI: ", res);
-
+        vfs::mount("/dev/sda1", "/", vfs::fslist::FAT, nullptr, vfs::mflags::OVERLAY);
         sched::init();
+        pit::init();
 
         auto kern_thread = sched::create_thread(kern_task, (uint64_t) memory::pmm::stack(2), memory::vmm::common::boot_ctx, 0);
-        sched::start_thread(kern_thread);
+        kern_thread->start();
         
         irq::on();
         

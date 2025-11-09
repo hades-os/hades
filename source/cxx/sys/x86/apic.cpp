@@ -4,6 +4,7 @@
 #include <sys/x86/apic.hpp>
 #include <util/io.hpp>
 #include <util/log/log.hpp>
+#include <util/log/panic.hpp>
 
 namespace apic {
     acpi::madt::iso *get_iso(uint32_t gsi) {

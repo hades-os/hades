@@ -95,7 +95,7 @@ uint32_t vfs::fatfs::rw_entry(size_t cluster, bool rw, size_t val) {
                 val = val & 0x0FFFFFFF;
                 ((uint32_t *) fat)[fatEntOffset] &= 0xF0000000;
                 ((uint32_t *) fat)[fatEntOffset] |= val;
-                break; 
+                break;
         }
 
         devfs->write(this->source, fat, fatSz * this->superblock->bytesPerSec, this->superblock->rsvdSec);
@@ -105,7 +105,7 @@ uint32_t vfs::fatfs::rw_entry(size_t cluster, bool rw, size_t val) {
     return entry;
 }
 
-vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, ssize_t offset, ssize_t len, bool rw) {
+vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, ssize_t offset, ssize_t len, bool read_all, bool rw) {
     if (rw) {
         if (len <= 0) return {};
         size_t cluster_count = len / (superblock->bytesPerSec * superblock->secPerClus);
@@ -113,7 +113,7 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, ssize_t o
         for (size_t i = 0; i < cluster_count; i++) {
             cluster_chain.push_back(free_list.pop());
         }
-        
+
         size_t buf_offset = 0;
         size_t sec_offset = 0;
         const size_t clus_size = superblock->secPerClus * superblock->bytesPerSec;
@@ -136,25 +136,24 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, ssize_t o
         return {buf, (size_t) len, cluster_chain};
     } else {
         frg::vector<size_t, memory::mm::heap_allocator> cluster_chain{};
-        cluster_chain.push_back(begin);
+        uint32_t entry = begin;
+        if (offset) {
+            size_t skip_clusters = offset / (superblock->secPerClus * superblock->bytesPerSec);
+            do {
+                if (skip_clusters <= 0) cluster_chain.push_back(entry);
+                skip_clusters--;
 
-        uint32_t entry = rw_entry(begin);
-
-        size_t skip_clusters = offset / (superblock->secPerClus * superblock->bytesPerSec);
-        size_t skipped = 0;
-
-        while (!is_bad(entry) && !is_eof(entry)) {
-            if (offset) {
-                if (skipped < skip_clusters) cluster_chain.push_back(entry);
-                skipped++;
-            } else {
+                entry = rw_entry(entry);
+            } while (!is_bad(entry) && !is_eof(entry));
+        } else {
+            do {
                 cluster_chain.push_back(entry);
-            }
-
-            entry = rw_entry(entry);
+                entry = rw_entry(entry);
+            } while (!is_bad(entry) && !is_eof(entry));
         }
 
-        size_t ret_len = (superblock->bytesPerSec * superblock->secPerClus * cluster_chain.size()) - offset;
+        size_t clus_size = superblock->secPerClus * superblock->bytesPerSec;
+        size_t ret_len = clus_size * cluster_chain.size();
         char *clus_buf = (char *) kmalloc(ret_len);
 
         size_t fatSz = this->superblock->secPerFAT != 0 ? this->superblock->secPerFAT : this->superblock->ebr.nEBR.secPerFAT;
@@ -162,45 +161,40 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, ssize_t o
         size_t buf_offset = 0;
         size_t sec_offset = superblock->rsvdSec + (superblock->n_fat * fatSz) + (((superblock->n_root * 32) + (superblock->bytesPerSec - 1)) / superblock->bytesPerSec);
 
-        const size_t clus_size = superblock->secPerClus * superblock->bytesPerSec;
         for (size_t clus: cluster_chain) {
             if (devfs->read(this->source, clus_buf + buf_offset, clus_size, sec_offset + ((clus - 2) * superblock->secPerClus)) < 0) {
-                memory::mm::allocator::free(clus_buf);
+                kfree(clus_buf);
                 return {};
             }
 
-            if (len) {
-                if (buf_offset > len) break;
-            }
-
             buf_offset = buf_offset + clus_size;
+            if (!read_all && buf_offset > len) {    
+                break;
+            }
         }
 
         char *ret = nullptr;
         if (buf == nullptr) {
-            if (len) ret = (char *) kmalloc(len);
-            else  ret = (char *) kmalloc(ret_len);
+            if (!read_all) ret = (char *) kmalloc(len);
+            else ret = (char *) kmalloc(ret_len);
         } else {
             ret = (char *) buf;
         }
 
-        if (len) {
-            memcpy(ret, clus_buf, len);
-
+        if (!read_all) {
+            memcpy(ret, clus_buf + (offset % (superblock->secPerClus * superblock->bytesPerSec)), len);
+            kfree(clus_buf);
             return {ret, (size_t) len, {}};
-        } else {
-            memcpy(ret, clus_buf, ret_len);
         }
 
+        memcpy(ret, clus_buf, ret_len);
         kfree(clus_buf);
-
         return {ret, ret_len, {}};
     }
 }
 
 void vfs::fatfs::init_fs(node *root, node *source) {
     filesystem::init_fs(root, source);
-
     static constexpr size_t BLKLMODE = 0x126;
 
     this->devfs = this->source->get_fs();
@@ -211,7 +205,7 @@ void vfs::fatfs::init_fs(node *root, node *source) {
     devfs->read(device, this->superblock, 512, 0);
 
     size_t rootDirSectors = ((this->superblock->n_root * 32) + (this->superblock->bytesPerSec - 1)) / this->superblock->bytesPerSec;
-    
+
     size_t fatSz = this->superblock->secPerFAT != 0 ? this->superblock->secPerFAT : this->superblock->ebr.nEBR.secPerFAT;
     size_t totSec = this->superblock->n_sectors != 0 ? this->superblock->n_sectors : this->superblock->large_sectors;
 
@@ -241,38 +235,52 @@ void vfs::fatfs::init_fs(node *root, node *source) {
     this->last_free = -1;
 }
 
-bool is_name_eq(const char *name, const char *ref, size_t ref_len) {
-    auto nameLength = frg::min((size_t) 7, ref_len);
-    auto extLength = frg::min((size_t) 3, ref_len);
+bool fat_name_matches(const char *name, const char *other, size_t other_len) {
+    char tmp[11] = "";
 
-    auto hasExt = ref_len > 8;
+    size_t name_length = 0;
+    auto s1 = name;
+    while (*s1 != 0x20 && name_length < 8) {
+        s1++;
+        name_length++;
+    }
+    memcpy(tmp, name, name_length);
 
-    auto matchesName = strncmp(name, ref, nameLength) == 0;
-    auto matchesExt = hasExt ? strncmp(name + 8, ref + 8, extLength) == 0 : true;
+    size_t ext_length = 0;
+    auto s2 = name + 8;
+    while (*s2 != 0x20 && ext_length < 3) {
+        s2++;
+        ext_length++;
+    }
 
-    return matchesExt && matchesName;
+    if (ext_length > 0) {
+        tmp[name_length] = '.';
+        memcpy(tmp + name_length + 1, name + 8, ext_length);
+    }
+
+    auto matches = strncasecmp(tmp, other, 11) == 0;
+    return matches;
 }
 
-vfs::node *vfs::fatfs::lookup(const pathlist &filepath, vfs::path path, int64_t flags) {
+vfs::node *vfs::fatfs::lookup(const pathlist &filepath, frg::string_view path, int64_t flags) {
     if (nodenames.contains(path)) return nodenames[path];
- 
+
     fatEntry *ents = nullptr;
     size_t numEnts = 0;
     // we will populate the tree as we go along to avoid re-reads
     switch (this->type) {
         case FAT32: {
             size_t rootClus = this->superblock->ebr.nEBR.rootClus;
-            kmsg("RootClus: ", rootClus);
+            auto res = rw_clusters(rootClus, nullptr, 0, 0, true);
 
-            auto res = rw_clusters(rootClus, nullptr);
-            
             ents = (fatEntry *) res.get<0>();
             numEnts = res.get<1>() / sizeof(fatEntry);
+
+            break;
         }
 
-        default: break;
+        default: return nullptr;
     }
-
 
     vfs::path current_path = filepath[0];
     vfs::node *current_node = this->root;
@@ -284,7 +292,7 @@ vfs::node *vfs::fatfs::lookup(const pathlist &filepath, vfs::path path, int64_t 
             if ((uint8_t) ent.name[0] == 0xE5) continue;
 
             uint8_t attrs = ent.attr & 0x3F;
-            if (is_name_eq(ent.name, filepath[i].data(), filepath[i].size())) {
+            if (fat_name_matches(ent.name, filepath[i].data(), filepath[i].size())) {
                 // not yet there
                 if (i != filepath.size() - 1) {
                     if (!(attrs & 0x10)) return nullptr;
@@ -292,8 +300,8 @@ vfs::node *vfs::fatfs::lookup(const pathlist &filepath, vfs::path path, int64_t 
                     uint32_t clus = ent.clus_lo;
                     if (this->type == FAT32) clus |= (ent.clus_hi << 16);
 
-                    auto res = rw_clusters(clus, nullptr);
-            
+                    auto res = rw_clusters(clus, nullptr, 0, 0, true);
+
                     ents = (fatEntry *) res.get<0>();
                     numEnts = res.get<1>() / sizeof(fatEntry);
 
@@ -303,7 +311,7 @@ vfs::node *vfs::fatfs::lookup(const pathlist &filepath, vfs::path path, int64_t 
 
                     nodenames[current_path] = current_node;
 
-                    joinPaths(current_path, filepath[i]);
+                    append_paths(current_path, filepath[i]);
                     break;
                 } else {
                     if (attrs & 0x10) return nullptr;
@@ -311,9 +319,7 @@ vfs::node *vfs::fatfs::lookup(const pathlist &filepath, vfs::path path, int64_t 
                     uint32_t clus = ent.clus_lo;
                     if (this->type == FAT32) clus |= (ent.clus_hi << 16);
 
-                    auto res = rw_clusters(clus, nullptr);
-
-                    kmsg("File found: ", ent.name, ", size: ", ent.size);
+                    auto res = rw_clusters(clus, nullptr, 0, 0, true);
 
                     current_node = frg::construct<vfs::node>(memory::mm::heap, this, filepath[i], current_path, current_node, 0, node::type::FILE);
                     current_node->stat()->st_ino = clus;
@@ -333,11 +339,6 @@ vfs::node *vfs::fatfs::lookup(const pathlist &filepath, vfs::path path, int64_t 
 vfs::ssize_t vfs::fatfs::read(node *file, void *buf, ssize_t len, ssize_t offset) {
     auto clus = file->stat()->st_ino;
     auto res = rw_clusters(clus, buf, offset, len);
-
-    auto bytes = res.get<1>();
-    if (bytes < 0) {
-        return -error::IO;
-    }
 
     return res.get<1>();
 }

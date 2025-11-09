@@ -5,8 +5,12 @@ main_sources = files(
 	'source/cxx/sys/pci.cpp',
 	'source/cxx/sys/smp.cpp',
 	'source/cxx/sys/irq.cpp',
-	'source/cxx/sys/sched.cpp',
+	'source/cxx/sys/sched/sched.cpp',
+    'source/cxx/sys/sched/mail.cpp',
+    'source/cxx/sys/sched/signal.cpp',
+    'source/cxx/sys/pit.cpp',
 	'source/cxx/sys/runtime.cpp',
+    'source/cxx/sys/syscall.cpp',
     'source/cxx/entry.cpp',
     'source/cxx/mm/ctx.cpp',
 	'source/cxx/mm/mm.cpp',
@@ -17,12 +21,16 @@ main_sources = files(
 	'source/cxx/fs/dev.cpp',
 	'source/cxx/fs/fat.cpp',
 	'source/cxx/driver/ahci.cpp',
-	'source/cxx/driver/part.cpp'
+	'source/cxx/driver/part.cpp',
+    'source/cxx/driver/keyboard.cpp',
+    'source/cxx/util/elf.cpp',
+    'source/cxx/util/ring.cpp'
 )
 main_includes = include_directories('include')
 nasm_sources = files(
     'source/asm/boot.asm',
-    'source/asm/irq.asm'
+    'source/asm/irq.asm',
+    'source/asm/syscall.asm'
 )
 
 nasm = find_program('nasm')
@@ -37,7 +45,7 @@ flags_cpp = [
     '-std=gnu++20',
 	'-I$(INCLUDE)',
 	'-ggdb',
-	'-O0',
+	'-O3',
 	'-ffreestanding',
 	'-fdiagnostics-color=always',
 	'-fno-stack-protector',
@@ -67,7 +75,7 @@ flags_ld = [
 make_elf = executable('hades.elf', main_sources, nasm_objects, include_directories: main_includes, link_depends: ld_script, install: true, cpp_args: flags_cpp, link_args: flags_ld, build_by_default: false)
 
 script_path = join_paths(meson.source_root(), 'scripts', 'post.py')
-make_hades = custom_target(
+custom_target(
 	'hades',
 	depends: make_elf,
 	input: make_elf,
@@ -77,6 +85,8 @@ make_hades = custom_target(
 		'-k', make_elf,
 		
 		'-s', join_paths(meson.source_root(), 'source'),
+        '-r', join_paths(meson.source_root(), 'sys'),
+
 		'-b', meson.build_root(),
 	],
 	build_by_default: true

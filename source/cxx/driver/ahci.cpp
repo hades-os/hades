@@ -10,6 +10,7 @@
 #include <mm/pmm.hpp>
 #include <sys/pci.hpp>
 #include <util/log/log.hpp>
+#include <util/log/panic.hpp>
 #include <util/string.hpp>
 
 uint8_t port_type(volatile ahci::port *port) {
@@ -64,7 +65,7 @@ ahci::ssize_t find_cmdslot(volatile ahci::port *port) {
     return -1;
 }
 
-void free_command(ahci::command_entry *command, uint64_t fis_size) {
+void free_command(ahci::command_entry *command) {
     kfree(command);
 }
 
@@ -245,7 +246,7 @@ void ahci::device::identify_sata() {
         kmsg("[AHCI] Identify Error: ", error);
 
         reset_engine(port);
-        free_command(slot.entry, get_fis_size(1));
+        free_command(slot.entry);
         return;
     }
 
@@ -254,7 +255,7 @@ void ahci::device::identify_sata() {
         kmsg("[AHCI] Identify Error: ", error);
 
         reset_engine(port);
-        free_command(slot.entry, get_fis_size(1));
+        free_command(slot.entry);
 
         exists = false;
         memory::pmm::free(id_mem, 1);
@@ -277,7 +278,7 @@ void ahci::device::identify_sata() {
     exists = true;
     block_size = sector_size;
     blocks = sectors;
-    free_command(slot.entry, get_fis_size(1));
+    free_command(slot.entry);
     memory::pmm::free(id_mem, 1);
 
     kmsg("[AHCI] Identify succeeded");
@@ -295,7 +296,7 @@ ahci::ssize_t ahci::device::read_write(void *buf, uint16_t count, size_t offset,
 
     if (slot.idx == -1) {
         kmsg("[AHCI] No free command slots.");
-        free_command(slot.entry, get_fis_size(prdt_count + 1));
+        free_command(slot.entry);
 
         return -vfs::error::IO;
     }
@@ -356,7 +357,7 @@ ahci::ssize_t ahci::device::read_write(void *buf, uint16_t count, size_t offset,
 
         reset_engine(port);
 
-        free_command(slot.entry, get_fis_size(prdt_count + 1));
+        free_command(slot.entry);
         return -vfs::error::IO;
     }
 
@@ -366,12 +367,12 @@ ahci::ssize_t ahci::device::read_write(void *buf, uint16_t count, size_t offset,
         kmsg("[AHCI] Transfer Error: ", error);
         
         reset_engine(port);
-        free_command(slot.entry, get_fis_size(prdt_count + 1));
+        free_command(slot.entry);
 
         return -vfs::error::IO;
     }
 
-    free_command(slot.entry, get_fis_size(prdt_count + 1));
+    free_command(slot.entry);
     return count * sector_size;
 }
 
@@ -447,7 +448,7 @@ ahci::ssize_t ahci::device::ioctl(size_t req, void *buf) {
 }
 
 void ahci::init() {
-    auto pci_device = pci::get_device(AHCI_CLASS, AHCI_SUBCLASS, AHCI_PROG_IF);
+    auto pci_device= pci::get_device(AHCI_CLASS, AHCI_SUBCLASS, AHCI_PROG_IF);
     if (!pci_device) {
         kmsg("[AHCI] No AHCI Controller avalilable.");
         return;

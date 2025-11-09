@@ -6,6 +6,7 @@
 #include <util/log/log.hpp>
 #include <util/stivale.hpp>
 #include <util/string.hpp>
+#include <util/log/panic.hpp>
 
 memory::pmm::block *next_block(memory::pmm::block *block) {
     return (memory::pmm::block *)(((char *) block) + block->sz);
@@ -280,7 +281,7 @@ void memory::pmm::free(void *address, size_t req_pages) {
 
     pmm::allocation *alloc = (pmm::allocation *) (((char *) address) - common::page_size);
     pmm::region *reg = alloc->reg;
-    free_block(reg, address);
+    free_block(reg, alloc);
 
     pmm_lock.release();
 }

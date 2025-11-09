@@ -4,14 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <util/lock.hpp>
-#include <sys/smp.hpp>
 #include <sys/irq.hpp>
 #include <sys/x86/apic.hpp>
 #include <util/io.hpp>
 
 namespace util {
     static constexpr auto endl = "\n";
-    static constexpr auto pfx = "[8086] ";
 
     template<typename T>
     static constexpr void *hex(T val) {
@@ -126,47 +124,16 @@ namespace util {
                 return *this;
             } 
     };
-};
-
-// global kernel log
-inline util::stream kern{};
-
-namespace {
+    
     inline util::lock log_lock{};
+    inline util::stream kern{};
 };
-
-inline void send_panic_ipis() {
-    auto info = smp::get_locals();
-    for (auto cpu : smp::cpus) {
-        if (info->lid == cpu->lid) {
-            continue;
-        }
-        
-        apic::lapic::ipi(cpu->lid, 251);
-    }
-}
-
-template<typename... Args>
-[[noreturn]]
-void panic(const Args& ...args) {
-    irq::off();
-    send_panic_ipis();
-
-    log_lock.acquire();
-    ((kern << "[P] ") << ... << args) << util::endl;
-
-    log_lock.release();
-
-    while (true) {
-        asm volatile("pause");
-    }
-}
 
 template<typename... Args>
 void kmsg(const Args& ...args) {
-    log_lock.acquire();
-    ((kern << "[K] " )<< ... << args) << util::endl;
-    log_lock.release();
+    util::log_lock.irq_acquire();
+    ((util::kern << "[K] " )<< ... << args) << util::endl;
+    util::log_lock.irq_release();
 }
 
 #endif

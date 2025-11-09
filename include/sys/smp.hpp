@@ -1,13 +1,13 @@
 #ifndef SMP_HPP
 #define SMP_HPP
 
-#include "sys/sched.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
 #include <sys/acpi.hpp>
+#include <sys/sched/sched.hpp>
 #include <util/lock.hpp>
 
 namespace smp {
@@ -56,12 +56,12 @@ namespace smp {
     constexpr size_t fsBase = 0xC0000100;
     constexpr size_t gsBase = 0xC0000101;
 
-    struct processor {
-        uint64_t meta_pointer;
-        size_t lid;
+    struct [[gnu::packed]] processor {
+        uintptr_t kstack;
+        uintptr_t ustack;
+        int errno;
 
-        size_t kstack;
-        size_t ustack;
+        size_t lid;
 
         smp::tss::entry tss;
 
@@ -76,7 +76,7 @@ namespace smp {
 
         void *ctx;
 
-        processor(size_t lid) : meta_pointer((uint64_t) this), lid(lid) { }
+        processor(size_t lid) : lid(lid) { }
     };
 
     inline frg::vector<processor *, memory::mm::heap_allocator> cpus{};

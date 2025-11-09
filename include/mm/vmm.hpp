@@ -7,6 +7,7 @@
 #include <util/lock.hpp>
 #include <frg/vector.hpp>
 #include <frg/rbtree.hpp>
+#include <sys/irq.hpp>
 
 #define VMM_PRESENT (1 << 0)
 #define VMM_WRITE (1 << 1)
@@ -76,8 +77,8 @@ namespace memory {
                             bool is_unmanaged;
                             frg::rbtree_hook hook;
                             struct callback_obj {
-                                void *(*map)(void *virt, bool huge_page, void *map) = nullptr;
-                                void (*unmap)(void *virt, bool huge_page, void *map) = nullptr;
+                                bool *(*map)(void *virt, bool huge_page, void *map) = nullptr;
+                                bool (*unmap)(void *virt, bool huge_page, void *map) = nullptr;
                             };
                             mapping::callback_obj callbacks;
 
@@ -93,9 +94,17 @@ namespace memory {
                     uint8_t delete_hole(void *addr, uint64_t len);
 
                     void *unmanaged_mapping(void *addr, uint64_t len, uint64_t flags);
+                    void *split_mapping(void *addr, uint64_t len);
                     void *create_mapping(void *addr, uint64_t len, uint64_t flags);
                     void *create_mapping(void *addr, uint64_t len, uint64_t flags, mapping::callback_obj callbacks);
 
+                    mapping *get_mapping(void *addr);
+                    mapping *get_mappings() { return this->mappings.first(); };
+                    mapping *get_next(mapping *node) { return this->mappings.successor(node); };
+
+                    void copy_mappings(vmm_ctx *other);
+
+                    void delete_mapping(mapping *node);
                     void *delete_mapping(void *addr, uint64_t len);
                 private:
                     struct mapping_comparator {
@@ -120,6 +129,9 @@ namespace memory {
             namespace x86 {
                 void *_map(void *phys, void *virt, uint64_t flags, void *ptr);
                 void *_map2(void *phys, void *virt, uint64_t flags, void *ptr);
+
+                void *_get(void *virt, void *ptr);
+                void *_get2(void *virt, void *ptr);
 
                 void *_unmap(void *virt, void *ptr);
                 void *_unmap2(void *virt, void *ptr);
@@ -150,6 +162,7 @@ namespace memory {
 
             uint64_t read_cr3();
             void write_cr3(uint64_t map);
+            bool handle_pf(irq::regs *r);
 
             void *map(void *virt, uint64_t len, uint64_t flags, void *ptr);
             void *map(void *virt, uint64_t len, uint64_t flags, void *ptr, vmm::vmm_ctx::mapping::callback_obj callbacks);

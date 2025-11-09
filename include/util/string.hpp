@@ -43,6 +43,28 @@ extern "C" {
         return !n ? 0 : *s1 - *s2;
     }
 
+    inline int tolower(unsigned char ch) {
+        if (ch >= 'A' && ch <= 'Z')
+            ch = 'a' + (ch - 'A');
+        return ch;
+    }
+
+    inline size_t strncasecmp(const char *s1, const char *s2, size_t n) {
+        if (n != 0) {
+            const unsigned char *us1 = (const uint8_t *) s1;
+            const unsigned char *us2 = (const uint8_t *) s2;
+
+            do {
+                if (tolower(*us1) != tolower(*us2++))
+                    return (tolower(*us1) - tolower(*--us2));
+                if (*us1++ == '\0')
+                    break;
+            } while (--n != 0);
+        }
+
+        return 0;
+    }
+
     inline size_t strcmp(const char *s1, const char *s2) {
         while(*s1 && (*s1 == *s2)) {
             s1++;
@@ -63,7 +85,7 @@ extern "C" {
         return len;
     }
 
-    inline char *strcpy(const char *src, const char *dst) {
+    inline char *strcpy(const char *dst, const char *src) {
         char *source = (char *) src;
         char *dest = (char *) dst;
         while ((*dest++ = *source++));
