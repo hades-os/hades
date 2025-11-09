@@ -334,7 +334,7 @@ ahci::ssize_t ahci::device::read(void *buf, ssize_t count, ssize_t offset) {
     if ((err = read_write(tmp, sector_count, sector_start, false)) != count) {
         kfree(tmp);
         kmsg("[AHCI] Failed to read ", count, " Bytes from disk ", id, " error code ", err);
-        return -vfs::error::IO;;
+        return -vfs::error::IO;
     }
 
     memcpy(buf, tmp + sector_offset, count);

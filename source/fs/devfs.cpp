@@ -248,7 +248,7 @@ vfs::ssize_t vfs::devfs::ioctl(node *file, size_t req, void *buf) {
             device->part_list.clear(); 
             return part::probe(device);
         case BLKLMODE:
-            device->lmode = true;
+            device->lmode = !device->lmode;
             return 0;
         default:
             return device->ioctl(req, buf);
