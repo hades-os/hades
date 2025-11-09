@@ -220,8 +220,8 @@ void kb::init() {
     disable();
     flush();
 
-    irq::add_handler(&ps2_handler, 35);
-    apic::ioapic::route(0, 1, 35, false);
+    irq::add_handler(&ps2_handler, irq::IRQ0 + 1);
+    apic::ioapic::route(0, 1, irq::IRQ0 + 1, false);
 
     enable();
 }

@@ -123,6 +123,8 @@ int sched::signal::wait_signal(thread *task, queue *sig_queue, sigset_t sigmask,
         frg::destruct(memory::mm::heap, msg);
         break;
     }
+
+    return 0;
 }
 
 bool sched::signal::check_perms(process *sender, process *target) {

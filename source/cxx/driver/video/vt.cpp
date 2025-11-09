@@ -123,13 +123,11 @@ void vt::init(stivale::boot::tags::framebuffer info) {
 
     for (size_t i = 0; i < vt_ttys; i++) {
         auto tty = frg::construct<tty::device>(memory::mm::heap);
-        tty->name = vfs::path("tty") + (i + 48);
         tty->driver = driver;
         tty->major = tty::major;
         tty->minor = i;
 
-        kmsg("Name: ", tty->name.data());
-
-        vfs::devfs::add(tty);
+        auto vt_path = vfs::path("tty") + (i + 48);
+        vfs::devfs::add(vt_path, tty);
     }
 }

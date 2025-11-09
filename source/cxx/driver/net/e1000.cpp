@@ -1,6 +1,8 @@
+#include "acpispec/resources.h"
 #include "driver/net/arp.hpp"
 #include "driver/net/ip.hpp"
 #include "driver/net/types.hpp"
+#include "lai/helpers/pci.h"
 #include "mm/pmm.hpp"
 #include "sys/pci.hpp"
 #include "sys/x86/apic.hpp"
@@ -104,7 +106,7 @@ void e1000::device::reset() {
 }
 
 void e1000::device::rx_init() {
-    uint8_t *rx_base = (uint8_t *) memory::pmm::alloc((sizeof(rx_desc) * rx_max) / memory::common::page_size);
+    uint8_t *rx_base = (uint8_t *) memory::pmm::alloc(((sizeof(rx_desc) * rx_max) / memory::common::page_size) + 1);
 
     rx_desc *descs = (rx_desc *) rx_base;
     for (size_t i = 0; i < rx_max; i++) {
@@ -129,7 +131,7 @@ void e1000::device::rx_init() {
 }
 
 void e1000::device::tx_init() {
-    uint8_t *tx_base = (uint8_t *) memory::pmm::alloc((sizeof(tx_desc) * tx_max));
+    uint8_t *tx_base = (uint8_t *) memory::pmm::alloc(((sizeof(tx_desc) * tx_max) / memory::common::page_size) + 1);
 
     tx_desc *descs = (tx_desc *) tx_base;
     for (size_t i = 0; i < tx_max; i++) {
@@ -206,16 +208,20 @@ void e1000::device::arp_send(net::mac dest_mac, uint32_t dest_ip) {
 
     arp_pkt->op = net::htons(net::pkt::arp_res);
 
-    memcpy(arp_pkt->src_addr, mac, 6);
+    memcpy(arp_pkt->src_addr, mac, net::eth_alen);
     arp_pkt->src_ip = net::ipv4_aton(ipv4_addr);
 
-    memcpy(arp_pkt->dest_addr, dest_mac, 6);
+    memcpy(arp_pkt->dest_addr, dest_mac, net::eth_alen);
     arp_pkt->dest_ip = dest_ip;
 
     send(eth_pkt, eth_pkt_len);    
 }
 
 void e1000::device::arp_handle(void *pkt, size_t len) {
+    if (len != 28) {
+        return;
+    }
+
     net::pkt::arp_eth_ipv4 *arp_pkt = (net::pkt::arp_eth_ipv4 *) pkt;
 
     uint16_t host_type = net::ntohs(arp_pkt->host_type);
@@ -250,11 +256,13 @@ void e1000::device::arp_handle(void *pkt, size_t len) {
             uint32_t src_ip = net::ntohl(arp_pkt->src_ip);
 
             if (arp_table.contains(src_ip)) {
+                uint8_t *old_mac = arp_table[src_ip];
                 arp_table.remove(src_ip);
+                kfree(old_mac);
             }
 
-            uint8_t *arp_mac = (uint8_t *) kmalloc(6);
-            memcpy(arp_mac, src_mac, 6);
+            uint8_t *arp_mac = (uint8_t *) kmalloc(net::eth_alen);
+            memcpy(arp_mac, src_mac, net::eth_alen);
 
             arp_table.insert(src_ip, arp_mac);
 
@@ -371,6 +379,7 @@ void e1000::init() {
     pci::bar net_bar;
     if (!pci_dev->read_bar(0, net_bar)) {
         kmsg("[NET]: E1000: Invalid BAR0");
+        return;
     }
 
     uint8_t bar_type = net_bar.is_mmio;
@@ -390,11 +399,19 @@ void e1000::init() {
     net_dev->has_eeprom = false;
 
     // TODO: ioctl to configure the gateway
-    net_dev->ipv4_gateway = "10.0.2.2";
-    net_dev->ipv4_addr = "10.0.2.15";
+    net_dev->ipv4_gateway = (char *) "192.168.100.1";
+    net_dev->ipv4_addr = (char *) "192.168.100.2";
 
-    apic::ioapic::route(0, pci_dev->read_irq(), 36, 0);
-    irq::add_handler(e1000::irq_handler, 36);
+    acpi_resource_t irq_resource;
+    auto err = lai_pci_route_pin(&irq_resource, 0, pci_dev->get_bus(), pci_dev->get_slot(), pci_dev->get_func(), pci_dev->read_pin());
+    if (err > 0) {
+        kmsg("[NET]: E1000: Unable to initialize interrupts");
+        frg::destruct(memory::mm::heap, net_dev);
+        return;
+    }
+
+    apic::ioapic::route(0, irq_resource.base, irq::IRQ0 + 2, 0);
+    irq::add_handler(e1000::irq_handler, irq::IRQ0 + 2);
 
     net_dev->init();
     kmsg("[NET]: E1000 device initialized");

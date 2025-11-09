@@ -2,6 +2,8 @@
 #include "driver/net/e1000.hpp"
 #include "driver/tty/tty.hpp"
 #include "driver/tty/pty.hpp"
+#include "lai/core.h"
+#include "lai/helpers/sci.h"
 #include "mm/common.hpp"
 #include "sys/sched/mail.hpp"
 #include "sys/sched/signal.hpp"
@@ -50,10 +52,10 @@ static void run_init() {
     auto ctx = (memory::vmm::vmm_ctx *) memory::vmm::create();
     auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_USER | VMM_WRITE | VMM_MANAGED, (void *) ctx) + (4 * memory::common::page_size);
 
-    auto proc = sched::create_process("init", 0, stack, ctx, 3);
-    char *argv[] = { "/bin/init", NULL };
-    char *envp[] = { "HOME=/", "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "TERM=linux", "FBDEV=/dev/fb0", NULL };
-    proc->cwd = vfs::resolve_abs("/bin");
+    auto proc = sched::create_process((char *) "init", 0, stack, ctx, 3);
+    char *argv[] = { (char *)"/bin/init", NULL };
+    char *envp[] = { (char *) "HOME=/", (char *) "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", (char *) "TERM=linux", (char *) "FBDEV=/dev/fb0", NULL };
+    proc->cwd = vfs::resolve_at("/bin", nullptr);
 
     memory::vmm::change(proc->mem_ctx);
     proc->env.load_elf("/bin/init.elf");
@@ -64,33 +66,37 @@ static void run_init() {
 }
 
 static void show_splash(vfs::fd_table *table) {
-    auto splash_fd = vfs::open("/home/racemus/hades.bmp", table, 0, vfs::mode::RDONLY);
+    auto splash_fd = vfs::open(nullptr, "/home/racemus/hades.bmp", table, 0, vfs::mode::RDONLY);
 
     auto info = frg::construct<vfs::node::statinfo>(memory::mm::heap);
-    vfs::lstat("/home/racemus/hades.bmp", info);
+    vfs::lstat(nullptr, "/home/racemus/hades.bmp", info);
      
     auto buffer = kmalloc(info->st_size);
     vfs::read(splash_fd, buffer, info->st_size);
 
     video::vesa::display_bmp(buffer, info->st_size);
+
     run_init();
 }
 
 static void kern_task() {
+    lai_create_namespace();
+    lai_enable_acpi(1);
+
     vfs::init();
     vfs::devfs::init();
     ahci::init();
-    vfs::mount("/dev/sda1", "/", vfs::fslist::FAT, nullptr, vfs::mflags::OVERLAY);
+    vfs::mount("/dev/sda2", "/", vfs::fslist::FAT, 0);
 
     e1000::init();
 
-/*    kb::init();
+    kb::init();
     tty::self::init();
     tty::ptmx::init();
-
+    
     auto boot_table = vfs::make_table();
-    show_splash(boot_table); */
-
+    show_splash(boot_table);
+ 
     while (true) {
         asm volatile("hlt");
     }
@@ -129,7 +135,7 @@ extern "C" {
         sched::init();
         pit::init();
 
-        auto kern_thread = sched::create_thread(kern_task, (uint64_t) memory::pmm::stack(2), memory::vmm::common::boot_ctx, 0);
+        auto kern_thread = sched::create_thread(kern_task, (uint64_t) memory::pmm::stack(4), memory::vmm::common::boot_ctx, 0);
         kern_thread->start();
         
         irq::on();

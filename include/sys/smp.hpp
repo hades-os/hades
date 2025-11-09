@@ -71,9 +71,6 @@ namespace smp {
         sched::thread *task;
         sched::process *proc;
 
-        frg::vector<sched::thread *, memory::mm::heap_allocator> tasks{};
-        frg::vector<sched::thread *, memory::mm::heap_allocator> sleep_queue{};
-
         void *ctx;
 
         processor(size_t lid) : lid(lid) { }

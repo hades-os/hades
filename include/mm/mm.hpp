@@ -9,7 +9,6 @@ namespace memory {
     namespace mm {
         namespace allocator {
             void *malloc(size_t req_size);
-            void *realloc(void *p, size_t size);
             void *calloc(size_t nr_items, size_t size);
             void free(void *ptr);
         };
@@ -38,10 +37,6 @@ namespace memory {
 
 inline void *kmalloc(size_t length) {
     return memory::mm::allocator::malloc(length);
-}
-
-inline void *krealloc(void *ptr, size_t length) {
-    return memory::mm::allocator::realloc(ptr, length);
 }
 
 inline void *kcalloc(size_t nr_items, size_t size) {

@@ -69,7 +69,7 @@ void fb::init(stivale::boot::tags::framebuffer *info) {
     vfs::devfs::add(device);
 }
 
-vfs::ssize_t fb::device::read(void *buf, ssize_t count, ssize_t offset) {
+vfs::ssize_t fb::device::read(void *buf, size_t count, size_t offset) {
     if (offset + count > linux_compat.fix->smem_len) {
         count = linux_compat.fix->smem_len - offset;
     }
@@ -78,7 +78,7 @@ vfs::ssize_t fb::device::read(void *buf, ssize_t count, ssize_t offset) {
     return count;
 }
 
-vfs::ssize_t fb::device::write(void *buf, ssize_t count, ssize_t offset) {
+vfs::ssize_t fb::device::write(void *buf, size_t count, size_t offset) {
     if (offset + count > linux_compat.fix->smem_len) {
         count = linux_compat.fix->smem_len - offset;
     }
@@ -107,6 +107,6 @@ vfs::ssize_t fb::device::ioctl(size_t req, void *buf) {
     return 0;
 }
 
-void *fb::device::mmap(vfs::node *file, void *addr, ssize_t len, ssize_t offset) {
+void *fb::device::mmap(vfs::node *file, void *addr, size_t len, size_t offset) {
     return (void *)(linux_compat.fix->smem_start + offset);
 }

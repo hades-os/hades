@@ -6,14 +6,17 @@
 #include <cstddef>
 #include <driver/tty/pty.hpp>
 
+util::lock ptmx_lock{};
+size_t last_pts = 0;
+size_t last_ptm = 0;
+
 void tty::ptmx::init() {
     ptmx *device = frg::construct<ptmx>(memory::mm::heap);
     device->blockdev = false;
     device->major = ptmx_major;
     device->minor = ptmx_minor;
-    device->name = "ptmx";
 
-    vfs::devfs::add(device);    
+    vfs::devfs::add("ptmx", device);
 }
 
 tty::ssize_t tty::ptmx::on_open(vfs::fd *fd, tty::ssize_t flags) {
@@ -25,10 +28,13 @@ tty::ssize_t tty::ptmx::on_open(vfs::fd *fd, tty::ssize_t flags) {
     tty::ptm *ptm = frg::construct<tty::ptm>(memory::mm::heap);
 
     ptm->resolveable = false;
-    ptm->name = vfs::path("ptm") + ((last_ptm++) + 48);
     ptm->slave = pts;
-    vfs::devfs::add(ptm);
-    vfs::node *ptm_node = frg::construct<vfs::node>(memory::mm::heap, fd->desc->node->get_fs(), ptm->name, "", fd->desc->node, 0, vfs::node::type::CHARDEV);
+
+    vfs::node *ptm_node = frg::construct<vfs::node>(memory::mm::heap, fd->desc->node->get_fs(), "", fd->desc->node, 0, vfs::node::type::CHARDEV);
+    ptm_node->resolveable = false;
+    ptm_node->private_data = (void *) ptm;
+    ptm->file = ptm_node;
+
     fd->desc->node = ptm_node;
 
     pts_tty->driver = pts;
@@ -38,11 +44,10 @@ tty::ssize_t tty::ptmx::on_open(vfs::fd *fd, tty::ssize_t flags) {
     pts->has_flush = true;
     pts->has_ioctl = true;
 
-    vfs::path pts_path("/dev/pts/");
+    auto pts_path = vfs::path("pts/") + (slave_no + 48);;
     pts_path += slave_no;
-    pts_tty->name = vfs::path("") + (slave_no + 48);
-    vfs::devfs::add(pts_tty);
-    vfs::insert_node(pts_path, vfs::node::type::CHARDEV);
+
+    vfs::devfs::add(pts_path, pts_tty);
 
     ptmx_lock.irq_release();
 
@@ -66,8 +71,8 @@ void tty::pts::flush(tty::device *tty) {
     tty->out_lock.irq_release();
 }
 
-tty::ssize_t tty::ptm::read(void *buf, ssize_t len, ssize_t offset) {
-    ssize_t count;
+tty::ssize_t tty::ptm::read(void *buf, size_t len, size_t offset) {
+    size_t count;
     char *chars = (char *) buf;
 
     in_lock.irq_acquire();
@@ -78,13 +83,13 @@ tty::ssize_t tty::ptm::read(void *buf, ssize_t len, ssize_t offset) {
 
         chars++;
     }
-    
+
     in_lock.irq_release();
     return count;
 }
 
-tty::ssize_t tty::ptm::write(void *buf, ssize_t len, ssize_t offset) {
-    ssize_t count;
+tty::ssize_t tty::ptm::write(void *buf, size_t len, size_t offset) {
+    size_t count;
     char *chars = (char *) buf;
 
     slave->tty->in_lock.irq_acquire();
@@ -95,7 +100,7 @@ tty::ssize_t tty::ptm::write(void *buf, ssize_t len, ssize_t offset) {
 
         chars++;
     }
-    
+
     slave->tty->in_lock.irq_release();
     return count;
 }

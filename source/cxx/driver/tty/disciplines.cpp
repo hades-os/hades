@@ -62,7 +62,7 @@ bool new_line(tty::termios termios, char c) {
 
 tty::ssize_t tty::device::read_canon(void *buf, size_t len) {
     char *chars = (char *) buf;
-    ssize_t count = 0;
+    size_t count = 0;
     canon_lock.irq_acquire();
     acquire_chars:
         util::ring<char> *line_queue;
@@ -153,7 +153,7 @@ tty::ssize_t tty::device::read_raw(void *buf, size_t len) {
     cc_t min = termios.c_cc[VMIN];
     cc_t time = termios.c_cc[VTIME];
     char *chars = (char *) buf;
-    ssize_t count = 0;
+    size_t count = 0;
 
     if (min == 0 && time == 0) {
         if (__atomic_load_n(&in.items, __ATOMIC_RELAXED) == 0) {

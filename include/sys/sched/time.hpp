@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace sched {    
-    constexpr size_t TIMER_HZ = 1000000000;
+    constexpr long TIMER_HZ = 1000000000;
     struct timespec {
         public:
             int64_t tv_sec;

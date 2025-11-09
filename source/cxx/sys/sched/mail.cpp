@@ -1,5 +1,6 @@
 
 #include "sys/pit.hpp"
+#include <cstddef>
 #include <mm/mm.hpp>
 #include <sys/sched/mail.hpp>
 #include <sys/sched/sched.hpp>
@@ -12,13 +13,15 @@ ipc::message *ipc::mailbox::recv(bool block, int filter_what, sched::thread* rec
     if (owner)
         owner->sig_queue.active = true;
     // if we have messages, check them first
+    lock.irq_acquire();
     if (__atomic_load_n(&this->size, __ATOMIC_SEQ_CST) > 0) {
-        lock.irq_acquire();
         if (filter_what > 0) {
-            for (auto msg: messages) {
+            for (size_t i = 0; i < messages.size(); i++) {
+                auto msg = this->messages[i];
+                if (msg == nullptr) continue;
                 if (filter_what == msg->what) {
-                    auto msg = this->messages.pop();
                     __atomic_fetch_sub(&this->size, 1, __ATOMIC_SEQ_CST);
+                    this->messages[i] = nullptr;
                     lock.irq_release();
 
                     return msg;
@@ -35,14 +38,15 @@ ipc::message *ipc::mailbox::recv(bool block, int filter_what, sched::thread* rec
             return msg;
         }
     }
+    lock.irq_release();
 
     wait_for_message:
         lock.irq_acquire();
         current_waiter = receiver;
+        receiver->state = sched::thread::BLOCKED;
         lock.irq_release();
 
-        receiver->state = sched::thread::BLOCKED;
-        while (latest_message == nullptr || receiver->state == sched::thread::BLOCKED) sched::retick();
+        while (receiver->state == sched::thread::BLOCKED) sched::retick();
 
     lock.irq_acquire();
     current_waiter = nullptr;
@@ -55,10 +59,11 @@ ipc::message *ipc::mailbox::recv(bool block, int filter_what, sched::thread* rec
             messages.push_back(latest_message);
             __atomic_fetch_add(&this->size, 1, __ATOMIC_SEQ_CST);
             latest_message = nullptr;
-            lock.irq_release();
         }
 
         owner->block_signals = false;
+        lock.irq_release();
+
         return nullptr;
     }
 
@@ -75,13 +80,14 @@ ipc::message *ipc::mailbox::recv(bool block, int filter_what, sched::thread* rec
             messages.push_back(latest_message);
             __atomic_fetch_add(&this->size, 1, __ATOMIC_SEQ_CST);
             latest_message = nullptr;
+            current_waiter = receiver;
             lock.irq_release();
 
             goto wait_for_message;
         }
     }
 
-    // we have a matching message, return it without appending
+    // we have a message, return it without appending
     auto msg = latest_message;
     latest_message = nullptr;
     lock.irq_release();
@@ -120,24 +126,3 @@ void ipc::port::post(message msg) {
     if (mail->current_waiter) mail->current_waiter->state = sched::thread::READY;
     mail->lock.irq_release();
 }
-
-/*
-frg::tuple<bool, sched::wait::trigger*> sched::wait::queue::block(thread *task) {
-    lock.irq_acquire();
-    tasks.push(task);
-    lock.irq_release();
-
-    task->proc->sig_queue.active = true;
-    task->state = thread::BLOCKED;
-
-    while (task->state == thread::BLOCKED) retick();
-    task->proc->sig_queue.active = false;
-
-    if (task->proc->block_signals) {
-        task->proc->block_signals = false;
-        // TODO: set errno
-        return {false, nullptr};
-    }
-
-    return {true, task->last_trigger};
-} */

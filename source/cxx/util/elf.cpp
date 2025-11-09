@@ -105,7 +105,7 @@ bool elf::file::init(vfs::fd *fd) {
     vfs::lseek(fd, shstrtab_hdr->sh_offset, vfs::sflags::SET);
     res = vfs::read(fd, shstrtab, shstrtab_hdr->sh_size);
 
-    if (res != shstrtab_hdr->sh_size) {
+    if ((size_t) res != shstrtab_hdr->sh_size) {
         return false;
     }
 
@@ -119,7 +119,7 @@ bool elf::file::init(vfs::fd *fd) {
     vfs::lseek(fd, strtab_hdr->sh_offset, vfs::sflags::SET);
     res = vfs::read(fd, strtab, strtab_hdr->sh_size);
 
-    if (res != strtab_hdr->sh_size) {
+    if ((size_t) res != strtab_hdr->sh_size) {
         return false;
     }
 
@@ -132,7 +132,7 @@ bool elf::file::init(vfs::fd *fd) {
 
     vfs::lseek(fd, symtab_hdr->sh_offset, vfs::sflags::SET);
     res = vfs::read(fd, symtab, symtab_hdr->sh_size);
-    if (res != symtab_hdr->sh_size) {
+    if ((size_t) res != symtab_hdr->sh_size) {
         return false;
     }
 

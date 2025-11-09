@@ -1,3 +1,5 @@
+#include "fs/dev.hpp"
+#include "fs/vfs.hpp"
 #include "util/log/log.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -41,6 +43,14 @@ size_t part::probe(vfs::devfs::device *dev) {
             }
 
             dev->block.part_list.push({part.lba_end - part.lba_start, part.lba_start});
+            auto private_data = frg::construct<vfs::devfs::dev_priv>(memory::mm::heap);
+            private_data->dev = dev;
+            private_data->part = dev->block.part_list.size() - 1;
+
+            auto part_node = frg::construct<vfs::node>(memory::mm::heap, dev->file->fs, dev->file->name + (dev->block.part_list.size() + 48), dev->file->parent, 0, vfs::node::type::BLOCKDEV);
+            part_node->private_data = private_data;
+
+            dev->file->parent->children.push_back(part_node);
         }
 
         kfree(mbr_header);
@@ -64,6 +74,14 @@ size_t part::probe(vfs::devfs::device *dev) {
             }
 
             dev->block.part_list.push({part.len, part.lba_start});
+            auto private_data = frg::construct<vfs::devfs::dev_priv>(memory::mm::heap);
+            private_data->dev = dev;
+            private_data->part = dev->block.part_list.size() - 1;
+
+            auto part_node = frg::construct<vfs::node>(memory::mm::heap, dev->file->fs, dev->file->name + (dev->block.part_list.size() + 48), dev->file->parent, 0, vfs::node::type::BLOCKDEV);
+            part_node->private_data = private_data;
+            
+            dev->file->parent->children.push_back(part_node);
         }
     }
 

@@ -18,7 +18,7 @@ extern "C" {
     void syscall_handler(irq::regs *r) {
         uint64_t syscall_num = r->rax;
         if (syscall_num >= LENGTHOF(syscalls_list)) {
-            r->rax = -1;
+            r->rax = uint64_t(-1);
             // TODO: errno
             return;
         }
@@ -29,7 +29,7 @@ extern "C" {
             syscalls_list[syscall_num](r);
         }
 
-        if (r->rax != -1) {
+        if (r->rax != uint64_t(-1)) {
             // TODO: errno
         }
 

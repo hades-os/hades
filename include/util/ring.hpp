@@ -37,7 +37,7 @@ util::ring<T>::ring(size_t size) {
 
 template<typename T>
 bool util::ring<T>::push(T obj) {
-    if ((head == 0 && tail == (size - 1)) || (head == (tail + 1))) {
+    if ((head == 0 && (size_t) tail == (size - 1)) || (head == (tail + 1))) {
         return false;
     }
 
@@ -45,7 +45,7 @@ bool util::ring<T>::push(T obj) {
         head = 0;
         tail = 0;
     } else {
-        if (tail == (size - 1)) {
+        if ((size_t) tail == (size - 1)) {
             tail = 0;
         } else {
             tail++;
@@ -69,7 +69,7 @@ bool util::ring<T>::pop(T *ptr) {
         head = -1;
         tail = -1;
     } else {
-        if (head == (size - 1)) {
+        if ((size_t) head == (size - 1)) {
             head = 0;
         } else {
             head++;

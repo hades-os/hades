@@ -46,62 +46,62 @@ static inline uint32_t get_address(uint8_t bus, uint8_t slot, uint8_t func, uint
     return address;
 }
 
-static inline uint32_t read_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
+uint32_t pci::read_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
     io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
     return io::ports::read<uint32_t>(pci::DATA_PORT + (reg & 3));
 }
 
-static inline void write_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint32_t data) {
+void pci::write_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint32_t data) {
     io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
     io::ports::write<uint32_t>(pci::DATA_PORT + (reg & 3), data);
 }
 
-static inline uint16_t read_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
+uint16_t pci::read_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
     io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
     return io::ports::read<uint16_t>(pci::DATA_PORT + (reg & 3));
 }
 
-static inline void write_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint16_t data) {
+void pci::write_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint16_t data) {
     io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
     io::ports::write<uint16_t>(pci::DATA_PORT + (reg & 3), data);
 }
 
-static inline uint16_t read_byte(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
+uint16_t pci::read_byte(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
     io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
     return io::ports::read<uint8_t>(pci::DATA_PORT + (reg & 3));
 }
 
-static inline void write_byte(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint8_t data) {
+void pci::write_byte(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint8_t data) {
     io::ports::write<uint32_t>(pci::CONFIG_PORT, get_address(bus, slot, func, reg));
     io::ports::write<uint8_t>(pci::DATA_PORT + (reg & 3), data);
 }
 
 static inline uint8_t get_secondary_bus(uint8_t bus, uint8_t slot, uint8_t func) {
-    return (uint8_t) (read_dword(bus, slot, func, 0x18) >> 8);
+    return (uint8_t) (pci::read_dword(bus, slot, func, 0x18) >> 8);
 }
 
 static inline uint16_t get_vendor(uint8_t bus, uint8_t slot, uint8_t func) {
-    return (uint16_t) read_dword(bus, slot, func, 0);
+    return (uint16_t) pci::read_dword(bus, slot, func, 0);
 }
 
 static inline uint16_t get_device(uint8_t bus, uint8_t slot, uint8_t func) {
-    return (uint16_t) (read_dword(bus, slot, func, 0) >> 16);
+    return (uint16_t) (pci::read_dword(bus, slot, func, 0) >> 16);
 }
 
 static inline uint8_t get_class(uint8_t bus, uint8_t slot, uint8_t func) {
-    return (uint8_t) (read_dword(bus, slot, func, 0x8) >> 24);
+    return (uint8_t) (pci::read_dword(bus, slot, func, 0x8) >> 24);
 }
 
 static inline uint8_t get_subclass(uint8_t bus, uint8_t slot, uint8_t func) {
-    return (uint8_t) (read_dword(bus, slot, func, 0x8) >> 16);
+    return (uint8_t) (pci::read_dword(bus, slot, func, 0x8) >> 16);
 }
 
 static inline uint8_t get_prog_if(uint8_t bus, uint8_t slot, uint8_t func) {
-    return (uint8_t) (read_dword(bus, slot, func, 0x8) >> 8);
+    return (uint8_t) (pci::read_dword(bus, slot, func, 0x8) >> 8);
 }
 
 static inline uint16_t get_status(uint8_t bus, uint8_t slot, uint8_t func) {
-    return (uint16_t) (read_dword(bus, slot, func, 0x4) >> 16);
+    return (uint16_t) (pci::read_dword(bus, slot, func, 0x4) >> 16);
 }
 
 static inline uint8_t get_capability(uint8_t bus, uint8_t slot, uint8_t func, uint8_t capability) {
@@ -110,8 +110,8 @@ static inline uint8_t get_capability(uint8_t bus, uint8_t slot, uint8_t func, ui
         return 0;
     }
 
-    uint8_t reg_cap = read_byte(bus, slot, func, 0x34);
-    uint16_t cap_word = read_word(bus, slot, func, reg_cap);
+    uint8_t reg_cap = pci::read_byte(bus, slot, func, 0x34);
+    uint16_t cap_word = pci::read_word(bus, slot, func, reg_cap);
 
     uint8_t cap_id = (uint8_t) cap_word;
     uint8_t cap_next = (uint8_t) cap_word >> 8;
@@ -122,7 +122,7 @@ static inline uint8_t get_capability(uint8_t bus, uint8_t slot, uint8_t func, ui
             return cap_next;
         }
 
-        cap_word = read_dword(bus, slot, func, cap_next);
+        cap_word = pci::read_dword(bus, slot, func, cap_next);
 
         cap_id = (uint8_t) cap_word;
         cap_next = (uint8_t) cap_word >> 8;
@@ -141,7 +141,7 @@ static inline uint8_t is_bridge(uint8_t bus, uint8_t slot, uint8_t func) {
 }
 
 static inline uint8_t is_multifunction(uint8_t bus, uint8_t slot) {
-    uint8_t header_type = (uint8_t) (read_dword(bus, slot, 0, 0xC) >> 16);
+    uint8_t header_type = (uint8_t) (pci::read_dword(bus, slot, 0, 0xC) >> 16);
     return header_type & (1 << 7);
 }
 
@@ -296,8 +296,8 @@ void pci::device::enable_mmio() {
     }
 }
 
-uint8_t pci::device::read_irq() {
-    return readb(0x3C);
+uint8_t pci::device::read_pin() {
+    return readw(0x3C) >> 8;
 }
 
 const char *pci::to_string(uint8_t clazz, uint8_t subclass, uint8_t prog_if) {
