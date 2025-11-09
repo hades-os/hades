@@ -677,6 +677,16 @@ void *memory::vmm::map(void *phys, void *virt, uint64_t len, uint64_t flags, voi
     return ctx->unmanaged_mapping(virt, len, flags);
 }
 
+void *memory::vmm::resolve(void *virt, void *ptr) {
+    auto *ctx = (vmm::vmm_ctx *) ptr;
+    auto mapping = ctx->get_mapping(virt);
+    if (mapping == nullptr) {
+        return nullptr;
+    }
+
+    return mapping->huge_page ? x86::_get2(virt, ptr) : x86::_get(virt, ptr);
+}
+
 void *memory::vmm::unmap(void *virt, uint64_t len, void *ptr) {
    auto *ctx = (vmm::vmm_ctx *) ptr;
    return ctx->delete_mapping(virt, len);

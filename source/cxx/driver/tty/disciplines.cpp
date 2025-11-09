@@ -96,7 +96,7 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
             while (__atomic_load_n(&in.items, __ATOMIC_RELAXED) == 0) {
                 if (smp::get_process() && smp::get_process()->sig_queue.sigpending) {
                     canon_lock.irq_release();
-                    // TODO: errno
+                    smp::set_errno(EINTR);
                     return -1;
                 }
             }
@@ -186,7 +186,7 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
 
         while (__atomic_load_n(&in.items, __ATOMIC_RELAXED) < min) {
             if (smp::get_process() && smp::get_process()->sig_queue.sigpending) {
-                // TODO: errno
+                smp::set_errno(EINTR);
                 return -1;
             }
         }

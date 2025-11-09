@@ -29,9 +29,11 @@ extern void syscall_munmap(irq::regs *);
 extern void syscall_exec(irq::regs *);
 extern void syscall_fork(irq::regs *);
 extern void syscall_exit(irq::regs *);
+extern void syscall_futex(irq::regs *r);
 extern void syscall_waitpid(irq::regs *);
 extern void syscall_usleep(irq::regs *);
 extern void syscall_clock_gettime(irq::regs *);
+extern void syscall_clock_get(irq::regs *);
 extern void syscall_getpid(irq::regs *);
 extern void syscall_getppid(irq::regs *);
 extern void syscall_gettid(irq::regs *);
@@ -39,6 +41,7 @@ extern void syscall_setpgid(irq::regs *);
 extern void syscall_getpgid(irq::regs *);
 extern void syscall_setsid(irq::regs *);
 extern void syscall_getsid(irq::regs *);
+extern void syscall_sigenter(irq::regs *);
 extern void syscall_sigreturn(irq::regs *);
 extern void syscall_sigaction(irq::regs *);
 extern void syscall_sigpending(irq::regs *);
@@ -69,6 +72,11 @@ void syscall_get_gs_base(irq::regs *r) {
     r->rax = io::rdmsr<uint64_t>(smp::gsBase);
 }
 
+void syscall_user_log(irq::regs *r) {
+    kmsg("Userspace: ", r->rdi);
+    r->rax = 0;
+}
+
 static syscall::handler syscalls_list[] = {
     syscall_openat,
     syscall_close,
@@ -93,9 +101,10 @@ static syscall::handler syscalls_list[] = {
     syscall_lstatat,
     syscall_ioctl,
     syscall_fork,
+    syscall_exec,
+    syscall_futex,
     syscall_waitpid,
     syscall_readdir,
-    syscall_exec,
     syscall_getcwd,
     syscall_chdir,
     nullptr, // TODO: faccesat
@@ -113,6 +122,7 @@ static syscall::handler syscalls_list[] = {
     nullptr, // TODO: chmod,
     nullptr, // TODO: chmodat,
 
+    syscall_sigenter,
     syscall_sigaction,
     syscall_sigpending,
     syscall_sigprocmask,
@@ -123,15 +133,18 @@ static syscall::handler syscalls_list[] = {
     syscall_getsid,
     syscall_pause,
     syscall_sigsuspend,
-
     syscall_sigreturn,
+    
     syscall_unlinkat,
     syscall_renameat,
     // TODO: symlinkat, readlinkat
     syscall_mkdirat,
     syscall_usleep,
     syscall_clock_gettime,
-    syscall_linkat
+    syscall_clock_get,
+    syscall_linkat,
+
+    syscall_user_log
 };
 
 void syscall::register_handler(syscall::handler handler, int syscall) {
@@ -141,22 +154,25 @@ void syscall::register_handler(syscall::handler handler, int syscall) {
 extern "C" {
     void syscall_handler(irq::regs *r) {
         uint64_t syscall_num = r->rax;
+
         if (syscall_num >= LENGTHOF(syscalls_list)) {
             r->rax = uint64_t(-1);
-            // TODO: errno
+            smp::set_errno(ENOSYS);
             return;
         }
 
         // TODO: signal queue
+        auto process = smp::get_process();
+        process->sig_queue.active = false;
 
         if (syscalls_list[syscall_num] != nullptr) {
             syscalls_list[syscall_num](r);
         }
 
         if (r->rax != uint64_t(-1)) {
-            // TODO: errno
+            smp::set_errno(0);
         }
 
-
+        process->sig_queue.active = true;
     }
 }

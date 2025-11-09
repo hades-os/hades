@@ -1,5 +1,6 @@
 
 #include "sys/sched/time.hpp"
+#include "sys/smp.hpp"
 #include <cstddef>
 #include <mm/mm.hpp>
 #include <sys/sched/wait.hpp>
@@ -25,6 +26,7 @@ sched::thread *ipc::queue::block(sched::thread *waiter, bool *set_when_blocking)
 
     if (waiter->proc && waiter->proc->block_signals) {
         waiter->proc->block_signals = false;
+        smp::set_errno(EINTR);
         return nullptr;
     }
 

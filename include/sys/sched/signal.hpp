@@ -63,7 +63,6 @@
 #define SA_RESTART 0x10000000
 #define SA_NODEFER 0x40000000
 #define SA_RESETHAND 0x80000000
-#define SA_RESTORER 0x04000000
 
 #define SIGNAL_MAX 32
 
@@ -83,8 +82,8 @@ namespace sched {
             int si_signo;
             int si_code;
             int si_errno;
-            int64_t si_pid;
-            size_t si_uid;
+            pid_t si_pid;
+            uid_t si_uid;
             void *si_addr;
             int si_status;
             sigval si_value;
@@ -98,14 +97,18 @@ namespace sched {
 
             sigset_t sa_mask;
             int sa_flags;
-            void *sa_restorer;
         };
 
         struct ucontext {
             uint64_t flags;
             ucontext *prev;
             size_t stack;
+            
             sched::regs regs;
+            
+            alignas(16)
+            char sse_region[512];
+
             sigset_t signum;
         };
 
@@ -144,7 +147,7 @@ namespace sched {
         bool send_group(process *sender, process_group *target, int sig);
         bool check_perms(process *sender, process *target);
         bool is_valid(int sig);
-        int process_signals(process *proc, sched::regs *r);
+        int process_signals(process *proc, sched::regs *r, char *sse_region);
 
         bool is_blocked(process *proc, int sig);
         bool is_ignored(process *proc, int sig);

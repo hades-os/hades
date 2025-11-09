@@ -178,6 +178,9 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t of
             while (req->len > cluster_chain.size()) req->len--;
         }
 
+        req->blocks_completed = 0;
+        req->blocks_failed = 0;
+
         req->blocks = (devfs::device::io_request::block **) kmalloc(req->len * sizeof(devfs::device::io_request::block *));
         auto clusters = cluster_chain.begin();
         for (size_t i = 0; i < req->len; i++) {
@@ -187,19 +190,20 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t of
             zone->buf = clus_buf + (i * clus_size);
             zone->len = clus_size;
             zone->offset = cluster_to_lba(firstClusterLBA, clus, superblock->secPerClus) * superblock->bytesPerSec;
-            zone->is_success = false;
             zone->req = req;
             req->blocks[i] = zone;
 
             clusters++;
         }
         
-        bool read_blocks = devfs->request_io(this->source, req, false, true);
-        if (!read_blocks) {            
+        devfs->request_io(this->source, req, false, true);
+        if (req->blocks_failed > 0 || req->blocks_completed != req->len) {            
+            frg::destruct(memory::mm::heap, req);
             kfree(clus_buf);
             return {};
         }
 
+        frg::destruct(memory::mm::heap, req);
         char *ret = nullptr;
         if (buf == nullptr) {
             if (!read_all) ret = (char *) kmalloc(len);

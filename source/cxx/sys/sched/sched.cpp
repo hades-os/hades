@@ -17,12 +17,18 @@
 #include <sys/x86/apic.hpp>
 #include <util/io.hpp>
 #include <util/log/log.hpp>
+#include <util/log/panic.hpp>
 #include <util/lock.hpp>
 
-sched::regs default_kernel_regs{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x8, 0, 0x202, 0 };
-sched::regs default_user_regs{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x23, 0x1B, 0, 0x202, 0 };
+sched::regs default_kernel_regs{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x8, 0, 0x202, 0, 0x1F80, 0x33F };
+sched::regs default_user_regs{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x23, 0x1B, 0, 0x202, 0, 0x1F80, 0x33F };
 
+frg::hash_map<uint64_t, sched::futex *, frg::hash<uint64_t>, memory::mm::heap_allocator> futex_list{frg::hash<uint64_t>()};
 util::lock sched::sched_lock{};
+
+alignas(16)
+char default_sse_region[512] {};
+
 extern "C" {
     extern void syscall_enter();
 }
@@ -64,18 +70,21 @@ void sched::sleep(size_t time) {
 
 void sched::init() {
     irq::add_handler(&tick_ap, 253);
-    init_locals();
+    init_bsp();
 }
 
-void sched::init_syscalls() {
-    io::wrmsr(EFER, io::rdmsr<uint64_t>(EFER) | (1 << 0));
-    io::wrmsr(STAR, (0x18ull << 48 | 0x8ull << 32));
-    io::wrmsr(LSTAR, (uintptr_t) syscall_enter);
-    io::wrmsr(SFMASK, (1 << 9));
-}
-
-void sched::init_locals() {
+void sched::init_bsp() {
     init_syscalls();
+    init_sse();
+    init_idle();
+}
+
+void sched::init_ap() {
+    init_syscalls();
+    init_idle();
+}
+
+void sched::init_idle() {
     uint64_t idle_rsp = (uint64_t) memory::pmm::stack(1);
 
     auto idle_task = create_thread(_idle, idle_rsp, memory::vmm::common::boot_ctx, 0);
@@ -83,7 +92,61 @@ void sched::init_locals() {
     auto idle_tid = idle_task->start();
 
     smp::get_locals()->idle_tid = idle_tid;
-    smp::get_locals()->tid = idle_tid;
+    smp::get_locals()->tid = idle_tid;    
+}
+
+void sched::save_sse(char *sse_region) {
+    asm volatile("fxsaveq (%0)":: "r"(sse_region));
+}
+
+void sched::load_sse(char *sse_region) {
+    asm volatile("fxrstor (%0)":: "r"(sse_region));
+}
+
+uint16_t sched::get_fcw() {
+    uint16_t fcw;
+    asm volatile("fnstcw (%0)":: "r"(&fcw) : "memory");
+    return fcw;
+}
+
+void sched::set_fcw(uint16_t fcw) {
+    asm volatile("fldcw (%0)":: "r"(&fcw) : "memory");
+}
+
+uint32_t sched::get_mxcsr() {
+    uint32_t fcw;
+    asm volatile("stmxcsr (%0)" :: "r"(&fcw) : "memory");
+    return fcw;
+}
+
+void sched::set_mxcsr(uint32_t fcw) {
+    asm volatile("ldmxcsr (%0)" :: "r"(&fcw) : "memory");
+}
+
+void sched::init_sse() {
+    uint64_t cr0;
+    asm volatile("mov %%cr0, %0": "=r"(cr0));
+
+    cr0 &= ~(1 << 2);
+    cr0 |= (1 << 1);
+
+    asm volatile("mov %0, %%cr0":: "r"(cr0));
+
+    uint64_t cr4;
+    asm volatile("mov %%cr4, %0": "=r"(cr4));
+    
+    cr4 |= (1 << 9);
+    cr4 |= (1 << 10);
+
+    asm volatile("mov %0, %%cr4":: "r"(cr4));
+    save_sse(default_sse_region);
+}
+
+void sched::init_syscalls() {
+    io::wrmsr(EFER, io::rdmsr<uint64_t>(EFER) | (1 << 0));
+    io::wrmsr(STAR, (0x18ull << 48 | 0x8ull << 32));
+    io::wrmsr(LSTAR, (uintptr_t) syscall_enter);
+    io::wrmsr(SFMASK, (1 << 9));
 }
 
 sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, memory::vmm::vmm_ctx *ctx, uint8_t privilege) {
@@ -98,6 +161,8 @@ sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, memory::vmm::v
     } else {
         task->reg = default_kernel_regs;
     }
+
+    memcpy(task->sse_region, default_sse_region, 512);
 
     task->reg.rip = (uint64_t) main;
     task->ustack = rsp;
@@ -143,6 +208,7 @@ sched::process *sched::create_process(char *name, void (*main)(),
     proc->lock = util::lock();
     proc->sig_lock = util::lock();
     proc->block_signals = false;
+    proc->sigenter_rip = 0;
     proc->sig_queue = signal::queue{};
     proc->sig_queue.waitq = frg::construct<ipc::queue>(memory::mm::heap);
     proc->sig_queue.active = true;
@@ -156,12 +222,7 @@ sched::process *sched::create_process(char *name, void (*main)(),
     proc->notify_status = frg::construct<ipc::trigger>(memory::mm::heap);;
     proc->privilege = privilege;
 
-    proc->status = {
-        .term_signal = 0,
-        .stop_signal = 0,
-
-        .val = process::RUNNING
-    };
+    proc->status = WCONTINUED_CONSTRUCT;
 
     return proc;
 }
@@ -176,6 +237,8 @@ sched::thread *sched::fork(thread *original, memory::vmm::vmm_ctx *ctx) {
     task->ustack = original->ustack;
 
     task->reg = original->reg;
+    memcpy(task->sse_region, original->sse_region, 512);
+    
     task->privilege = original->privilege;
     task->mem_ctx = ctx;
 
@@ -205,6 +268,7 @@ sched::process *sched::fork(process *original, thread *caller) {
 
     proc->parent = original;
     proc->ppid = original->ppid;
+    proc->sigenter_rip = 0;
     proc->sig_lock = util::lock();
     proc->sig_queue = signal::queue{};
     proc->sig_queue.waitq = frg::construct<ipc::queue>(memory::mm::heap);
@@ -229,7 +293,7 @@ sched::process *sched::fork(process *original, thread *caller) {
     }
 
     proc->lock = util::lock{};
-    proc->status.val = process::RUNNING;
+    proc->status = WCONTINUED_CONSTRUCT;
 
     proc->real_uid = original->real_uid;
     proc->effective_uid = original->effective_uid;
@@ -246,80 +310,77 @@ sched::process *sched::fork(process *original, thread *caller) {
     return proc;
 }
 
-// TODO: free if fails
-bool sched::exec(thread *target, const char *path, char **argv, char **envp) {
-    size_t envc = 0;
-    for (;; envc++) {
-        if (envp[envc] == nullptr) {
+int sched::do_futex(uintptr_t vaddr, int op, int expected, timespec *timeout) {
+    auto process = smp::get_process();
+
+    uint64_t vpage = vaddr & ~(0xFFF);
+    uint64_t ppage = (uint64_t) memory::vmm::resolve((void *) vpage, process->mem_ctx);
+
+    if (!ppage) {
+        return -EFAULT;
+    }
+
+    uint64_t paddr = ppage + (vaddr & 0xFFF);
+    uint64_t uaddr = paddr + memory::common::virtualBase;
+    switch (op) {
+        case FUTEX_WAIT: {
+            if (*(uint32_t *) uaddr != expected) {
+                return -EAGAIN;
+            }
+
+            sched::futex *futex;
+            if (!futex_list.contains(paddr)) {
+                futex = frg::construct<sched::futex>(memory::mm::heap);
+
+                futex->lock = util::lock();
+                futex->waitq = ipc::queue();
+                futex->trigger = ipc::trigger();
+                futex->locked = 0;
+                futex->paddr = paddr;
+
+                futex->trigger.add(&futex->waitq);
+                futex_list[paddr] = futex;
+            } else {
+                futex = futex_list[paddr];
+            }
+
+            if (timeout) {
+                futex->waitq.set_timer(timeout);
+            }
+
+            futex->locked = 1;
+            for (;;) {
+                if (futex->locked == 0) {
+                    break;
+                }
+
+                auto waker = futex->waitq.block(smp::get_thread());
+                if (!waker) {
+                    return -1;
+                }
+            }
+
+            break;
+        }
+
+        case FUTEX_WAKE: {
+            sched::futex *futex;
+            if (!futex_list.contains(paddr)) {
+                return 0;
+            } else {
+                futex = futex_list[paddr];
+            }
+
+            futex_list.remove(futex->paddr);
+
+            futex->locked = 0;
+            futex->trigger.arise(smp::get_thread());
+
             break;
         }
     }
 
-    size_t argc = 0;
-    for (;; argc++) {
-        if (argv[argc] == nullptr) {
-            break;
-        }
-    }
-
-    auto fd = vfs::open(nullptr, path, target->proc->fds, 0, 0);
-    if (!fd) {
-        // TODO: errno
-        return false;
-    }
-
-    for (size_t i = 0; i < target->proc->threads.size(); i++) {
-        auto task = target->proc->threads[i];
-        if (task == nullptr) continue;
-        if (task->tid == target->tid) continue;
-
-        task->kill();
-    }
-
-    target->proc->main_thread = target;
-    target->stop();
-
-    memory::vmm::destroy(target->proc->mem_ctx);
-
-    target->proc->mem_ctx = (memory::vmm::vmm_ctx *) memory::vmm::create();
-    memory::vmm::change(target->proc->mem_ctx);
-
-    auto res = target->proc->env.load_elf(path, fd);
-    if (!res) {
-        return false;
-    }
-
-    target->ustack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_USER | VMM_WRITE | VMM_MANAGED, (void *) target->proc->mem_ctx) + (4 * memory::common::page_size);
-    target->reg.cr3 = (uint64_t) memory::vmm::cr3(target->proc->mem_ctx);
-    target->reg.rsp = target->ustack;
-
-    target->reg.rip = target->proc->env.entry;
-    target->reg.cs = 0x1B;
-    target->reg.ss = 0x23;
-    target->reg.rflags = 0x202;
-
-    target->proc->env.place_params(envp, argv, target);
-    
-    for (auto [fd_number, fd]: target->proc->fds->fd_list) {
-        if (fd->flags & O_CLOEXEC) {
-            vfs::close(fd);
-        }
-    }
-
-    for (size_t i = 0; i < SIGNAL_MAX; i++) {
-        signal::sigaction *act = &target->proc->sigactions[i];
-        auto handler = act->handler.sa_handler;
-        memset(act, 0, sizeof(signal::sigaction));
-
-        if (handler == SIG_IGN) {
-            act->handler.sa_handler = (void(*)(int)) SIG_IGN;
-        } else {
-            act->handler.sa_handler = (void(*)(int)) SIG_DFL;
-        }
-    }
-
-    target->cont();
-    return true;
+    return 0;
 }
 
 sched::thread *sched::process::pick_thread() {
@@ -360,7 +421,6 @@ void sched::process_env::place_params(char **envp, char **argv, thread *target) 
     target->reg.rsp = (uint64_t) location;
 }
 
-//TODO : cleanup
 bool sched::process_env::load_elf(const char *path, vfs::fd *fd) {
     if (!fd) {
         return false;
@@ -381,6 +441,8 @@ bool sched::process_env::load_elf(const char *path, vfs::fd *fd) {
     if (has_interp) {
         fd = vfs::open(nullptr, interp_path, nullptr, 0, 0);
         if (!fd) {
+            kfree(interp_path);
+            vfs::close(fd);
             return -1;
         }
 
@@ -389,7 +451,10 @@ bool sched::process_env::load_elf(const char *path, vfs::fd *fd) {
         interp.fd = fd;
 
         res = interp.init(fd);
-        if (!res) return false;
+        if (!res) {
+            kfree(interp_path);
+            return false;
+        }
 
         interp.load_aux();
         interp.load();
@@ -488,7 +553,7 @@ int64_t sched::process::start() {
     pid_t new_pid = processes.size() - 1;
     this->pid = new_pid;
     main_thread->pid = new_pid;
-    this->status.val = RUNNING;
+    this->status = WCONTINUED_CONSTRUCT;
 
     sched_lock.irq_release();
 
@@ -497,7 +562,11 @@ int64_t sched::process::start() {
     return pid;
 }
 
-void sched::process::kill(int term_signal) {
+void sched::process::kill(int exit_code) {
+    if (this->pid == 0) {
+        panic("Init exited.");
+    }
+
     sched_lock.irq_acquire();
     vfs::delete_table(this->fds);
 
@@ -535,7 +604,7 @@ void sched::process::kill(int term_signal) {
     for (size_t i = 0; i < children.size(); i++) {
         auto child = children[i];
         if (child == nullptr) continue;
-        
+
         child->notify_status->clear();
         child->notify_status->add(parent->waitq);
 
@@ -563,8 +632,7 @@ void sched::process::kill(int term_signal) {
     parent->children[parent->find_child(this)] = nullptr;
     parent->zombies.push_back(this);
 
-    status.val = TERMINATED | STATUS_CHANGED;
-    status.term_signal = term_signal;
+    status = WEXITED_CONSTRUCT(exit_code) | STATUS_CHANGED;
     notify_status->arise(main_thread);
 
     sched_lock.irq_release();
@@ -578,7 +646,7 @@ void sched::process::suspend() {
         task->stop();
     }
 
-    status.val = STOPPED | STATUS_CHANGED;
+    status = WSTOPPED_CONSTRUCT | STATUS_CHANGED;
     signal::send_process(nullptr, parent, SIGCHLD);
     notify_status->arise(main_thread);
 }
@@ -591,7 +659,7 @@ void sched::process::cont() {
         task->cont();
     }
 
-    status.val = RUNNING | STATUS_CHANGED;
+    status = WCONTINUED_CONSTRUCT | STATUS_CHANGED;
     signal::send_process(nullptr, parent, SIGCHLD);
     notify_status->arise(main_thread);
 }
@@ -603,8 +671,8 @@ int64_t sched::thread::start() {
     tid_t tid = threads.size() - 1;
     this->tid = tid;
 
-    if (this->proc && this->proc->status.val == process::STOPPED) {
-        this->proc->status.val = process::RUNNING;
+    if (this->proc && WIFSTOPPED(this->proc->status)) {
+        this->proc->status = WCONTINUED_CONSTRUCT | STATUS_CHANGED;
     }
 
     sched_lock.irq_release();
@@ -708,7 +776,7 @@ void reap_process(sched::process *zombie) {
     frg::destruct(memory::mm::heap, zombie->waitq);
     frg::destruct(memory::mm::heap, zombie->notify_status);
     frg::destruct(memory::mm::heap, zombie->sig_queue.waitq);
-    frg::destruct(memory::mm::heap, zombie);    
+    frg::destruct(memory::mm::heap, zombie);
 
     sched::sched_lock.irq_release();
 }
@@ -735,7 +803,7 @@ frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int op
 
         zombies[i] = nullptr;
 
-        uint8_t status = zombie->status.term_signal;
+        uint8_t status = zombie->status;
         pid_t pid = zombie->pid;
         reap_process(zombie);
 
@@ -750,8 +818,7 @@ frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int op
 
     process *proc = nullptr;
     pid_t return_pid = 0;
-    uint32_t exit_val = 0;
-    int exit_status = -1;
+    int exit_status = 0;
 
     do_wait:
         while (true) {
@@ -759,11 +826,11 @@ frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int op
             if (thread == nullptr) {
                 goto finish;
             }
-            
-            if (thread->proc->status.val & STATUS_CHANGED) {
-                thread->proc->status.val &= ~STATUS_CHANGED;
+
+            if (thread->proc->status & STATUS_CHANGED) {
+                thread->proc->status &= ~STATUS_CHANGED;
             }
-            
+
             if (pid < -1 && thread->proc->group->pgid != pid) {
                 continue;
             } else if (pid == 0 && thread->proc->group->pgid != group->pgid) {
@@ -776,14 +843,13 @@ frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int op
             break;
         }
 
-        if (!(options & WUNTRACED) && proc->status.val == STOPPED) goto do_wait;
-        if (!(options & WUNTRACED) && proc->status.val == RUNNING) goto do_wait;
+        if (!(options & WUNTRACED) && WIFSTOPPED(proc->status)) goto do_wait;
+        if (!(options & WUNTRACED) && WIFCONTINUED(proc->status)) goto do_wait;
 
         return_pid = proc->pid;
-        exit_val = proc->status.val;
-        exit_status = proc->status.term_signal;
+        exit_status = proc->status;
 
-        if ((exit_val & TERMINATED) == TERMINATED) {
+        if (!WIFSTOPPED(proc->status) && (WIFEXITED(proc->status) || WIFSIGNALED(proc->status))) {
             zombies[find_zombie(proc)] = nullptr;
             reap_process(proc);
         }
@@ -843,6 +909,10 @@ void sched::swap_task(irq::regs *r) {
         running_task->reg.cs = r->cs;
         running_task->reg.ss = r->ss;
 
+        save_sse(running_task->sse_region);
+        running_task->reg.mxcsr = get_mxcsr();
+        running_task->reg.fcw = get_fcw();
+
         running_task->kstack = smp::get_locals()->tss.rsp0;
         running_task->ustack = smp::get_locals()->ustack;
 
@@ -868,7 +938,7 @@ void sched::swap_task(irq::regs *r) {
     int64_t next_tid = pick_task();
     if (next_tid == -1) {
         if (running_task->tid != smp::get_locals()->idle_tid && running_task->pid != -1) {
-            signal::process_signals(running_task->proc, &running_task->reg);
+            signal::process_signals(running_task->proc, &running_task->reg, running_task->sse_region);
             goto swap_regs;
         }
 
@@ -878,7 +948,7 @@ void sched::swap_task(irq::regs *r) {
     } else {
         auto next_task = threads[next_tid];
         if (next_task->pid != -1) {
-            signal::process_signals(next_task->proc, &next_task->reg);
+            signal::process_signals(next_task->proc, &next_task->reg, next_task->sse_region);
         }
 
         smp::get_locals()->proc = next_task->proc;
@@ -916,6 +986,10 @@ void sched::swap_task(irq::regs *r) {
 
     r->cs = running_task->reg.cs;
     r->ss = running_task->reg.ss;
+
+    load_sse(running_task->sse_region);
+    set_mxcsr(running_task->reg.mxcsr);
+    set_fcw(running_task->reg.fcw);
 
     if (running_task->proc) {
         io::wrmsr(smp::fsBase, running_task->proc->user_fs);

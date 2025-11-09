@@ -5,6 +5,7 @@
 #include "fs/dev.hpp"
 #include "mm/common.hpp"
 #include "mm/mm.hpp"
+#include "sys/smp.hpp"
 #include <cstddef>
 
 void vt::driver::flush(tty::device *tty) {
@@ -82,7 +83,7 @@ ssize_t vt::driver::ioctl(tty::device *tty, size_t req, void *buf) {
         }
 
         default: {
-            // TODO: errno
+            smp::set_errno(ENOSYS);
             return -1;
         }
     }

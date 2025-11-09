@@ -50,7 +50,6 @@ extern "C" {
                     if (!memory::vmm::handle_pf(r)) {
                         goto fault;
                     } else {
-                        
                         memory::vmm::write_cr3(cr3);
                         goto end_isr;
                     }
@@ -69,7 +68,7 @@ extern "C" {
                         "    R9: ", r->r9, ", R10: ", r->r10, ", R11: ", r->r11, ", R12: ", r->r12, ", R13: ", r->r13, ", R14: ", r->r14, ", R15: ", r->r15, "\n"
                         "    RSP: ", util::hex(r->rsp), ", ERR: ", util::hex(r->err), ", INT: ", util::hex(r->int_no), ", RIP: ", util::hex(r->rip), ", CR2: ", util::hex(cr2), "\n",
                         "    CS: ", r->cs, ", SS: ", r->ss, ", RFLAGS: ", r->rflags);
-                    if (r->int_no) {
+                    if (r->int_no == 14) {
                         kmsg("# PF Flags: ");
                         if (r->err & (1 << 0)) { kmsg("  P"); } else { kmsg("  NP"); }
                         if (r->err & (1 << 1)) { kmsg("  W"); } else { kmsg("  R"); }

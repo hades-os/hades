@@ -161,7 +161,7 @@ uint8_t memory::vmm::vmm_ctx::delete_hole(void *addr, uint64_t len) {
 
         this->holes.insert(cur);
     }
-    return 1;
+    return 0;
 }
 
 void *memory::vmm::vmm_ctx::split_hole(hole *node, uint64_t offset, size_t len) {
@@ -353,21 +353,21 @@ void *memory::vmm::vmm_ctx::delete_mapping(void *addr, uint64_t len) {
 
             if (current->huge_page) {
                 if (current->fault_map) {
-                    for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size_2MB) {
+                    for (void *inner = cur_addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size_2MB) {
                         current->callbacks.unmap(inner, true, current->map);
                     }
                 } else {
-                    for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size_2MB) {
+                    for (void *inner = cur_addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size_2MB) {
                         x86::_unmap2(inner, (void *) this);
                     }
                 }
             } else {
                 if (current->fault_map) {
-                    for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size) {
+                    for (void *inner = cur_addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size) {
                         current->callbacks.unmap(inner, false, current->map);
                     }
                 } else {
-                    for (void *inner = current->addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size) {
+                    for (void *inner = cur_addr; inner <= ((char *) current->addr + current->len); inner = (char *) inner + memory::common::page_size) {
                         x86::_unmap(inner, (void *) this);
                     }
                 }
@@ -376,8 +376,14 @@ void *memory::vmm::vmm_ctx::delete_mapping(void *addr, uint64_t len) {
             skip_inside:;
             mapping *prev = current;
             current = this->mappings.successor(prev);
-            this->mappings.remove(prev);
-            frg::destruct(mm::heap, prev);
+
+            size_t new_len = ((char *) cur_addr) - ((char *) prev->addr);
+            if (new_len > 0) {
+                prev->len = new_len;              
+            } else {
+                this->mappings.remove(prev);
+                frg::destruct(mm::heap, prev);
+            }
 
             continue;
         }

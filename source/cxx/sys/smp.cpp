@@ -41,7 +41,7 @@ extern "C" {
         cpuBootupLock.release();
 
         memory::vmm::change(cpu->ctx);
-        sched::init_locals();
+        sched::init_ap();
         smp::tss::init();
 
         while (true) {
@@ -129,4 +129,8 @@ size_t smp::get_pid() {
 
 int64_t smp::get_tid() {
     return get_locals()->tid;
+}
+
+void smp::set_errno(int errno) {
+    get_locals()->errno = errno;
 }

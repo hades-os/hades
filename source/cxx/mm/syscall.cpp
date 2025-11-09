@@ -10,7 +10,6 @@ constexpr size_t MAP_FIXED = 0x4;
 constexpr size_t MAP_ANONYMOUS = 0x8;
 constexpr size_t MAP_MIN_ADDR = 0x80000000ull;
 
-
 void syscall_mmap(irq::regs *r) {
     auto process = smp::get_process();
     auto ctx = process->mem_ctx;
@@ -25,7 +24,7 @@ void syscall_mmap(irq::regs *r) {
 
     ctx->lock.irq_acquire();
     if (pages == 0 || pages % memory::common::page_size != 0) {
-        // TODO: errno
+        smp::set_errno(EINVAL);
         ctx->lock.irq_release();
         r->rax = -1;
         return;
@@ -33,7 +32,7 @@ void syscall_mmap(irq::regs *r) {
 
     if (((uint64_t) addr >= 0x7ffffff00000 || (uint64_t) addr <= MAP_MIN_ADDR) ||
         ((uint64_t) addr + pages) >= 0x7ffffff00000 || ((uint64_t) addr + len) <= MAP_MIN_ADDR) {
-        // TODO: errno
+        smp::set_errno(EINVAL);
         r->rax = -1;
         return;
     }
@@ -44,7 +43,7 @@ void syscall_mmap(irq::regs *r) {
         } else if (flags & MAP_PRIVATE) {
             // private file
         } else {
-            // TODO: errno
+            smp::set_errno(EINVAL);
             ctx->lock.irq_release();
             r->rax = MAP_FAILED;
             return;
@@ -65,7 +64,7 @@ void syscall_munmap(irq::regs *r) {
     size_t pages = ((len / memory::common::page_size) + 1) * memory::common::page_size;
 
     if (pages == 0 || pages % memory::common::page_size != 0) {
-        // TODO: errno
+        smp::set_errno(EINVAL);
         ctx->lock.irq_release();
         r->rax = -1;
         return;
@@ -73,7 +72,7 @@ void syscall_munmap(irq::regs *r) {
 
     if (((uint64_t) addr >= 0x7ffffff00000 || (uint64_t) addr <= MAP_MIN_ADDR) ||
         ((uint64_t) addr + pages) >= 0x7ffffff00000 || ((uint64_t) addr + len) <= MAP_MIN_ADDR) {
-        // TODO: errno
+        smp::set_errno(EINVAL);
         r->rax = -1;
         return;
     }
@@ -82,7 +81,7 @@ void syscall_munmap(irq::regs *r) {
 
     auto res = memory::vmm::unmap(addr, pages, ctx);
     if (res == nullptr) {
-        // TODO: errno
+        smp::set_errno(EINVAL);
         r->rax = -1;
         return;
     }

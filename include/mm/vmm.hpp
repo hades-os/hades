@@ -169,6 +169,7 @@ namespace memory {
             void *map(void *virt, uint64_t len, uint64_t flags, void *ptr);
             void *map(void *virt, uint64_t len, uint64_t flags, void *ptr, vmm::vmm_ctx::mapping::callback_obj callbacks);
             void *map(void *phys, void *virt, uint64_t len, uint64_t flags, void *ptr);
+            void *resolve(void *virt, void *ptr);
             void *unmap(void *virt, uint64_t len, void *ptr);
 
             void *fork(void *ptr);            

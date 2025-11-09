@@ -22,7 +22,7 @@ extern "C" {
 
 int sched::signal::do_sigaction(process *proc, int sig, sched::signal::sigaction *act, sigaction *old) {
     if (!is_valid(sig) || (sig == SIGKILL || sig == SIGSTOP)) {
-        // TODO: errno
+        smp::set_errno(EINVAL);
         return -1;
     }
 
@@ -79,7 +79,7 @@ int sched::signal::do_sigprocmask(process *proc, int how, sigset_t *set, sigset_
                 sig_queue->sigmask = *set;
                 break;
             default:
-                // TODO: errno
+                smp::set_errno(EINVAL);
                 sig_queue->sig_lock.irq_release();
                 return -1;
         }
@@ -93,7 +93,8 @@ int sched::signal::do_sigprocmask(process *proc, int how, sigset_t *set, sigset_
 
 int sched::signal::do_kill(pid_t pid, int sig) {
     if (!is_valid(sig)) {
-        return -vfs::error::INVAL;
+        smp::set_errno(EINVAL);
+        return -1;
     }
 
     auto sender = smp::get_process();
@@ -101,7 +102,8 @@ int sched::signal::do_kill(pid_t pid, int sig) {
         process *target = processes[pid];
         if (!target) {
             // TODO: esrch
-            return -vfs::error::INVAL;
+            smp::set_errno(EINVAL);
+            return -1;
         }
 
         send_process(sender, target, sig);
@@ -112,7 +114,8 @@ int sched::signal::do_kill(pid_t pid, int sig) {
         auto group = session->groups[pid];
         if (group == nullptr) {
             // TODO: esrch
-            return -vfs::error::INVAL;
+            smp::set_errno(ESRCH);
+            return -1;
         }
 
         for (size_t i = 0; i < group->procs.size(); i++) {
@@ -193,7 +196,7 @@ bool sched::signal::is_valid(int sig) {
 
 bool sched::signal::send_process(process *sender, process *target, int sig) {
     if (!is_valid(sig) && sig != 0) {
-        // TODO: errno
+        smp::set_errno(EINVAL);
         return false;
     }
 
@@ -203,7 +206,7 @@ bool sched::signal::send_process(process *sender, process *target, int sig) {
     sig_queue->sig_lock.irq_acquire();
 
     if (sender != nullptr && !check_perms(sender, target)) {
-        // TODO: errno
+        smp::set_errno(EPERM);
         sig_queue->sig_lock.irq_release();
         target->sig_lock.irq_release();
         return false;
@@ -241,8 +244,8 @@ bool sched::signal::send_group(process *sender, process_group *target, int sig) 
     return true;
 }
 
-void sigreturn_kill(sched::process *proc) {
-    proc->kill();
+void sigreturn_kill(sched::process *proc, ssize_t status) {
+    proc->kill(status);
     for (;;) {
         asm volatile("hlt");
     }
@@ -271,33 +274,6 @@ void sigreturn_default(sched::process *proc, sched::thread *task, bool block_sig
         proc->block_signals = true;
     }
 
-    irq::regs r{
-        .r15 = regs->r15,
-        .r14 = regs->r14,
-        .r13 = regs->r13,
-        .r12 = regs->r12,
-        .r11 = regs->r11,
-        .r10 = regs->r10,
-        .r9 = regs->r9,
-        .r8 = regs->r8,
-        .rsi = regs->rsi,
-        .rdi = regs->rdi,
-        .rbp = regs->rbx,
-        .rdx = regs->rdx,
-        .rcx = regs->rcx,
-        .rbx = regs->rbx,
-        .rax = regs->rax,
-
-        .int_no = 0,
-        .err = 0,
-
-        .rip = regs->rip,
-        .cs = regs->cs,
-        .rflags = regs->rflags,
-        .rsp = regs->rsp,
-        .ss = regs->ss,
-    };
-
     smp::get_locals()->ustack = task->ustack;
     smp::get_locals()->kstack = task->kstack;
 
@@ -305,10 +281,17 @@ void sigreturn_default(sched::process *proc, sched::thread *task, bool block_sig
         io::swapgs();
     }
 
-    sigreturn_exit(&r);
+    auto iretq_regs = sched::to_irq(regs);
+
+    sched::set_fcw(regs->fcw);
+    sched::set_mxcsr(regs->mxcsr);
+    sched::load_sse(task->sig_context.sse_region);
+    
+    sigreturn_exit(&iretq_regs);
 }
 
 void sig_default(sched::process *proc, sched::thread *task, int sig) {
+    ssize_t status = sched::WSIGNALED_CONSTRUCT(sig);
     switch (sig) {
 		case SIGHUP:
 		case SIGINT:
@@ -329,7 +312,7 @@ void sig_default(sched::process *proc, sched::thread *task, int sig) {
 		case SIGVTALRM:
 		case SIGPROF:
 		case SIGSYS:
-            sigreturn_kill(proc);
+            sigreturn_kill(proc, status);
             break;
         case SIGSTOP:
         case SIGTTIN:
@@ -348,7 +331,7 @@ void sig_default(sched::process *proc, sched::thread *task, int sig) {
     sigreturn_default(proc, task, false);
 }
 
-int sched::signal::process_signals(process *proc, sched::regs *r) {
+int sched::signal::process_signals(process *proc, sched::regs *r, char *sse_region) {
     auto sig_queue= &proc->sig_queue;
     sig_queue->sig_lock.irq_acquire();
     if (sig_queue->active == false) {
@@ -386,9 +369,12 @@ int sched::signal::process_signals(process *proc, sched::regs *r) {
                 auto stack = memory::pmm::stack(4);
 
                 context.stack = (uint64_t) stack;
+                
                 context.regs = *r;
-                context.signum = signal->signum;
 
+                memcpy(context.sse_region, sse_region, 512);
+
+                context.signum = signal->signum;
                 memset(r, 0, sizeof(regs));
 
                 r->ss = 0x10;
@@ -402,6 +388,11 @@ int sched::signal::process_signals(process *proc, sched::regs *r) {
                 r->rip = (uint64_t) sig_default;
 
                 r->cr3 = (uint64_t) memory::vmm::cr3(proc->mem_ctx);
+
+                r->mxcsr = 0x1F80;
+                r->fcw = 0x33F;
+                memset(task->sse_region, 0, 512);
+
                 task->sig_context = context;
 
                 auto tmp = task->kstack;
@@ -418,7 +409,10 @@ int sched::signal::process_signals(process *proc, sched::regs *r) {
 
             auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_WRITE | VMM_USER, proc->mem_ctx) + (4 * memory::common::page_size);
             context.stack = stack;
+
             context.regs = *r;
+            memcpy(context.sse_region, sse_region, 512);
+
             context.signum = signal->signum;
 
             memset(r, 0, sizeof(regs));
@@ -436,7 +430,6 @@ int sched::signal::process_signals(process *proc, sched::regs *r) {
             *uctx = context;
 
             stack -= sizeof(uint64_t);
-            *(uint64_t *) stack = (uint64_t) action->sa_restorer;
 
             task->sig_context = context;
 
@@ -444,14 +437,27 @@ int sched::signal::process_signals(process *proc, sched::regs *r) {
             r->cs = 0x1B;
             r->rsp = stack;
             r->rflags = 0x202;
-            r->rip = (uint64_t) action->handler.sa_sigaction;
-
-            r->rdi = signal->signum;
             r->cr3 = (uint64_t) memory::vmm::cr3(proc->mem_ctx);
 
-            if (action->sa_flags & SA_SIGINFO) {
-                r->rsi = (uint64_t) info;
-                r->rdx = (uint64_t) uctx;
+            r->mxcsr = 0x1F80;
+            r->fcw = 0x33F;
+            memset(task->sse_region, 0, 512);
+
+            // [[noreturn]] sigenter_handler(void *handler_rip, bool is_sigaction, int sig, siginfo *info, ucontext_t *ctx)
+            if (proc->sigenter_rip) {
+                r->rip = proc->sigenter_rip;
+                r->rdi = (uint64_t) action->handler.sa_sigaction;
+                r->rsi = action->handler.sa_sigaction != nullptr;
+                r->rdx = signal->signum;
+                r->rcx = (uint64_t) info;
+                r->r8 = (uint64_t) uctx;
+            } else {
+                r->rip = (uint64_t) action->handler.sa_sigaction;
+                r->rdi = signal->signum;
+                if (action->sa_flags & SA_SIGINFO) {
+                    r->rsi = (uint64_t) info;
+                    r->rdx = (uint64_t) uctx;
+                }
             }
 
             auto tmp = task->kstack;

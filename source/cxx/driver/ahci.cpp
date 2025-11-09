@@ -73,7 +73,7 @@ ssize_t ahci::find_cmdslot(ahci::device *device) {
 }
 
 void free_command(ahci::command_entry *command) {
-    kfree(command);
+    memory::pmm::free(command);
 }
 
 ahci::command_slot get_command(volatile ahci::port *port, volatile ahci::abar *bar, ahci::device *device, uint64_t fis_size) {
@@ -83,7 +83,7 @@ ahci::command_slot get_command(volatile ahci::port *port, volatile ahci::abar *b
         return slot;
     }
 
-    ahci::command_entry *entry = (ahci::command_entry *) kmalloc(fis_size);
+    ahci::command_entry *entry = (ahci::command_entry *) memory::pmm::alloc((fis_size / memory::common::page_size) + 1);
 
     slot.idx = slot_idx;
     slot.entry = entry;
@@ -257,6 +257,9 @@ void ahci::device::identify_sata() {
 
         reset_engine(port);
         free_command(slot.entry);
+
+        exists = false;
+        memory::pmm::free(id_mem);
         return;
     }
 
@@ -300,26 +303,29 @@ void ahci::device::identify_sata() {
 
 void ahci::request_io(void *extra_data, device::io_request *req, size_t part_offset, bool rw) {
     auto device = (ahci::device *) extra_data;
-    volatile bool completed = false;
 
-    device->lock.irq_acquire();
-    auto request_id = device->last_request_id++;
+    auto waitq = frg::construct<ipc::queue>(memory::mm::heap);
+    auto trigger = frg::construct<ipc::trigger>(memory::mm::heap);
+    trigger->add(waitq);
+
+    irq::off();
+    device->lock.acquire();
+
     for (size_t i = 0; i < req->len; i++) {
         auto zone = req->blocks[i];
         device->requests.push_back({
             .zone = zone,
-            .request_id = request_id,
-            .completion_flag = &completed,
+            .trigger = trigger,
             .part_offset = part_offset,
             .rw = rw,
         });
-
     }
 
-    device->lock.irq_release();
-    while (!completed) {
-        asm volatile("pause");
-    }
+    device->lock.release();
+    waitq->block(smp::get_thread());
+
+    frg::destruct(memory::mm::heap, trigger);
+    frg::destruct(memory::mm::heap, waitq);
 }
 
 ahci::command_slot ahci::device::issue_read_write(void *buf, uint16_t count, size_t offset, bool rw) {
@@ -404,11 +410,9 @@ void ahci::device::handle_commands() {
                 free_command(command.slot.entry);
                 memory::pmm::free(command.tmp);
 
-                finished_map.contains(command.request_id)
-                    ? finished_map[command.request_id]++
-                    : finished_map[command.request_id] = 1;
-                if (finished_map[command.request_id] == command.zone->req->len) {
-                    *command.completion_flag = true;
+                command.zone->req->blocks_failed++;
+                if (command.zone->req->blocks_failed + command.zone->req->blocks_completed == command.zone->req->len) {
+                    command.trigger->arise(smp::get_thread());
                 }
 
                 __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
@@ -417,18 +421,15 @@ void ahci::device::handle_commands() {
             }
 
             // command successful
-            command.zone->is_success = true;
             free_command(command.slot.entry);
 
             uint64_t sector_offset = (command.zone->offset + command.part_offset) % sector_size;
             memcpy(command.zone->buf, (char *) command.tmp + sector_offset, command.zone->len);
 
             memory::pmm::free(command.tmp);
-            finished_map.contains(command.request_id)
-                ? finished_map[command.request_id]++
-                : finished_map[command.request_id] = 1;
-            if (finished_map[command.request_id] == command.zone->req->len) {
-                *command.completion_flag = true;
+            command.zone->req->blocks_completed++;
+            if (command.zone->req->blocks_failed + command.zone->req->blocks_completed == command.zone->req->len) {
+                command.trigger->arise(smp::get_thread());
             }
             __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
         }
@@ -476,10 +477,10 @@ ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
 
     if (sector_count > 0xFFFF) {
         lock.irq_release();
-        return -vfs::error::IO;
+        return -EIO;
     } else if (sector_count == 0) {
         lock.irq_release();
-        return -vfs::error::IO;
+        return -EIO;
     }
 
     void *tmp = kmalloc(sector_count * sector_size);
@@ -502,7 +503,7 @@ ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
 
         kfree(tmp);
         lock.irq_release();
-        return -vfs::error::IO;
+        return -EIO;
     }
 
     free_command(slot.entry);

@@ -112,8 +112,6 @@ namespace elf {
         size_t len;
     };
 
-    using ssize_t = long long;
-
     struct file {
         uintptr_t load_offset;
         vfs::fd *fd;
@@ -122,11 +120,11 @@ namespace elf {
         elf64_hdr *header;
         elf::aux aux;
 
-        elf64_phdr *phdr;
-        elf64_shdr *shdr;
-        elf64_shdr *shstrtab_hdr;
-        elf64_shdr *strtab_hdr;
-        elf64_shdr *symtab_hdr;
+        elf64_phdr *phdrs;
+        elf64_shdr *shdrs;
+        elf64_shdr *shstrtab_hdrs;
+        elf64_shdr *strtab_hdrs;
+        elf64_shdr *symtab_hdrs;
 
         void *shstrtab;
         void *strtab;

@@ -126,7 +126,7 @@ namespace memory::mm::allocator {
             node = blocks.successor(node);
         }
 
-        if (pad) pad_out = pad;
+        pad_out = pad;
         return best;
     }
 
@@ -163,7 +163,7 @@ namespace memory::mm::allocator {
         rest = node->block_size - space;
         
         if (rest > 0) {
-            allocator::node *rem = new ((char *) node + space) allocator::node();
+            allocator::node *rem = new (((char *) node) + space) allocator::node();
             rem->addr = (char *) rem;
             rem->block_size = rest;
 
@@ -172,7 +172,7 @@ namespace memory::mm::allocator {
 
         blocks.remove(node);
 
-        hdr = (header *)((char *) node + align_pad);
+        hdr = (header *)(((char *) node) + align_pad);
         hdr->block_size = space;
         hdr->pad = align_pad;
 
@@ -197,7 +197,9 @@ namespace memory::mm::allocator {
         }
 
         hdr = (header *)((char *) ptr - sizeof(header));
-        free_space = new (hdr) allocator::node();
+
+        char *free_space_start = ((char *) hdr) - hdr->pad;
+        free_space = new (free_space_start) allocator::node();
         free_space->addr = ((char *) free_space);
         free_space->block_size = hdr->block_size + hdr->pad;
 
