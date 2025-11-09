@@ -1,4 +1,6 @@
+#include "sys/sched.hpp"
 #include <cstddef>
+#include <cstdint>
 #include <frg/allocation.hpp>
 #include <mm/common.hpp>
 #include <mm/pmm.hpp>
@@ -17,8 +19,6 @@
 [[noreturn]]
 static inline void processorPanic(irq::regs *_) {
     irq::off();
-    auto cpuInfo = io::rdmsr<smp::processor *>(smp::fsBase);
-    kmsg("[SMP] CPU ", cpuInfo->lid, ": PANIC");
     while (true) {
         asm volatile("pause");
     }
@@ -30,7 +30,7 @@ extern "C" {
         cpuBootupLock.acquire();
         
         auto *cpu = (smp::processor *) _->extra_argument;
-        io::wrmsr(smp::fsBase, cpu);
+        io::wrmsr(smp::gsBase, cpu);
 
         apic::lapic::setup();
         irq::hook();
@@ -41,6 +41,7 @@ extern "C" {
         cpuBootupLock.release();
 
         memory::vmm::change(cpu->ctx);
+        sched::init_locals();
         smp::tss::init();
 
         while (true) {
@@ -53,35 +54,38 @@ extern "C" {
     extern void smp64_start(stivale::boot::info::processor *_);
 };
 
-void initProcessor(smp::processor *cpu) {
+void initProcessor(smp::processor *cpu, stivale::boot::info::processor *stivale_cpu) {
     if (!cpu->lid) {
-        io::wrmsr(smp::fsBase, cpu);
+        io::wrmsr(smp::gsBase, cpu);
         return;
     }
 
-    auto *proc = stivale::parser.smp()->get_cpu(cpu->lid);
     auto stack = (size_t) memory::pmm::stack(smp::initialStackSize);
     cpu->kstack = stack;
     cpu->ctx = memory::vmm::boot();
 
-    proc->extra_argument = (size_t) cpu;
-    proc->target_stack = stack;
-    proc->goto_address = (size_t) &smp64_start;
+    stivale_cpu->extra_argument = (size_t) cpu;
+    stivale_cpu->target_stack = stack;
+    stivale_cpu->goto_address = (size_t) &smp64_start;
 }
 
 void smp::init() {
-    irq::add_handler(&processorPanic, 254);
+    irq::add_handler(&processorPanic, 251);
 
-    for (auto& stivale_cpu : *stivale::parser.smp()) {
-        // because c++ is a shit language
-        size_t lapic_id = stivale_cpu.lapic_id;
+    auto procs = stivale::parser.smp();
+    for (auto stivale_cpu = procs->begin(); stivale_cpu != procs->end(); stivale_cpu++) {
+        size_t lapic_id = stivale_cpu->lapic_id;
         auto processor = frg::construct<smp::processor>(memory::mm::heap, lapic_id);
         
         cpus.push_back(processor);
-        initProcessor(processor);
+        initProcessor(processor, stivale_cpu);
     }
 
     cpuBootupLock.await();
+}
+
+smp::processor *smp::get_locals() {
+    return io::rdmsr<smp::processor *>(smp::gsBase);
 }
 
 static inline smp::tss::gdtr real_gdt;
@@ -91,7 +95,7 @@ void smp::tss::init() {
     tssLock.acquire();
     asm volatile("sgdt (%0)" : : "r"(&real_gdt));
 
-    auto *cpuInfo = io::rdmsr<smp::processor *>(smp::fsBase);
+    auto *cpuInfo = get_locals();
     auto *tss = &cpuInfo->tss;
     uint64_t tss_ptr = (uint64_t) tss;
     descriptor *desc = (descriptor *) (real_gdt.ptr + TSS_OFFSET);
@@ -109,7 +113,26 @@ void smp::tss::init() {
 
     tss->ist[0] = (uint64_t) memory::pmm::stack(4);
     tss->ist[1] = (uint64_t) memory::pmm::stack(4);
+    tss->rsp0 = tss->ist[0];
+
+    kmsg("TSS: ", util::hex(tss->ist[0]));
 
     asm volatile("ltr %%ax" :: "a"(TSS_OFFSET));
     tssLock.release();
+}
+
+sched::thread *smp::get_thread() {
+    return get_locals()->task;
+}
+
+sched::process *smp::get_process() {
+    return get_locals()->proc;
+}
+
+size_t smp::get_pid() {
+    return get_locals()->proc->pid;
+}
+
+int64_t smp::get_tid() {
+    return get_locals()->tid;
 }

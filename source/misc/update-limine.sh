@@ -3,7 +3,7 @@ rm -f limine.efi
 rm -f limine.sys
 rm -f limine-install
 
-ver=${1:-latest}
+ver="2.0-branch"
 
 wget https://github.com/limine-bootloader/limine/blob/v$ver-binary/limine-install-linux-x86_64?raw=true -O limine-install
 chmod +x limine-install

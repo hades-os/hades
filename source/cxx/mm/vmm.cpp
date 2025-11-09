@@ -55,7 +55,7 @@ namespace memory {
 
             void _ref(void *ptr, uint64_t len) {
                 for (size_t i = 0; i < len; i++) {
-                    _ref(ptr + (memory::common::page_size * i));
+                    _ref((char *) ptr + (memory::common::page_size * i));
                 }
             }
 
@@ -73,7 +73,7 @@ namespace memory {
 
             void _free(void *ptr, uint64_t len) {
                 for (size_t i = 0; i < len; i++) {
-                    _free(ptr + (memory::common::page_size * i));
+                    _free((char *) ptr + (memory::common::page_size * i));
                 }
             }
 
@@ -132,7 +132,7 @@ namespace memory {
                     p3 = (uint64_t *) _virt(p4[p4idx] & VMM_ADDR_MASK);
                 } else {
                     p3 = (uint64_t *) memory::pmm::phys(1);
-                    p4[p4idx] = (uint64_t) p3 | VMM_PRESENT | flags;
+                    p4[p4idx] = (uint64_t) p3 | VMM_PRESENT | (flags & (~VMM_LARGE));
                     p3 = (uint64_t *) _virt(p3);
                 }
 
@@ -140,7 +140,7 @@ namespace memory {
                     p2 = (uint64_t *) _virt(p3[p3idx] & VMM_ADDR_MASK);
                 } else {
                     p2 = (uint64_t *) memory::pmm::phys(1);
-                    p3[p3idx] = (uint64_t) p2 | VMM_PRESENT | flags;
+                    p3[p3idx] = (uint64_t) p2 | VMM_PRESENT | (flags & (~VMM_LARGE));
                     p2 = (uint64_t *) _virt(p2);
                 }
 
@@ -179,7 +179,7 @@ namespace memory {
                     return nullptr;
                 }
 
-                if (p1[p1idx] & VMM_PALLOC) {
+                if (p1[p1idx] & VMM_MANAGED) {
                     _free((void *) ((uint64_t) _virt(p1[p1idx]) & VMM_ADDR_MASK));
                 }
 
@@ -210,7 +210,7 @@ namespace memory {
                     return nullptr;
                 }
 
-                if (p2[p2idx] & VMM_PALLOC) {
+                if (p2[p2idx] & VMM_MANAGED) {
                     _free(_virt(p2[p2idx] & VMM_ADDR_MASK), 512);
                 }
 
@@ -313,7 +313,7 @@ namespace memory {
                     return nullptr;
                 }
 
-                if (p1[p1idx] & VMM_PALLOC) {
+                if (p1[p1idx] & VMM_MANAGED) {
                     _free((void *) ((uint64_t) _virt(p1[p1idx]) & VMM_ADDR_MASK));
                 }
 
@@ -344,55 +344,13 @@ namespace memory {
                     return nullptr;
                 }
 
-                if (p2[p2idx] & VMM_PALLOC) {
+                if (p2[p2idx] & VMM_MANAGED) {
                     _free(_virt(p2[p2idx] & VMM_ADDR_MASK), 512);
                 }
 
-                p2[p2idx] = (uint64_t) phys | flags;
+                p2[p2idx] = (uint64_t) phys | flags | VMM_LARGE;
 
                 return virt;
-            }
-
-            int64_t _filter(uint64_t flags) {
-                int64_t out = 0;
-                if ((flags & PG_WRITE || flags & PG_READ || flags & PG_EXEC) && (flags & PG_NONE)) {
-                    return -1;
-                }
-
-                if (flags & PG_READ) {
-                    out |= VMM_PRESENT;
-                }
-
-                if (flags & PG_WRITE) {
-                    out |= VMM_WRITE;
-                    out |= VMM_PRESENT;
-                }
-
-                if (!(flags & PG_EXEC)) {
-                    
-                }
-
-                if ((flags & PG_SHARED) && (flags & PG_PRIVATE)) {
-                    return -1;
-                }
-
-                if (flags & PG_SHARED) {
-                    out |= VMM_SHARED;
-                }
-
-                return out;
-            }
-
-            bool _valid(uint64_t flags, void *virt, void *phys) {
-                if (phys && (((uint64_t) virt < memory::common::virtualBase) && !(flags & PG_OVERRIDE))) {
-                    return 0;
-                }
-
-                if (_filter(flags) == -1) {
-                    return 0;
-                }
-
-                return 1;
             }
         };
     };
@@ -409,12 +367,12 @@ void memory::vmm::init() {
     common::boot_ctx = frg::construct<vmm_ctx>(mm::heap);
     common::boot_ctx->map = (uint64_t *) pmm::alloc(1);
 
-    map(0, (void *) memory::common::kernelBase, 8, PG_LARGE | PG_READ | PG_EXEC | PG_OVERRIDE, common::boot_ctx);
+    map(0, (void *) memory::common::kernelBase, 8, VMM_PRESENT | VMM_LARGE, common::boot_ctx);
     
     if (pmm::nr_pages * memory::common::page_size < VMM_4GIB) {
-        map(0, (void *) memory::common::virtualBase, VMM_4GIB / memory::common::page_size_2MB, PG_LARGE | PG_WRITE | PG_OVERRIDE, common::boot_ctx);
+        map(0, (void *) memory::common::virtualBase, VMM_4GIB / memory::common::page_size_2MB, VMM_PRESENT | VMM_LARGE | VMM_WRITE, common::boot_ctx);
     } else {
-        map(0, (void *) memory::common::virtualBase, ((pmm::nr_pages * memory::common::page_size) / memory::common::page_size_2MB), PG_LARGE | PG_WRITE | PG_OVERRIDE, common::boot_ctx);
+        map(0, (void *) memory::common::virtualBase, ((pmm::nr_pages * memory::common::page_size) / memory::common::page_size_2MB), VMM_PRESENT | VMM_LARGE | VMM_WRITE, common::boot_ctx);
     }
 
     change(common::boot_ctx);
@@ -423,14 +381,16 @@ void memory::vmm::init() {
 }
 
 void *memory::vmm::create() {
-    lock.acquire();
+    common::vmm_lock.acquire();
     vmm_ctx *ctx = frg::construct<vmm_ctx>(mm::heap);
     ctx->map = (uint64_t *) pmm::alloc(1);
-    for (size_t i = (VMM_ENTRIES_PER_TABLE / 2); i < VMM_ENTRIES_PER_TABLE; i++) {
+    /**
+        for (size_t i = (VMM_ENTRIES_PER_TABLE / 2); i < VMM_ENTRIES_PER_TABLE; i++) {
         ctx->map[i] = common::boot_ctx->map[i];
     }
+     */
     ctx->create_hole((void *) 0x100000, 0x7ffffff00000);
-    lock.release();
+    common::vmm_lock.release();
     return (void *) ctx;
 }
 
@@ -468,24 +428,29 @@ void *memory::vmm::boot() {
 
 void *memory::vmm::cr3(void *ptr) {
     auto ctx = (memory::vmm::vmm_ctx *) ptr;
-    return ctx->map;
+    return memory::common::removeVirtual(ctx->map);
+}
+
+uint64_t memory::vmm::read_cr3() {
+    uint64_t ret;
+    asm volatile("movq %%cr3, %0;" : "=r"(ret));
+    return ret;
+}
+
+void memory::vmm::write_cr3(uint64_t map) {
+    asm volatile("movq %0, %%cr3;" ::"r"(map) : "memory");
 }
 
 void *memory::vmm::map(void *virt, uint64_t len, uint64_t flags, void *ptr) {
-    if (!x86::_valid(flags, virt, 0)) {
-        return nullptr;
-    }
-
     auto *ctx = (vmm::vmm_ctx *) ptr;
-    auto filtered = x86::_filter(flags);
 
-    if (flags & PG_OVERRIDE) {
+    if (!(flags & VMM_MANAGED)) {
         return nullptr;
     }
 
-    if (virt && flags & PG_FIXED) {
+    if (virt && flags & VMM_FIXED) {
         ctx->delete_mapping(virt, len);
-    } else if (!virt && flags & PG_FIXED) {
+    } else if (!virt && flags & VMM_FIXED) {
         return nullptr;
     }
 
@@ -493,20 +458,15 @@ void *memory::vmm::map(void *virt, uint64_t len, uint64_t flags, void *ptr) {
 }
 
 void *memory::vmm::map(void *virt, uint64_t len, uint64_t flags, void *ptr, vmm::vmm_ctx::mapping::callback_obj callbacks) {
-    if (!x86::_valid(flags, virt, 0)) {
-        return nullptr;
-    }
-
-    auto filtered = x86::_filter(flags);
     auto *ctx = (vmm::vmm_ctx *) ptr;
 
-    if (flags & PG_OVERRIDE) {
+    if (!(flags & VMM_MANAGED)) {
         return nullptr;
     }
 
-    if (virt && flags & PG_FIXED) {
+    if (virt && flags & VMM_FIXED) {
         ctx->delete_mapping(virt, len);
-    } else if (!virt && flags & PG_FIXED) {
+    } else if (!virt && flags & VMM_FIXED) {
         return nullptr;
     }
 
@@ -514,24 +474,19 @@ void *memory::vmm::map(void *virt, uint64_t len, uint64_t flags, void *ptr, vmm:
 }
 
 void *memory::vmm::map(void *phys, void *virt, uint64_t len, uint64_t flags, void *ptr) {
-    if (!x86::_valid(flags, virt, 0)) {
+    auto *ctx = (vmm::vmm_ctx *) ptr;
+
+    if (flags & VMM_MANAGED) {
         return nullptr;
     }
 
-    auto filtered = x86::_filter(flags);
-    auto *ctx = (vmm::vmm_ctx *) ptr;
-
-    if (!(flags & PG_OVERRIDE)) {
-        return map(virt, len, flags, ptr);
-    }
-
-    if (flags & PG_LARGE) {
+    if (flags & VMM_LARGE) {
         for (size_t i = 0; i < len; i++) {
-            x86::_map2(phys + (memory::common::page_size_2MB * i), virt + (memory::common::page_size_2MB * i), filtered, ptr);
+            x86::_map2((char *) phys + (memory::common::page_size_2MB * i), (char *) virt + (memory::common::page_size_2MB * i), flags, ptr);
         }
     } else {
         for (size_t i = 0; i < len; i++) {
-            x86::_map(phys + (memory::common::page_size * i), virt + (memory::common::page_size * i), filtered, ptr);
+            x86::_map((char *) phys + (memory::common::page_size * i), (char *) virt + (memory::common::page_size * i), flags, ptr);
         }
     }
 

@@ -72,6 +72,11 @@ namespace vfs {
         return path;
     }
 
+    inline void joinPaths(vfs::path& path, vfs::path part) {
+        path += "/";
+        path += part;
+    }
+
     struct error {
         enum {
             INVAL = 1,
@@ -138,7 +143,7 @@ namespace vfs {
                     size_t _counter = 0;
                     util::lock _lock{};
                 public:
-                    counter(size_t count) : _lock(), _counter(count) { };
+                    counter(size_t count) : _counter(count), _lock() { };
                     counter() { };
 
                     void operator ++(int) {
@@ -201,8 +206,8 @@ namespace vfs {
                 return type;
             }
 
-            node(filesystem *fs, path name, path abspath, node *parent, ssize_t flags, ssize_t type) : children(path_hasher()), links(path_hasher()), ref_count(),
-                fs(fs), name(name), abspath(abspath), parent(parent), flags(flags), type(type) {
+            node(filesystem *fs, path name, path abspath, node *parent, ssize_t flags, ssize_t type) : ref_count(), fs(fs), name(name),
+                abspath(abspath), parent(parent), children(path_hasher()), links(path_hasher()), flags(flags), type(type) {
                 if (parent) {
                     this->inum = parent->inum + 1;
                     parent->children[abspath] = this;
@@ -444,7 +449,7 @@ namespace vfs {
             node *get_parent(vfs::path path);
             filesystem *resolve_fs(vfs::path path);
         public:
-            manager() : mounts(path_hasher()), fd_table(frg::hash<ssize_t>{}), root(nullptr) { }
+            manager() : root(nullptr), mounts(path_hasher()), fd_table(frg::hash<ssize_t>{}) { }
 
             ssize_t mount(path srcpath, path dstpath, ssize_t fstype, optlist *opts, int64_t flags);
             ssize_t umount(node *dst);
@@ -468,19 +473,13 @@ namespace vfs {
             ssize_t in_use(path filepath);
     };
 
-    namespace internal {
-        extern manager *root_mgr;
-    };
-
+    inline manager *mgr = nullptr;
     inline void init() {
-        internal::root_mgr = frg::construct<manager>(memory::mm::heap);
-        internal::root_mgr->mount("/", "/", fslist::ROOTFS, nullptr, mflags::NOSRC);
+        mgr = frg::construct<manager>(memory::mm::heap);
+        mgr->mount("/", "/", fslist::ROOTFS, nullptr, mflags::NOSRC);
         kmsg("[VFS] Initialized");
     }
 
-    inline auto mgr() {
-        return internal::root_mgr;
-    }
 };
 
 #endif

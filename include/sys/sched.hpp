@@ -1,6 +1,7 @@
 #ifndef SCHED_HPP
 #define SCHED_HPP
 
+#include "mm/vmm.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <frg/hash.hpp>
@@ -16,58 +17,135 @@ namespace sched {
         uint64_t rax, rbx, rcx, rdx, rbp, rdi, rsi, r8, r9, r10, r11, r12, r13, r14, r15;
         uint64_t rsp, rip;
         
-        uint64_t ss, cs, gs;
+        uint64_t ss, cs, fs;
         uint64_t rflags;
         uint64_t cr3;
-
-        regs(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx, uint64_t rbp, uint64_t rdi, uint64_t rsi, uint64_t r8, uint64_t r9, uint64_t r10, uint64_t r11, uint64_t r12, uint64_t r13, uint64_t r14, uint64_t r15,
-             uint64_t rsp, uint64_t rip,
-             uint64_t ss, uint64_t cs, uint64_t fs, uint64_t rflags,
-             uint64_t cr3) : rax(rax), rbx(rbx), rcx(rcx), rdx(rdx), rbp(rbp), rdi(rdi), rsi(rsi), r8(r8), r9(r9), r10(r10), r11(r11), r12(r12), r13(r13), r14(r14), r15(r15),
-                             rsp(rsp), rip(rip),
-                             ss(ss), cs(cs), gs(0), rflags(rflags),
-                             cr3(cr3) 
-            {}
-
-        regs() : rax(0), rbx(0), rcx(0), rdx(0), rbp(0), rdi(0), rsi(0), r8(0), r9(0), r10(0), r11(0), r12(0), r13(0), r14(0), r15(0),
-                             rsp(0), rip(0),
-                             ss(0), cs(0), gs(0), rflags(0),
-                             cr3(0) 
-            {}
-
-        regs(irq::regs *regs) {
-            this->rax = regs->rax;
-            this->rbx = regs->rbx;
-            this->rcx = regs->rcx;
-            this->rdx = regs->rdx;
-            this->rbp = regs->rbp;
-            this->rdi = regs->rdi;
-            this->rsi = regs->rsi;
-            this->r8  = regs->r8;
-            this->r9  = regs->r9;
-            this->r10 = regs->r10;
-            this->r11 = regs->r11;
-            this->r12 = regs->r12;
-            this->r13 = regs->r13;
-            this->r14 = regs->r14;
-            this->r15 = regs->r15;
-
-            this->rsp = regs->rsp;
-            this->rip = regs->rip;
-
-            this->rflags = regs->rflags;
-
-            asm volatile("mov %%cr3, %0;" : "=r"(this->cr3));
-        }
     };
 
-    inline size_t uptime;
+    inline volatile size_t uptime;
 
     constexpr size_t PIT_FREQ = 1000;
-    void sleep(size_t time);
 
+    class thread;
+    class process;
+
+    void sleep(size_t time);
     void init();
 
+    void send_ipis();
+
+    void init_idle();
+
+    void init_syscalls();
+    void init_locals();
+
+    void init_bsp();
+    void init_ap();
+
+    int64_t start_thread(thread *task);
+    thread *create_thread(void (*main)(), uint64_t rsp, memory::vmm::vmm_ctx *ctx, uint8_t privilege);
+    void kill_thread(int64_t tid);
+
+    void add_child(thread *task, int64_t pid);
+
+    process *create_process(char *name, memory::vmm::vmm_ctx *ctx);
+
+    int64_t pick_task();
+    void swap_task(irq::regs *r);
+
+    void tick_bsp(irq::regs *r);
+
+    class auxv {
+        int64_t type;
+        union {
+            long val;
+            void *ptr;
+            void (*fun)();
+        } data;
+    };
+
+    class thread_env {
+        public:
+            char **argv;
+            char **env;
+            auxv *auxvs;
+
+            int argc;
+            int envc;
+            int auxc;
+    };
+
+    class thread {
+        public:
+            regs reg;
+
+            size_t kstack;
+            size_t ustack;
+
+            memory::vmm::vmm_ctx *mem_ctx;
+
+            uint64_t started;
+            uint64_t stopped;
+            uint64_t uptime;
+
+            enum state {
+                READY,
+                RUNNING,
+                SLEEP,
+                BLOCKED,
+                WAIT
+            };
+
+            uint8_t state;
+            int64_t cpu;
+
+            int64_t tid;
+            size_t pid;
+            process *parent;
+            
+            uint8_t privilege;
+            bool running;
+            thread_env env;
+    };
+
+    class process {
+        public:
+            char name[50];
+
+            frg::vector<thread *, memory::mm::heap_allocator> threads;
+
+            size_t pid;
+            frg::vector<size_t, memory::mm::heap_allocator> fds;
+
+            size_t brk;
+
+            size_t uid;
+            size_t gid;
+            size_t ppid;
+
+            uint64_t perms;
+    };
+
+    struct [[gnu::packed]] thread_info {
+        uint64_t meta_ptr;
+
+        int errno;
+        int64_t tid;
+
+        size_t started;
+        size_t stopped;
+        size_t uptime;
+    };
+
+    inline frg::vector<sched::process *, memory::mm::heap_allocator> processes{};
+    inline frg::vector<sched::thread *, memory::mm::heap_allocator> threads{};
+
+    extern util::lock sched_lock;
+
+    constexpr uint64_t EFER = 0xC0000080;
+    constexpr uint64_t STAR = 0xC0000081;
+    constexpr uint64_t LSTAR = 0xC0000082;
+    constexpr uint64_t SFMASK = 0xC0000084;
 };
 
 #endif

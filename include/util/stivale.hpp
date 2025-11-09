@@ -250,7 +250,7 @@ namespace stivale {
             }
 
             stivale::boot::tags::smp *smp() {
-                for (uint64_t tag = memory::common::offsetVirtual(header)->tags; tag != 0; tag = (memory::common::offsetVirtual(((stivale::tag *) tag))->next) + memory::common::virtualBase) {
+                for (uint64_t tag = memory::common::offsetVirtual(header)->tags; tag != 0; tag = (memory::common::offsetVirtual(((stivale::tag *) tag))->next)) {
                     if (memory::common::offsetVirtual(((stivale::tag *) tag))->identifier == stivale::boot::tag_id::smp) {
                         return memory::common::offsetVirtual((stivale::boot::tags::smp *) tag);
                     }

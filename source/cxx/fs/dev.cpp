@@ -5,11 +5,11 @@
 #include <cstddef>
 #include <frg/allocation.hpp>
 #include <fs/vfs.hpp>
-#include <fs/devfs.hpp>
+#include <fs/dev.hpp>
 
 void vfs::devfs::init() {
-    vfs::mgr()->mkdir("/dev", 0);
-    vfs::mgr()->mount("/", "/dev", fslist::DEVFS, nullptr, mflags::NOSRC);
+    vfs::mgr->mkdir("/dev", 0);
+    vfs::mgr->mount("/", "/dev", fslist::DEVFS, nullptr, mflags::NOSRC);
     kmsg("[VFS] Initial devfs mounted.");
 }
 
@@ -104,7 +104,7 @@ bool in_use(vfs::path name) {
     }
 
     for (auto n : vfs::devfs::node_map[name]) {
-        if (vfs::mgr()->in_use(n->get_path())) {
+        if (vfs::mgr->in_use(n->get_path())) {
             return true;
         }
     }
@@ -124,7 +124,7 @@ void vfs::devfs::rm(vfs::path name) {
     }
 
     for (auto n : node_map[name]) {
-        vfs::mgr()->unlink(n->get_path());
+        vfs::mgr->unlink(n->get_path());
     }
 }
 
@@ -182,11 +182,11 @@ vfs::node *vfs::devfs::lookup(const pathlist &filepath, vfs::path path, int64_t 
         return nullptr;
     }
 
-    if (part_sec > (ssize_t) device->part_list.size()) {
+    if (part_sec > (ssize_t) device->part_list.size() - 1) {
         return nullptr;
     }
 
-    vfs::mgr()->create(path, node::type::FILE, 0xCAFEBABE | oflags::DYNAMIC);
+    vfs::mgr->create(path, node::type::BLOCKDEV, 0xCAFEBABE | oflags::DYNAMIC);
     return nodenames[path];
 }
 

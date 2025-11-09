@@ -1,7 +1,9 @@
 #ifndef SMP_HPP
 #define SMP_HPP
 
+#include "sys/sched.hpp"
 #include <cstddef>
+#include <cstdint>
 #include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
@@ -55,6 +57,7 @@ namespace smp {
     constexpr size_t gsBase = 0xC0000101;
 
     struct processor {
+        uint64_t meta_pointer;
         size_t lid;
 
         size_t kstack;
@@ -62,16 +65,31 @@ namespace smp {
 
         smp::tss::entry tss;
 
-        size_t idle_tid, tid, pid;
+        int64_t tid, idle_tid;
+        size_t pid;
+
+        sched::thread *task;
+        sched::process *proc;
+
+        frg::vector<sched::thread *, memory::mm::heap_allocator> tasks{};
+        frg::vector<sched::thread *, memory::mm::heap_allocator> sleep_queue{};
 
         void *ctx;
 
-        processor(size_t lid) : lid(lid) { }
+        processor(size_t lid) : meta_pointer((uint64_t) this), lid(lid) { }
     };
 
     inline frg::vector<processor *, memory::mm::heap_allocator> cpus{};
 
     void init();
+
+    smp::processor *get_locals();
+
+    sched::thread *get_thread();
+    sched::process *get_process();
+
+    size_t get_pid();
+    int64_t get_tid();
 };
 
 #endif

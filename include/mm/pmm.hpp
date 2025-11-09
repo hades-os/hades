@@ -11,16 +11,30 @@
 
 namespace memory {
     namespace pmm {
-        namespace {
-            inline util::lock lock{};
+        struct block {
+            size_t sz;
+            bool is_free;
         };
 
-        inline size_t nr_pages;
-        inline size_t nr_reserved;
-        inline size_t nr_usable;
+        struct region {
+            region *next;
 
-        inline void *map;
-        inline size_t map_len;
+            block *head;
+            block *tail;
+
+            bool has_blocks;
+            size_t alignment;
+        };
+
+        struct allocation {
+            region *reg;
+        };
+
+        inline util::lock pmm_lock{};
+        inline region* head = nullptr;
+        
+        inline size_t nr_pages = 0;
+        inline size_t nr_usable = 0;
 
         void init(stivale::boot::tags::region_map *info);
 

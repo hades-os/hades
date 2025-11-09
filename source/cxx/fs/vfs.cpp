@@ -3,19 +3,13 @@
 #include <mm/mm.hpp>
 #include <cstddef>
 #include <frg/string.hpp>
-#include <fs/devfs.hpp>
+#include <fs/dev.hpp>
 #include <fs/fat.hpp>
 #include <fs/rootfs.hpp>
 #include <fs/vfs.hpp>
 #include <mm/mm.hpp>
 #include <util/log/log.hpp>
 #include <util/string.hpp>
-
-namespace vfs {
-    namespace internal {
-        manager *root_mgr = nullptr;
-    };
-};
 
 vfs::filesystem *vfs::manager::resolve_fs(vfs::path path) {
     if (path == "/") {
@@ -128,7 +122,7 @@ vfs::node *vfs::manager::get_parent(vfs::path filepath) {
     
     auto parent_path = filepath;
     auto parent_view = frg::string_view{parent_path};
-    if (parent_view.find_last('/') != -1)
+    if (parent_view.find_last('/') != size_t(-1))
         parent_path.resize(frg::string_view{parent_path}.find_last('/'));
         
     auto parent = resolve(parent_path);
@@ -481,7 +475,6 @@ vfs::pathlist vfs::manager::lsdir(path dirpath) {
     }
 
     fs->lsdir(dir, names);
-
     return names;
 }
 
@@ -539,27 +532,17 @@ vfs::ssize_t vfs::manager::mount(path srcpath, path dstpath, ssize_t fstype, opt
                 return ret;
             }
 
-            ret = mount(srcpath, dstpath, fstype, opts, (flags & ~mflags::OVERLAY) | mflags::NOSRC);
-
-            if (ret) {
-                return ret;
-            }
-
-            break;
-        }
-
-        default:
             switch (fstype) {
                 case fslist::FAT: {
                     if (!dst || !src) {
+                        kmsg("invalid src or dst");
+
                         return -error::INVAL;
                     }
 
                     if (dst->get_type() != node::type::DIRECTORY || src->get_type() != node::type::BLOCKDEV) {
-                        return -error::INVAL;
-                    }
+                        kmsg("invalid source device or dest; dst: ", dst->get_type(), ", source: ", src->get_type());
 
-                    if (dst->get_ccount() > 0) {
                         return -error::INVAL;
                     }
 
@@ -573,6 +556,10 @@ vfs::ssize_t vfs::manager::mount(path srcpath, path dstpath, ssize_t fstype, opt
                 default:
                     return -error::INVAL;
             }
+
+            break;
+        }
+
     }
 
     return 0;

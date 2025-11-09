@@ -1,3 +1,6 @@
+#include "mm/vmm.hpp"
+#include "sys/sched.hpp"
+#include "sys/smp.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <mm/mm.hpp>
@@ -6,39 +9,97 @@
 #include <util/log/log.hpp>
 
 extern "C" {
-    void irq_handler(irq::regs *regs) {
-        asm volatile("mov %%cr2, %0" : "=r"(regs->fault_address));
-        if (regs->int_no < 32) {
-            panic("Exception: ", util::hex(regs->int_no), ", err code:", util::hex(regs->err), ", rip: ", util::hex(regs->rip), ", cr2: ", regs->fault_address);
-        } else {
-            if (irq::handlers[regs->int_no]) {
-                irq::handlers[regs->int_no](regs);
+    void irq_handler(irq::regs *r) {
+        if (r->int_no < 32) {
+            uint64_t cr3 = memory::vmm::read_cr3();
+            memory::vmm::change(memory::vmm::common::boot_ctx);
+            if (r->cs != 0x1B) {
+                uint64_t cr2 = 0;
+                asm volatile("movq %%cr2, %0" : "=r"(cr2));
+
+                send_panic_ipis();
+
+                kmsg("Exception on CPU ", smp::get_locals()->lid, "\n",
+                     "    RAX: ", r->rax, ", RBX: ", r->rbx, "\n",
+                     "    RCX: ", r->rcx, ", RDX: ", r->rdx, "\n", 
+                     "    RBP: ", util::hex(r->rbp), ", RDI: ", r->rdi, "\n",
+                     "    RSI: ", r->rsi, ", R8: ", r->r8, "\n",
+                     "    R9: ", r->r9, ", R10: ", r->r10, ", R11: ", r->r11, ", R12: ", r->r12, ", R13: ", r->r13, ", R14: ", r->r14, ", R15: ", r->r15, "\n"
+                     "    RSP: ", util::hex(r->rsp), ", ERR: ", util::hex(r->err), ", INT: ", util::hex(r->int_no), ", RIP: ", util::hex(r->rip), ", CR2: ", util::hex(cr2), "\n",
+                     "    CS: ", r->cs, ", SS: ", r->ss, ", RFLAGS: ", r->rflags);
+                
+                if (r->int_no == 14) {
+                    kmsg("# PF Flags: ");
+                    if (r->err & (1 << 0)) { kmsg("  P"); } else { kmsg("  NP"); }
+                    if (r->err & (1 << 1)) { kmsg("  W"); } else { kmsg("  R"); }
+                    if (r->err & (1 << 2)) { kmsg("  U"); } else { kmsg("  S"); }
+                    if (r->err & (1 << 3)) { kmsg("  RES"); }
+                }
+
+                while (true) { asm volatile("hlt"); }
+            } else {
+                uint64_t cr2 = 0;
+                asm volatile("movq %%cr2, %0" : "=r"(cr2));
+
+                kmsg("Userspace exception: ", util::hex(r->int_no), ", ERR: ", util::hex(r->err), ", pid: ", smp::get_locals()->pid, ", tid: ", smp::get_locals()->tid);
+                kmsg("CR3:", util::hex(cr3), ", CR2: ", util::hex(cr2), ", RIP: ", util::hex(r->rip), ", RBP: ", util::hex(r->rbp), ", RSP: ", util::hex(r->rsp));
+                kmsg("RAX: ", r->rax, ", RBX: ", r->rbx, "\n",
+                     "    RCX: ", r->rcx, ", RDX: ", r->rdx, "\n", 
+                     "    RBP: ", util::hex(r->rbp), ", RDI: ", r->rdi, "\n",
+                     "    RSI: ", r->rsi, ", R8: ", r->r8, "\n",
+                     "    R9: ", r->r9, ", R10: ", r->r10, ", R11: ", r->r11, ", R12: ", r->r12, ", R13: ", r->r13, ", R14: ", r->r14, ", R15: ", r->r15, "\n"
+                     "    RSP: ", util::hex(r->rsp), ", ERR: ", util::hex(r->err), ", INT: ", util::hex(r->int_no), ", RIP: ", util::hex(r->rip), ", CR2: ", util::hex(cr2), "\n",
+                     "    CS: ", r->cs, ", SS: ", r->ss, ", RFLAGS: ", r->rflags);
+
+                sched::sched_lock.acquire();
+
+                auto tid = smp::get_locals()->tid;
+                auto thread = sched::threads[tid];
+                thread->state = sched::thread::BLOCKED;
+                thread->cpu = -1;
+
+                sched::sched_lock.release();
+
+                smp::get_locals()->task = nullptr;
+                sched::swap_task(r);
+
+                sched::threads[tid] = (sched::thread *) 0;
+                frg::destruct(memory::mm::heap, thread);
+
             }
         }
+        
+        if (irq::handlers[r->int_no]) {
+            irq::handlers[r->int_no](r);
+        }
+        
 
         apic::lapic::eoi();
     }
 };
 
 void irq::set_gate(uint8_t num, uint64_t base, uint8_t flags) {
-    entries[num].base_lo = (base & 0xFFFF);
-    entries[num].base_mid = (base >> 16) & 0xFFFF;
-    entries[num].base_hi = (base >> 32) & 0xFFFFFFFF;
+    entries[num].base_lo =  (uint16_t) (base >> 0);
+    entries[num].base_mid = (uint16_t) (base >> 16);
+    entries[num].base_hi =  (uint32_t) (base >> 32);
 
     entries[num].ist = 0;
-    entries[num].sel = 0x08;
+    entries[num].sel = 0x8;
 
     entries[num].always0 = 0;
     entries[num].flags = flags;
+}
+
+void irq::set_ist(uint8_t num, uint8_t idx) {
+    entries[num].ist = (idx & 0b111);
 }
 
 void irq::add_handler(irq::handler handler, size_t irq) {
     handlers[irq] = handler;
 }
 
-
 void irq::hook() {
-    asm volatile("lidtq %0" : : "m"(ptr));
+    asm volatile("lidtq (%0)" : : "r"(&ptr));
 }
 
 void irq::setup() {
@@ -301,4 +362,41 @@ void irq::setup() {
     set_gate(253, (uint64_t) isr253, 0x8E);
     set_gate(254, (uint64_t) isr254, 0x8E);
     set_gate(255, (uint64_t) isr255, 0x8E);
+
+    set_ist(0, 2);
+    set_ist(1, 2);
+    set_ist(2, 2);
+    set_ist(3, 2);
+    set_ist(4, 2);
+    set_ist(5, 2);
+    set_ist(6, 2);
+    set_ist(7, 2);
+    set_ist(8, 2);
+    set_ist(9, 2);
+    set_ist(10, 2);
+    set_ist(11, 2);
+    set_ist(12, 2);
+    set_ist(13, 2);
+    set_ist(14, 2);
+    set_ist(15, 2);
+    set_ist(16, 2);
+    set_ist(17, 2);
+    set_ist(18, 2);
+    set_ist(19, 2);
+    set_ist(20, 2);
+    set_ist(21, 2);
+    set_ist(22, 2);
+    set_ist(23, 2);
+    set_ist(24, 2);
+    set_ist(25, 2);
+    set_ist(26, 2);
+    set_ist(27, 2);
+    set_ist(28, 2);
+    set_ist(29, 2);
+    set_ist(30, 2);
+    set_ist(31, 2);
+    set_ist(251, 2);
+    /* IRQ Stacks (IST index 1) */
+    set_ist(32, 1);
+    set_ist(253, 1);
 }

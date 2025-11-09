@@ -36,17 +36,13 @@ uint16_t pci::device::get_vendor() {
     return vendor_id;
 }
 
-int64_t pci::device::get_parent() {
-    return parent;
-}
-
 static inline uint32_t get_address(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg) {
     uint32_t lbus  = (uint32_t) bus;
     uint32_t lslot = (uint32_t) slot;
     uint32_t lfunc = (uint32_t) func;
  
     uint32_t address = (uint32_t) ((lbus << 16) | (lslot << 11) |
-              (lfunc << 8) | (reg & 0xfc) | ((uint32_t) 0x80000000));
+              (lfunc << 8) | (reg & 0xFC) | ((uint32_t) 0x80000000));
     return address;
 }
 
@@ -80,8 +76,17 @@ static inline void write_byte(uint8_t bus, uint8_t slot, uint8_t func, uint8_t r
     io::ports::write<uint8_t>(pci::DATA_PORT + (reg & 3), data);
 }
 
+static inline uint8_t get_secondary_bus(uint8_t bus, uint8_t slot, uint8_t func) {
+    return (uint8_t) (read_dword(bus, slot, func, 0x18) >> 8);
+}
+
 static inline uint16_t get_vendor(uint8_t bus, uint8_t slot, uint8_t func) {
     return (uint16_t) read_dword(bus, slot, func, 0);
+}
+
+static inline uint8_t get_header_type(uint8_t bus, uint8_t slot, uint8_t func) {
+    uint8_t header_type = (uint8_t) (read_dword(bus, slot, func, 0xC) >> 16);
+    return header_type & ~(1 << 7);
 }
 
 static inline uint16_t get_device(uint8_t bus, uint8_t slot, uint8_t func) {
@@ -89,13 +94,11 @@ static inline uint16_t get_device(uint8_t bus, uint8_t slot, uint8_t func) {
 }
 
 static inline uint8_t get_class(uint8_t bus, uint8_t slot, uint8_t func) {
-    uint8_t clazz = (uint8_t) (read_dword(bus, slot, func, 0x8) >> 24);
-    return clazz;
+    return (uint8_t) (read_dword(bus, slot, func, 0x8) >> 24);
 }
 
 static inline uint8_t get_subclass(uint8_t bus, uint8_t slot, uint8_t func) {
-    uint8_t subclass = (uint8_t) (read_dword(bus, slot, func, 0x8) >> 16);
-    return subclass;
+    return (uint8_t) (read_dword(bus, slot, func, 0x8) >> 16);
 }
 
 static inline uint8_t get_prog_if(uint8_t bus, uint8_t slot, uint8_t func) {
@@ -137,52 +140,68 @@ static inline uint8_t get_capability(uint8_t bus, uint8_t slot, uint8_t func, ui
     return 0;
 }
 
-int pci::device::read_bar(size_t index, pci::bar& bar) {
+static inline uint8_t is_bridge(uint8_t bus, uint8_t slot, uint8_t func) {
+    if (get_class(bus, slot, func) != 0x6) return 0;
+    if (get_subclass(bus, slot, func) != 0x4) return 0;
+
+    return 1;
+}
+
+static inline uint8_t is_multifunction(uint8_t bus, uint8_t slot) {
+    uint8_t header_type = (uint8_t) (read_dword(bus, slot, 0, 0xC) >> 16);
+    return header_type & (1 << 7);
+}
+
+static inline uint8_t is_function(uint8_t bus, uint8_t slot, uint8_t func) {
+    return (get_vendor(bus, slot, func) != 0xFFFF);
+}
+
+int pci::device::read_bar(size_t index, pci::bar& bar_out) {
     if (index > 5) {
         return 0;
     }
 
-    uint64_t reg_idx = 0x10 + index * 4;
-    uint64_t bar_lo = readd(reg_idx);
-    uint64_t bar_size_low = 0;
-    uint64_t bar_hi = 0;
-    uint64_t bar_size_hi = 0;
+    uint64_t reg_idx = 0x10 + (index * 4);
+    uint64_t bar = readd(reg_idx);
+    uint64_t bar_hi, bar_size, bar_size_hi = 0;
 
-    if (!bar_lo) {
+    if (!bar) {
         return 0;
     }
 
     uint64_t base;
     uint64_t size;
 
-    uint8_t is_mmio = !(bar_lo & 1);
-    uint8_t is_prefetchable = is_mmio && bar_lo & (1 << 3);
-    uint8_t is_long = is_mmio && ((bar_lo >> 1) & 0x3) == 0x2;
+    uint8_t is_mmio = !(bar & 1);
+    uint8_t is_prefetchable = is_mmio && bar & (1 << 3);
+    uint8_t is_long = is_mmio && ((bar>> 1) & 0x3) == 0x2;
+
+    writed(reg_idx, ~0);
+    bar_size = readd(reg_idx);
+    writed(reg_idx, bar);
 
     if (is_long) {
         bar_hi = readd(reg_idx + 4);
-    }
 
-    base = ((bar_hi << 32) | bar_lo) & ~(is_mmio ? (0xF) : (0x3));
-
-    writed(reg_idx, 0xFFFFFFFF);
-    bar_size_low = readd(reg_idx);
-    writed(reg_idx, bar_lo);
-
-    if (is_long) {
-        writed(reg_idx + 4, 0xFFFFFFFF);
+        writed(reg_idx + 4, ~0);
         bar_size_hi = readd(reg_idx + 4);
         writed(reg_idx + 4, bar_hi);
+
+        size = ((bar_size_hi << 32) | bar_size) & ~(is_mmio ? 0b1111 : 0b11);
+        size = ~size + 1;
+
+        base = ((bar_hi << 32) | bar) & ~(is_mmio ? 0b1111 : 0b11);
+    } else {
+        base = bar;
+        size = bar_size & is_mmio ? 0b1111 : 0b11;
+        size = ~size + 1;
     }
 
-    size = ((bar_size_hi << 32) | bar_size_low) & ~(is_mmio ? (0xF) : (0x3));
-    size = ~size + 1;
-
-    bar.base = base;
-    bar.size = size;
-    bar.is_mmio = is_mmio;
-    bar.is_prefetchable = is_prefetchable;
-    bar.valid = true;
+    bar_out.base = base;
+    bar_out.size = size;
+    bar_out.is_mmio = is_mmio;
+    bar_out.is_prefetchable = is_prefetchable;
+    bar_out.valid = true;
 
     return 1;
 }
@@ -278,6 +297,11 @@ void pci::device::enable_busmastering() {
         writed(0x4, readd(0x4) | (1 << 2));
     }
 }
+
+void pci::device::enable_mmio() {
+    if (!(readd(0x4) & (1 << 1))) {
+        writed(0x4, readd(0x4) | (1 << 1));
+    }}
 
 const char *pci::to_string(uint8_t clazz, uint8_t subclass, uint8_t prog_if) {
     switch (clazz) {
@@ -472,12 +496,7 @@ const char *pci::to_string(uint8_t clazz, uint8_t subclass, uint8_t prog_if) {
     }
 }
 
-static inline uint8_t is_multifunction(uint8_t bus, uint8_t slot) {
-    uint8_t header_type = (uint8_t) (read_dword(bus, slot, 0, 0xC) >> 16);
-    return header_type & (1 << 7);
-}
-
-static inline pci::device create_device(uint8_t bus, uint8_t slot, uint8_t func, int64_t parent) {
+static inline pci::device create_device(uint8_t bus, uint8_t slot, uint8_t func) {
     return pci::device(
         bus,
         slot,
@@ -487,65 +506,42 @@ static inline pci::device create_device(uint8_t bus, uint8_t slot, uint8_t func,
         get_prog_if(bus, slot, func),
         get_device(bus, slot, func),
         get_vendor(bus, slot, func),
-        is_multifunction(bus, slot),
-        parent
+        is_multifunction(bus, slot)
     );
 }
 
-static inline void scan_func(uint8_t bus, uint8_t slot, uint8_t func, int64_t parent);
-static inline void scan_bus(uint8_t bus, int64_t parent) {
-    for (size_t dev = 0; dev < pci::MAX_DEVICE; dev++) {
-        for (size_t func = 0; func < pci::MAX_FUNCTION; func++) {
-            scan_func(bus, dev, func, parent);
-        }
-    }
-}
+static inline void scan_bus(uint8_t bus) {
+    for (size_t slot = 0; slot < pci::MAX_DEVICE; slot++) {
+        if (is_function(bus, slot, 0)) {
+            if (is_bridge(bus, slot, 0)) {
+                scan_bus(get_secondary_bus(bus, slot, 0));
+            } else {
+                auto device = create_device(bus, slot, 0);
+                pci::devices.push_back(device);
+            }
 
-static inline void scan_func(uint8_t bus, uint8_t slot, uint8_t func, int64_t parent) {
-    auto device = create_device(bus, slot, func, parent);
-
-    uint32_t config_0 = device.readd(0);
-    if (config_0 == 0xFFFFFFFF) {
-        return;
-    }
-
-    pci::devices.push_back(device);
-
-    if (device.get_clazz() == 0x06 && device.get_subclass() == 0x04) {
-        uint32_t config_18 = device.readd(0x18);
-        scan_bus((config_18 >> 8) & 0xFF, pci::devices.size());
-    }
-}
-
-static inline void scan_root() {
-    uint32_t config_c = read_dword(0, 0, 0, 0xC);
-    uint32_t config_0;
-
-    if (!(config_c & 0x800000)) {
-        scan_bus(0, -1);
-    } else {
-        for (size_t func = 0; func < 8; func++) {
-            config_0 = read_dword(0, 0, func, 0);
-            if (config_0 == 0xffffffff)
-                continue;
-
-            scan_bus(func, -1);
+            if (is_multifunction(bus, slot)) {                
+                for (size_t func = 1; func < pci::MAX_FUNCTION; func++) {
+                    if (is_function(bus, slot, func)) {
+                        if (is_bridge(bus, slot, func)) {
+                            scan_bus(get_secondary_bus(bus, slot, func));
+                        } else {
+                            auto device = create_device(bus, slot, func);
+                            pci::devices.push_back(device);
+                        }
+                    }
+                }
+            }
+        } else {
+            continue;
         }
     }
 }
 
 void pci::init() {
-    scan_root();
+    scan_bus(0);
 
     kmsg("[PCI] Detected ", devices.size(), " devices");
-    for (auto& device : devices) {
-        kmsg("[PCI] Device: ", pci::to_string(device.get_clazz(), device.get_subclass(), device.get_prog_if()));
-        kmsg("[PCI] Bus:       ", device.get_bus());
-        kmsg("[PCI] Slot:    ", device.get_slot());
-        kmsg("[PCI] Function:  ", device.get_func());
-        kmsg("[PCI] Class:     ", device.get_clazz());
-        kmsg("[PCI] Subclass:  ", device.get_subclass());
-    }
 }
 
 pci::device *pci::get_device(uint8_t cl, uint8_t subcl, uint8_t prog_if) {

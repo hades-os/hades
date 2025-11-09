@@ -1,3 +1,4 @@
+#include "frg/tuple.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <mm/common.hpp>
@@ -6,98 +7,268 @@
 #include <util/stivale.hpp>
 #include <util/string.hpp>
 
-void sbit(uint64_t idx) {
-    asm volatile (
-        "bts %0, (%1)"
-        :
-        : "r" (idx), "r" (memory::pmm::map)
-        : "memory"
-    );
+memory::pmm::block *next_block(memory::pmm::block *block) {
+    return (memory::pmm::block *)(((char *) block) + block->sz);
 }
 
-void cbit(uint64_t idx) {
-    asm volatile (
-        "btr %0, (%1)"
-        :
-        : "r" (idx), "r" (memory::pmm::map)
-        : "memory"
-    );
+memory::pmm::block *split_block(memory::pmm::block *block, size_t size) {
+    if (block != nullptr && size != 0) {
+        while (size < block->sz) {
+            size_t sz = block->sz >> 1;
+            block->sz = sz;
+            block = next_block(block);
+            block->sz = sz;
+            block->is_free = true;
+        }
+
+        if (size <= block->sz) {
+            return block;
+        }
+    }
+
+    return nullptr;
 }
 
-bool rbit(uint64_t idx) {
-    uint8_t ret = 0;
-    asm volatile (
-        "bt %1, (%2)"
-        : "=@ccc" (ret)
-        : "r" (idx), "r" (memory::pmm::map)
-        : "memory"
-    );
+memory::pmm::block *find_best(memory::pmm::block *head, memory::pmm::block *tail, size_t size) {
+    memory::pmm::block *best = nullptr;
+    memory::pmm::block *block = head;
+    memory::pmm::block *buddy = next_block(block);
 
-    return ret;
+    if (buddy == tail && block->is_free) {
+        return split_block(block, size);
+    }
+
+    while (block < tail && buddy < tail) {
+        if (block->is_free && buddy->is_free && block->sz == buddy->sz) {
+            block->sz <<= 1;
+
+            if (size <= block->sz && (best == nullptr || block->sz <= best->sz)) {
+                best = block;
+            }
+
+            block = next_block(buddy);
+            if (block < tail) {
+                buddy = next_block(block);
+            }
+
+            continue;
+        }
+
+        if (block->is_free && size <= block->sz && 
+            (best == nullptr || block->sz <= best->sz)) {
+            best = block;
+        }
+
+        if (buddy->is_free && size <= buddy->sz &&
+            (best == nullptr || buddy->sz < best->sz)) {
+            best = buddy;
+        }
+
+        if (block->sz <= buddy->sz) {
+            block = next_block(buddy);
+            if (block < tail) {
+                buddy = next_block(block);
+            }
+        } else {
+            block = buddy;
+            buddy = next_block(buddy);
+        }
+    }
+
+    if (best != nullptr) {
+        return split_block(best, size);
+    }
+
+    // OOM
+    return nullptr;
 }
 
-constexpr size_t base = memory::common::virtualBase + 0x1000000;
+
+size_t align_forward(size_t num, size_t align) {
+    auto p = num;
+    auto modulo = p & ( align - 1 );
+    if (modulo != 0) {
+        p += align - modulo;
+    }
+
+    return p;
+}
+
+size_t align_size(memory::pmm::region *region, size_t size) {
+    size_t actual_size = region->alignment;
+    
+    size += sizeof(memory::pmm::block);
+    size = align_forward(size, region->alignment);
+
+    while (size > actual_size) {
+        actual_size <<= 1;
+    }
+
+    return actual_size;
+}
+
+void coalesce_blocks(memory::pmm::block *head, memory::pmm::block *tail) {
+    for (;;) {
+        memory::pmm::block *block = head;
+        memory::pmm::block *buddy = next_block(block);
+
+        bool no_coalesce = true;
+        while (block < tail && buddy < tail) {
+            if (block->is_free && buddy->is_free && block->sz == buddy->sz) {
+                block->sz <<= 1;
+                block = next_block(block);
+                if (block < tail) {
+                    buddy = next_block(block);
+                    no_coalesce = false;
+                } 
+            } else if (block->sz < buddy->sz) { 
+                block = buddy;
+                buddy = next_block(buddy);
+            } else {
+                block = next_block(buddy);
+                if (block < tail) {
+                    buddy = next_block(block);
+                }
+            }
+        }
+
+        if (no_coalesce) {
+            return;
+        }
+    }
+}
+
+void *alloc_block(memory::pmm::region *region, size_t size) {
+    if (size != 0) {
+        size_t actual_size = align_size(region, size);
+
+        memory::pmm::block *found = find_best(region->head, region->tail, actual_size);
+        if (found == nullptr) {
+            coalesce_blocks(region->head, region->tail);
+            found = find_best(region->head, region->tail, actual_size);
+        }
+
+        if (found != nullptr) {
+            found->is_free = false;
+            return (void *) ((char *) found + region->alignment);
+        }
+
+        // OOM
+        region->has_blocks = false;
+    }
+
+    return nullptr;
+}
+
+void free_block(memory::pmm::region *region, void *data) {
+    if (data != nullptr) {
+        memory::pmm::block *block = (memory::pmm::block *)((char *) data + region->alignment);
+        block->is_free = true;
+
+        coalesce_blocks(region->head, region->tail);
+    }
+}
+
+size_t nearest_pow2(size_t size, size_t alignment) {
+    for (size_t i = (size - alignment); i >= 1; i = i - alignment) {
+        if ((i & (i - 1)) == 0) {
+            return i;
+        }
+    }
+
+    return 0;
+}
+
+frg::tuple<memory::pmm::region *, size_t> init_region(void *start, size_t size, size_t alignment) {
+    if (alignment < sizeof(memory::pmm::block)) {
+        alignment = sizeof(memory::pmm::block);
+    }
+
+    size_t region_size = nearest_pow2(size, alignment);
+    if (region_size == 0) {
+        return {nullptr, 0};
+    }
+
+    start = memory::common::offsetVirtual(start);
+    void *data = ((char *) start) + alignment;
+
+    memory::pmm::region *region = (memory::pmm::region *) start;
+    region->has_blocks = true;
+    region->head = (memory::pmm::block *) data;
+    region->alignment = alignment;
+    region->head->sz = region_size;
+    region->head->is_free = true;
+    region->tail = next_block(region->head);
+
+    return {region, size - region_size};
+}
+
+void append_region(memory::pmm::region *region, memory::pmm::region **curr) {
+    if (memory::pmm::head == nullptr) {
+        memory::pmm::head = region;
+        *curr = region;
+        region->next = nullptr;
+    } else {
+        (*curr)->next = region;
+        *curr = region;
+    }
+}
 
 void memory::pmm::init(stivale::boot::tags::region_map *info) {
-    map = (void *) (base);
-    map_len = info->page_count() / 8;
-
     nr_pages = info->page_count();
-    nr_reserved = (map_len / common::page_size) + 1;
-    nr_usable = nr_pages - nr_reserved;
 
-    memset(map, 0xFF, map_len);
-
+    memory::pmm::region *curr = nullptr;
     for (size_t i = 0; i < info->entries; i++) {
         auto region = info->regionmap[i];
         if (region.base < 0x100000)
             continue;
         if (region.type == stivale::boot::info::type::USABLE) {
-            for (size_t i = (region.base / common::page_size); i < (region.base + region.length) / common::page_size; i++) {
-                cbit(i);
+            nr_usable++;
+
+            auto [buddy_region, rest] = init_region((void *) region.base, region.length, common::page_size);
+            while (buddy_region != nullptr && rest > 0) {
+                append_region(buddy_region, &curr);
+                auto res = init_region((void *) (region.base + buddy_region->head->sz), rest, common::page_size);
+                
+                buddy_region = res.get<0>();
+                rest = res.get<1>();
             }
         }
-    }
-
-    for (size_t i = (0x1000000 / common::page_size); i < (0x1000000 / common::page_size) + (map_len / common::page_size); i++) {
-        sbit(i);
     }
 
     kmsg("[PMM] Free memory: ", nr_usable * common::page_size, " bytes");
 }
 
 void *memory::pmm::alloc(size_t req_pages) {
-    lock.acquire();
-    size_t targ = req_pages;
-    size_t i = 0;
+    pmm_lock.acquire();
 
-    for (; i < nr_pages; i++) {
-        if (!rbit(i++)) {
-            if (!--targ) {
-                goto out;
-            }
-        } else {
-            targ = req_pages;
+    find_region:
+        pmm::region *region = pmm::head;
+        while (region && region->next != nullptr && region->head->sz < (req_pages + 1) * common::page_size && region->has_blocks) {
+            region = region->next;
         }
+
+    auto ret = alloc_block(region, (req_pages + 1) * common::page_size);
+    if (ret == nullptr) {
+        goto find_region;
     }
 
-    panic("[PMM] Out of memory");
-
-    out:;
-    nr_usable = nr_usable - req_pages;
-    size_t j = i - req_pages;
-    void *address = (void *) ((j * common::page_size) + common::virtualBase);
-    memset(address, 0, req_pages * common::page_size);
-    for (; j < i; j++) {
-        sbit(j);
+    if (ret == nullptr) {
+        panic("[PMM] Out of Memory!");
+        pmm_lock.release();
     }
 
-    lock.release();
-    return address;
+    auto alloc = (pmm::allocation *) ret;
+    memset(alloc, 0, (req_pages + 1) * common::page_size);
+    alloc->reg = region;
+
+    pmm_lock.release();
+
+    return ((char *) alloc) + common::page_size;
 }
 
 void *memory::pmm::stack(size_t req_pages) {
-    return alloc(req_pages) + (req_pages * common::page_size);
+    return (char *) alloc(req_pages) + (req_pages * common::page_size);
 }
 
 void *memory::pmm::phys(size_t req_pages) {
@@ -105,6 +276,11 @@ void *memory::pmm::phys(size_t req_pages) {
 }
 
 void memory::pmm::free(void *address, size_t req_pages) {
-    for (size_t i = ((size_t) ((uint64_t) address - common::virtualBase)) / common::page_size; i < ((size_t) ((uint64_t) address - common::virtualBase)) / common::page_size + req_pages; i++)
-        cbit(i);
+    pmm_lock.acquire();
+
+    pmm::allocation *alloc = (pmm::allocation *) (((char *) address) - common::page_size);
+    pmm::region *reg = alloc->reg;
+    free_block(reg, address);
+
+    pmm_lock.release();
 }

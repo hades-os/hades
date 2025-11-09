@@ -6,13 +6,10 @@
 
 namespace irq {
     struct [[gnu::packed]] regs {
-        uint64_t ds;
-        uint64_t r15, r14, r13, r12, r11, r10, r9, r8,
-                         rdi, rsi, rbp, rdx, rcx, rbx, rax;
+        uint64_t r15, r14, r13, r12, r11, r10, r9, r8, 
+                 rsi, rdi, rbp, rdx, rcx, rbx, rax;
         uint64_t int_no, err;
-        uint64_t rip, cs, rflags;
-        uint64_t rsp, ss;
-        uint64_t fault_address;
+        uint64_t rip, cs, rflags, rsp, ss;
     };
 
     struct [[gnu::packed]] ptr {
@@ -43,13 +40,12 @@ namespace irq {
         asm volatile("cli");
     }
 
-    extern void setup();
-    extern void hook();
-    extern void set_gate(uint8_t num, uint64_t base, uint8_t flags);
-    extern void add_handler(irq::handler handler, size_t irq);
-    namespace {
-        inline irq::handler handlers[256] = { 0 };
-    };
+    void setup();
+    void hook();
+    void set_gate(uint8_t num, uint64_t base, uint8_t flags);
+    void set_ist(uint8_t num, uint8_t idx);
+    void add_handler(irq::handler handler, size_t irq);
+    inline irq::handler handlers[256] = { 0 };
 };
 
 extern "C" {
