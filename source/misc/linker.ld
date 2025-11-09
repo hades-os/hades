@@ -27,6 +27,13 @@ SECTIONS {
         __fini_array_end = .;
     }
 
+    .ex_table : ALIGN(8) {
+        _ex_table_begin = .;
+        KEEP(*(SORT(.ex_table.*)))
+        KEEP(*(.ex_table))
+        _ex_table_end = .;
+    }
+
    .data : ALIGN(4K) {
    	    *(.data)
         *(.rodata)

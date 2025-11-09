@@ -1,7 +1,6 @@
 #include <arch/x86/smp.hpp>
 #include <arch/x86/types.hpp>
 
-/*
 extern "C" {
     extern void *_ex_table_begin;
     extern void *_ex_table_end;
@@ -40,4 +39,3 @@ bool x86::handle_user_exception(arch::irq_regs *r) {
     r->rip = entry->fixup;
     return true;
 }
-*/

@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <frg/allocation.hpp>
 #include <frg/hash.hpp>
-#include <frg/hash_map.hpp>
 #include <mm/mm.hpp>
 #include <fs/vfs.hpp>
 #include <fs/dev.hpp>
@@ -98,6 +97,12 @@ namespace vfs {
                     char *name;
 
                     shared_ptr<ent> next;
+
+                    ~ent() {
+                        while (next) {
+                            next = std::move(next->next);
+                        }
+                    }
                 };
 
                 shared_ptr<ent> head;

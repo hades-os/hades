@@ -249,17 +249,9 @@ ssize_t tty::device::ioctl(size_t req, void *buf) {
     }
 }
 
-ssize_t tty::device::poll(sched::thread *thread) {
-    for (;;) {
-        if (__atomic_load_n(&in.items, __ATOMIC_RELAXED) >= 0) break; 
-
-        auto [evt, _] = kb::wire.wait(evtable::KB_PRESS, true);
-        if (evt < 0) {
-            return -1;
-        }
-    }
-
-    return POLLIN | POLLOUT;
+ssize_t tty::device::poll(shared_ptr<poll::queue> queue) {
+    queues.push(queue);
+    return POLLOUT;
 }
 
 void tty::set_active(frg::string_view path, shared_ptr<vfs::fd_table> table) {

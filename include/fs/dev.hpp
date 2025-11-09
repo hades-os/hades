@@ -2,6 +2,7 @@
 #define DEVFS_HPP
 
 #include "frg/string.hpp"
+#include "fs/poll.hpp"
 #include "mm/common.hpp"
 #include "util/types.hpp"
 #include <cstddef>
@@ -139,26 +140,31 @@ namespace vfs {
             };
 
             struct filedev: device {
-                shared_ptr<node> file;
+                protected:
+                    virtual ssize_t arise(ssize_t event) = 0;
+                public:
+                    frg::vector<shared_ptr<poll::queue>, memory::mm::heap_allocator> queues;
+                    shared_ptr<node> file;
 
-                virtual ssize_t on_open(shared_ptr<fd> fd, ssize_t flags) = 0;
-                virtual ssize_t on_close(shared_ptr<fd> fd, ssize_t flags) = 0;
+                    virtual ssize_t on_open(shared_ptr<fd> fd, ssize_t flags) = 0;
+                    virtual ssize_t on_close(shared_ptr<fd> fd, ssize_t flags) = 0;
 
-                virtual ssize_t read(void *buf, size_t len, size_t offset) = 0;
-                virtual ssize_t write(void *buf, size_t len, size_t offset) = 0;
-                virtual ssize_t ioctl(size_t req, void *buf) = 0;
+                    virtual ssize_t read(void *buf, size_t len, size_t offset) = 0;
+                    virtual ssize_t write(void *buf, size_t len, size_t offset) = 0;
+                    virtual ssize_t ioctl(size_t req, void *buf) = 0;
 
-                virtual ssize_t poll(sched::thread *thread) = 0;
+                    virtual ssize_t poll(shared_ptr<poll::queue> queue) = 0;
 
-                virtual ssize_t force_dismount() = 0;
+                    virtual ssize_t force_dismount() = 0;
 
-                filedev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux, device_class cls): device(bus, major, minor, aux, cls) {};
+                    filedev(devfs::busdev *bus, ssize_t major, ssize_t minor, void *aux, device_class cls): device(bus, major, minor, aux, cls), queues() {};
             };
 
             struct blockdev: filedev {
-                static constexpr size_t defaultReadSize = memory::page_size * 64;
-
+                protected:
+                    virtual ssize_t arise(ssize_t event) override { return -ENOTSUP; };
                 public:
+                    static constexpr size_t defaultReadSize = memory::page_size * 64;
                     struct partition {
                         size_t blocks;
                         size_t begin;
@@ -180,7 +186,7 @@ namespace vfs {
                     virtual ssize_t write(void *buf, size_t len, size_t offset) override { return 0; }
                     virtual ssize_t ioctl(size_t req, void *buf) override { return 0; }
 
-                    virtual ssize_t poll(sched::thread *thread) override { return POLLIN | POLLOUT; }
+                    virtual ssize_t poll(shared_ptr<poll::queue> queue) override { return POLLIN | POLLOUT; }
 
                     virtual ssize_t force_dismount() override { return -ENOTSUP; }
 
@@ -188,6 +194,8 @@ namespace vfs {
             };
 
             struct chardev: filedev {
+                protected:
+                    ssize_t arise(ssize_t event) override;                
                 public:
                     virtual ssize_t on_open(shared_ptr<fd> fd, ssize_t flags) override { return 0; }
                     virtual ssize_t on_close(shared_ptr<fd> fd, ssize_t flags) override { return 0; }
@@ -196,7 +204,7 @@ namespace vfs {
                     virtual ssize_t write(void *buf, size_t len, size_t offset) override { return 0; }
                     virtual ssize_t ioctl(size_t req, void *buf) override { return 0; }
 
-                    virtual ssize_t poll(sched::thread *thread) override { return 0; }
+                    virtual ssize_t poll(shared_ptr<poll::queue> queue) override { return 0; }
 
                     virtual ssize_t force_dismount() override { return -ENOTSUP; }
 
@@ -250,7 +258,7 @@ namespace vfs {
             ssize_t write(shared_ptr<node> file, void *buf, size_t len, off_t offset) override;
             ssize_t ioctl(shared_ptr<node> file, size_t req, void *buf) override;
             void *mmap(shared_ptr<node> file, void *addr, size_t len, off_t offset) override;
-            ssize_t poll(shared_ptr<node> file, sched::thread *thread) override;
+            ssize_t poll(shared_ptr<descriptor> file) override;
             ssize_t mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
                 uid_t uid, gid_t gid) override;
     };

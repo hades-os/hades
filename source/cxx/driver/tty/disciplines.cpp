@@ -64,6 +64,11 @@ bool new_line(tty::termios termios, char c) {
 	return true;
 }
 
+void tty::device::handle_kbd() {
+    wire.arise(evtable::KB_PRESS);
+    arise(POLLIN);
+}
+
 ssize_t tty::device::read_canon(void *buf, size_t len) {
     char *chars = (char *) kmalloc(len);
     char *chars_ptr = chars;
@@ -107,7 +112,7 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
             for (;;) {
                 if (__atomic_load_n(&in.items, __ATOMIC_RELAXED) > 0) break; 
 
-                auto [evt, _] = kb::wire.wait(evtable::KB_PRESS, true);
+                auto [evt, _] = wire.wait(evtable::KB_PRESS, true);
                 if (evt < 0) {
                     kfree(chars);
                     return -1;
@@ -207,7 +212,7 @@ ssize_t tty::device::read_raw(void *buf, size_t len) {
         for (;;) {
             if (__atomic_load_n(&in.items, __ATOMIC_RELAXED) >= min) break; 
 
-            auto [evt, _] = kb::wire.wait(evtable::KB_PRESS, true);
+            auto [evt, _] = wire.wait(evtable::KB_PRESS, true);
             if (evt < 0) {
                 kfree(chars);
                 return -1;

@@ -223,6 +223,7 @@ bool elf::file::load_interp(char **interp_path) {
     for (size_t i = 0; i < header->ph_num; i++) {
         if (phdrs[i].p_type == ELF_PT_INTERP) {
             interp_hdr = &phdrs[i];
+            break;
         }
     }
 

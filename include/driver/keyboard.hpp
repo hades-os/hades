@@ -14,8 +14,6 @@ namespace kb {
     void init();
     void irq_handler(arch::irq_regs *r);
 
-    extern ipc::wire wire;
-
     struct matcher: vfs::devfs::matcher {
         matcher(): vfs::devfs::matcher(false, false,
             nullptr, nullptr, false, 0) {}
