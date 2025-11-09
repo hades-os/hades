@@ -108,7 +108,7 @@ namespace arch {
 
 
         uint8_t privilege;
-        int cpu;
+        uint64_t cpu;
     };
 
     using entry_trampoline = uint64_t;
@@ -179,6 +179,7 @@ namespace x86 {
 
     void init_bsp();
     void init_ap();
+    void init_smp();
 
     bool handle_user_exception(arch::irq_regs *r);
     bool handle_pf(arch::irq_regs *r);

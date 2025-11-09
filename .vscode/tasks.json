@@ -27,6 +27,7 @@
             "linux": {
                 "command": "qemu-system-x86_64",
                 "args": [
+                    "-smp", "4",
                     "-S",
                     "-gdb", "tcp::1234", "-daemonize",
                     "-d", "int",

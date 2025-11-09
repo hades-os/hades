@@ -2,7 +2,9 @@
 #include "arch/x86/pit.hpp"
 #include "ipc/evtable.hpp"
 #include "mm/mm.hpp"
+#include "sys/sched/time.hpp"
 #include "sys/x86/apic.hpp"
+#include "util/log/log.hpp"
 #include "util/types.hpp"
 #include <mm/vmm.hpp>
 #include <arch/types.hpp>
@@ -94,11 +96,11 @@ void arch::init_sched() {
 
 void x86::init_bsp() {
     auto processor = frg::construct<x86::processor>(memory::mm::heap, apic::lapic::id(),
-        frg::construct<processor::run_tree_t>(memory::mm::heap),
-        frg::construct<util::spinlock>(memory::mm::heap));
+        frg::construct<x86::run_tree>(memory::mm::heap));
 
     processor->kstack = (size_t) pmm::stack(x86::initialStackSize);
     processor->ctx = vmm::boot;
+    processor->last_balance = sched::timespec::ms(0);
 
     x86::wrmsr(x86::MSR_GS_BASE, processor);
     x86::cpus.push_back(processor);
@@ -118,6 +120,7 @@ void x86::init_bsp() {
 }
 
 void x86::init_ap() {
+    x86::get_locals()->last_balance = sched::timespec::ms(0);
     init_syscalls();
     init_sse();
     init_idle();
@@ -130,6 +133,7 @@ void x86::init_idle() {
 
     idle_task->tid = arch::allocate_tid();
     idle_task->state = sched::thread::BLOCKED;
+    idle_task->ctx.cpu = get_cpu();
 
     auto idle_tid = idle_task->tid;
 
@@ -160,7 +164,7 @@ void x86::cleanup_vmm_ctx(sched::process *process) {
 }
 
 void arch::init_thread(sched::thread *task) {
-    x86::message_processor(-1, x86::ipi_events::INIT_TASK, task);
+    x86::init_thread(task);
 }
 
 void arch::start_thread(sched::thread *task) {
@@ -183,6 +187,7 @@ void x86::init_thread(sched::thread *task) {
     auto tid = arch::allocate_tid();
 
     task->tid = tid;
+    task->ctx.cpu = get_cpu();
     run_tree->insert(task);
 }
 
@@ -426,6 +431,8 @@ tid_t arch::allocate_tid() {
 }
 
 frg::tuple<tid_t, sched::thread *> sched::pick_task() {
+    sched::balance_tasks();
+
     auto run_tree = x86::get_locals()->run_tree;
     auto next_task = run_tree->first();
     while (next_task != nullptr) {
@@ -437,3 +444,11 @@ frg::tuple<tid_t, sched::thread *> sched::pick_task() {
     return {-1, arch::get_idle()};
 }
 
+constexpr size_t BALANCE_INTERVAL = 5;
+void sched::balance_tasks() {
+    if (clock_mono > x86::get_locals()->last_balance + timespec::ms(BALANCE_INTERVAL * MILLIS_PER_SEC)) {
+        debug("Called balancer");
+
+        x86::get_locals()->last_balance = clock_mono;
+    }
+}

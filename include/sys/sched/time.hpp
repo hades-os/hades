@@ -14,6 +14,7 @@ namespace sched {
     class thread;
 
     constexpr long NANOS_PER_MILLI = 1000000000;
+    constexpr long MILLIS_PER_SEC = 1000;
 
     constexpr size_t CLOCK_REALTIME = 0;
     constexpr size_t CLOCK_MONOTONIC = 1;
@@ -54,6 +55,13 @@ namespace sched {
                 }
 
                 return res;                    
+            }
+
+            bool operator>(timespec const &other) {
+                if (this->tv_sec == other.tv_sec)
+                    return this->tv_nsec > other.tv_nsec;
+                else
+                    return this->tv_sec > other.tv_sec;
             }
 
             static timespec ms(int ms) {

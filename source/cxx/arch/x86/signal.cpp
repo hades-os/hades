@@ -25,12 +25,12 @@ void x86::sigreturn_default(sched::process *proc, sched::thread *task) {
     irq_off();
 
     auto ctx = &task->sig_ctx;
-    util::lock_guard ctx_guard{ctx->lock};
+    ctx->lock.lock();
 
     ctx->sigdelivered |= SIGMASK(task->ucontext.signum);
     ctx->wire.arise(evtable::SIGNAL);
 
-    ctx_guard.~lock_guard();
+    ctx->lock.unlock();
 
     auto regs = &task->ucontext.ctx.reg;
     task->ctx.reg = *regs;

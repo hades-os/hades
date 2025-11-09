@@ -54,8 +54,14 @@ namespace util {
         lock_guard(const lock_guard &) = delete;
         lock_guard &operator= (const lock_guard &) = delete;
 
+        void release() {
+            if(locked && spinlock)
+                unlock();            
+            spinlock = nullptr;
+        }
+
         ~lock_guard() {
-            if(locked)
+            if(locked && spinlock)
                 unlock();
         }
 

@@ -52,7 +52,7 @@ static log::subsystem logger = log::make_subsystem("SMP");
 static util::spinlock cpuBootupLock{};
 extern "C" {
     void processorEntry(stivale::boot::info::processor *entry_ctx) {
-        util::lock_guard guard{cpuBootupLock};
+        cpuBootupLock.lock();
 
         auto *cpu = (x86::processor *) entry_ctx->extra_argument;
         x86::wrmsr(x86::MSR_GS_BASE, cpu);
@@ -61,15 +61,15 @@ extern "C" {
         x86::hook_irqs();
 
         cpu->ctx->swap_in();
-        x86::init_ap();
         x86::tss::init();
+        x86::irq_on();
+
+        x86::init_ap();
 
         kmsg(logger, "[CPU %u online]", x86::get_cpu());
 
-        guard.~lock_guard();
-
+        cpuBootupLock.unlock();
         apic::lapic::set_timer(1);
-        x86::irq_on();
         while (true) {
             asm volatile("pause");
         }
@@ -106,11 +106,6 @@ static inline void processorPanic(arch::irq_regs *r) {
 
 static inline void processorMessage(arch::irq_regs *r) {
     switch(x86::get_locals()->ipi_event) {
-        case x86::INIT_TASK: {
-            x86::init_thread((sched::thread *) x86::get_locals()->ipi_data);
-            break;
-        }
-
         case x86::START_TASK: {
             x86::start_thread((sched::thread *) x86::get_locals()->ipi_data);
             break;
@@ -151,8 +146,7 @@ void x86::init_smp() {
         if (lapic_id == get_cpu()) continue;
 
         auto processor = frg::construct<x86::processor>(memory::mm::heap, lapic_id,
-            frg::construct<processor::run_tree_t>(memory::mm::heap),
-            frg::construct<util::spinlock>(memory::mm::heap));
+            frg::construct<x86::run_tree>(memory::mm::heap));
 
         processor->kstack = (size_t) pmm::stack(x86::initialStackSize);
         processor->ctx = vmm::boot;
@@ -161,23 +155,12 @@ void x86::init_smp() {
         stivale_cpu->extra_argument = (size_t) processor;
         stivale_cpu->target_stack = processor->kstack;
         stivale_cpu->goto_address = (size_t) &smp64_start;
-    }
 
-    cpuBootupLock.await();
+        cpuBootupLock.await();
+    }
 }
 
-static std::atomic<size_t> last_cpu = 0;
 void x86::message_processor(ssize_t processor_id, size_t ipi_event, void *ipi_data) {
-    if (processor_id == -1) {
-        size_t idx = (last_cpu++) % cpus.size();
-        auto cpu = cpus[idx];
-        cpu->ipi_data = ipi_data;
-        cpu->ipi_event = ipi_event;
-        apic::lapic::ipi(cpu->processor_id, 220);
-
-        return;
-    }
-
     for (size_t i = 0; i < cpus.size(); i++) {
         auto cpu = cpus[i];
         if (cpu->processor_id == processor_id) {
