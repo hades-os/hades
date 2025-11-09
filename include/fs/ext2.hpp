@@ -133,7 +133,7 @@ namespace vfs {
             frg::tuple<int, shared_ptr<data::ent>> read_dirents(inode *inode);
             int write_dirent(inode *dir, int dir_inode, const char *name, int inode, int type);
 
-            int read_symlink(inode *inode, char **path);
+            int read_symlink(inode *inode, char *path);
 
             uint64_t read_inode_size(inode *inode) {
                 return inode->size32l | ((uint64_t) inode->size32h << 32);
@@ -166,6 +166,8 @@ namespace vfs {
                 uid_t uid, gid_t gid) override;
             ssize_t mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
                 uid_t uid, gid_t gid) override;
+
+            ssize_t readlink(shared_ptr<node> file) override;
 
             //ssize_t remove(node *dst) override;
             ssize_t unlink(shared_ptr<node> dst) override;
