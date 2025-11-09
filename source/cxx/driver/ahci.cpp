@@ -296,8 +296,6 @@ ssize_t ahci::device::read(void *buf, size_t count, size_t offset) {
     // offset is a multiple of sector_size
     // count is a multiple of sector_size
 
-    debug("Read Buffer: %x, Count: %llu, Offset: %llu, Total: %llu", buf, count, offset, sectors * sector_size);
-
     uint64_t sector_start = offset / sector_size;
     uint64_t sector_count = count / sector_size;
 
