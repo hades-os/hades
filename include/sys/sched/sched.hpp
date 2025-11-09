@@ -222,9 +222,6 @@ namespace sched {
 
             uint64_t started;
             uint64_t stopped;
-            
-            uint64_t user_fs;
-            uint64_t user_gs;
 
             bool did_exec;
 

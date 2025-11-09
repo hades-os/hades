@@ -1,6 +1,7 @@
 #include "mm/common.hpp"
 #include "sys/irq.hpp"
 #include "sys/smp.hpp"
+#include "util/misc.hpp"
 #include <cstddef>
 
 constexpr size_t MAP_FAILED = size_t(-1);
@@ -20,7 +21,7 @@ void syscall_mmap(irq::regs *r) {
     int flags = r->r10;
     int fd = r->r8;
     size_t offset = r->r9;
-    size_t pages = ((len / memory::common::page_size) + 1) * memory::common::page_size;
+    size_t pages = util::ceil(len, memory::common::page_size) * memory::common::page_size;
 
     ctx->lock.irq_acquire();
     if (pages == 0 || pages % memory::common::page_size != 0) {
@@ -30,11 +31,13 @@ void syscall_mmap(irq::regs *r) {
         return;
     }
 
-    if (((uint64_t) addr >= 0x7ffffff00000 || (uint64_t) addr <= MAP_MIN_ADDR) ||
-        ((uint64_t) addr + pages) >= 0x7ffffff00000 || ((uint64_t) addr + len) <= MAP_MIN_ADDR) {
-        smp::set_errno(EINVAL);
-        r->rax = -1;
-        return;
+    if ((uint64_t) addr > 0) {
+        if (((uint64_t) addr >= 0x7ffffff00000 || (uint64_t) addr <= MAP_MIN_ADDR) ||
+            ((uint64_t) addr + pages) >= 0x7ffffff00000 || ((uint64_t) addr + len) <= MAP_MIN_ADDR) {
+            smp::set_errno(EINVAL);
+            r->rax = -1;
+            return;
+        }
     }
 
     if (!(flags & MAP_ANONYMOUS)) {
@@ -50,7 +53,7 @@ void syscall_mmap(irq::regs *r) {
         }
     }
 
-    auto base = memory::vmm::map(addr, pages, VMM_USER | VMM_MANAGED | prot, ctx);
+    auto base = memory::vmm::map(addr, pages, VMM_USER | VMM_COW | prot, ctx);
     r->rax = (uint64_t) base;
     ctx->lock.irq_release();
 }
@@ -61,7 +64,7 @@ void syscall_munmap(irq::regs *r) {
 
     void *addr = (void *) r->rdi;
     size_t len = r->rsi;
-    size_t pages = ((len / memory::common::page_size) + 1) * memory::common::page_size;
+    size_t pages = util::ceil(len, memory::common::page_size) * memory::common::page_size;
 
     if (pages == 0 || pages % memory::common::page_size != 0) {
         smp::set_errno(EINVAL);

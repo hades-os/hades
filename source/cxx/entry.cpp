@@ -7,6 +7,7 @@
 #include "mm/common.hpp"
 #include "sys/sched/wait.hpp"
 #include "sys/sched/signal.hpp"
+#include "util/types.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <driver/ahci.hpp>
@@ -51,9 +52,30 @@ void initarray_run() {
 
 static void run_init() {
     auto ctx = (memory::vmm::vmm_ctx *) memory::vmm::create();
-    auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_USER | VMM_WRITE | VMM_MANAGED, (void *) ctx) + (4 * memory::common::page_size);
+    auto stack = (uint64_t) memory::vmm::map(nullptr, 4 * memory::common::page_size, VMM_PRESENT | VMM_USER | VMM_WRITE, (void *) ctx) + (4 * memory::common::page_size);
 
     auto proc = sched::create_process((char *) "init", 0, stack, ctx, 3);
+    auto session = frg::construct<sched::session>(memory::mm::heap);
+    auto group = frg::construct<sched::process_group>(memory::mm::heap);
+
+    pid_t sid = 1;
+    pid_t pgid = 1;
+
+    session->sid = sid;
+    session->leader_pgid = pgid;
+
+    group->pgid = pgid;
+    group->leader_pid = proc->pid;
+    group->leader = proc;
+    group->sess = session;
+    group->procs = frg::vector<sched::process *, memory::mm::heap_allocator>();
+
+    group->procs.push(proc);
+    session->groups.push(group);
+
+    proc->group = group;
+    proc->sess = session;
+
     char *argv[] = { (char *)
         "/bin/init", 
         NULL 
@@ -72,7 +94,8 @@ static void run_init() {
     proc->env.load_elf("/bin/init.elf", fd);
     proc->main_thread->reg.rip = proc->env.entry;
 
-    proc->env.place_params(envp, argv, proc->main_thread);
+    proc->env.load_params(argv, envp);
+    proc->env.place_params(argv, envp, proc->main_thread);
 
     kmsg("Trying to run init process, at: ", util::hex(proc->env.entry));
     proc->start();

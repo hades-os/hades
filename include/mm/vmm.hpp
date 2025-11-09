@@ -7,6 +7,7 @@
 #include <util/lock.hpp>
 #include <frg/vector.hpp>
 #include <frg/rbtree.hpp>
+#include <frg/tuple.hpp>
 #include <sys/irq.hpp>
 
 #define VMM_PRESENT (1 << 0)
@@ -15,7 +16,7 @@
 #define VMM_LARGE (1 << 7)
 
 #define VMM_FIXED (1 << 8)
-#define VMM_MANAGED (1 << 9)
+#define VMM_COW (1 << 9)
 #define VMM_SHARED (1 << 10)
 #define VMM_FILE (1 << 11)
 
@@ -39,7 +40,7 @@ namespace memory {
 
                             frg::rbtree_hook hook;
 
-                            hole(void *addr, uint64_t len, void *map) {
+                            hole(void *addr, uint64_t len, void *map): hook() {
                                 this->addr = addr;
                                 this->len = len;
                                 this->largest_hole = 0;
@@ -61,9 +62,9 @@ namespace memory {
                         static bool check_invariant(hole_tree& tree, hole *node);
                     };
 
-                    void *split_hole(hole *node, uint64_t offset, size_t len);
+                    void split_hole(hole *node, uint64_t offset, size_t len);
                 public:
-                    uint64_t *map = nullptr;
+                    uint64_t *map;
                     hole_tree holes;
 
                     util::lock lock;
@@ -76,7 +77,7 @@ namespace memory {
                             uint64_t perms = 0;
                             bool huge_page;
                             bool fault_map;
-                            bool is_unmanaged;
+                            bool free_pages;
                             frg::rbtree_hook hook;
                             struct callback_obj {
                                 bool (*map)(void *virt, bool huge_page, void *map) = nullptr;
@@ -84,7 +85,7 @@ namespace memory {
                             };
                             mapping::callback_obj callbacks;
 
-                            mapping(void *addr, uint64_t len, void *map, bool huge_page) : addr(addr), len(len), map(map), huge_page(huge_page), fault_map(false), is_unmanaged(false) { };
+                            mapping(void *addr, uint64_t len, void *map, bool huge_page) : addr(addr), len(len), map(map), huge_page(huge_page), fault_map(false), free_pages(false) { };
 
                             mapping(void *addr, uint64_t len, void *map, bool huge_page, mapping::callback_obj callbacks) : mapping(addr, len, map, huge_page) {
                                 this->callbacks = callbacks;
@@ -95,8 +96,6 @@ namespace memory {
                     void *create_hole(void *addr, uint64_t len);
                     uint8_t delete_hole(void *addr, uint64_t len);
 
-                    void *unmanaged_mapping(void *addr, uint64_t len, uint64_t flags);
-                    void *split_mapping(void *addr, uint64_t len);
                     void *create_mapping(void *addr, uint64_t len, uint64_t flags);
                     void *create_mapping(void *addr, uint64_t len, uint64_t flags, mapping::callback_obj callbacks);
 
@@ -107,7 +106,14 @@ namespace memory {
                     void copy_mappings(vmm_ctx *other);
 
                     void delete_mapping(mapping *node);
-                    void *delete_mapping(void *addr, uint64_t len);
+                    void delete_pages(void *addr, size_t len, bool huge_page, bool fault_map, bool free_pages, mapping::callback_obj callback);
+
+                    void *delete_mappings(void *addr, uint64_t len);
+
+                    frg::tuple<mapping *, mapping *> split_mappings(void *addr, uint64_t len);
+                    void delete_mappings(void *addr, uint64_t len, mapping *start, mapping *end);
+
+                    vmm_ctx(): map(nullptr), holes(), lock() {}
                 private:
                     struct mapping_comparator {
                         bool operator() (mapping& a, mapping& b) {
@@ -166,9 +172,10 @@ namespace memory {
             void write_cr3(uint64_t map);
             bool handle_pf(irq::regs *r);
 
+            void map_unmanaged(void *phys, void *virt, uint64_t len, uint64_t flags, void *ptr);
+
             void *map(void *virt, uint64_t len, uint64_t flags, void *ptr);
             void *map(void *virt, uint64_t len, uint64_t flags, void *ptr, vmm::vmm_ctx::mapping::callback_obj callbacks);
-            void *map(void *phys, void *virt, uint64_t len, uint64_t flags, void *ptr);
             void *resolve(void *virt, void *ptr);
             void *unmap(void *virt, uint64_t len, void *ptr);
 

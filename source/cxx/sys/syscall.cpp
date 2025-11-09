@@ -73,7 +73,7 @@ void syscall_get_gs_base(irq::regs *r) {
 }
 
 void syscall_user_log(irq::regs *r) {
-    kmsg("Userspace: ", r->rdi);
+    kmsg("Userspace: ", (char *) r->rdi);
     r->rax = 0;
 }
 

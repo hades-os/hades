@@ -45,14 +45,22 @@ vfs::node *vfs::devfs::lookup(node *parent, frg::string_view name) {
 }
 
 ssize_t vfs::devfs::on_open(vfs::fd *fd, ssize_t flags) {
-    auto device = (devfs::device *) fd->desc->node->private_data;
+    auto private_data = (dev_priv *) fd->desc->node->private_data;
+    if (!private_data) return -ENOENT;
+
+    devfs::device *device = private_data->dev;
+    if (!device) return -ENOENT;    
+    
     return device->on_open(fd, flags);
 }
 
 ssize_t vfs::devfs::on_close(vfs::fd *fd, ssize_t flags) {
-    auto device = (devfs::device *) fd->desc->node->private_data;
-    return device->on_open(fd, flags);
+    auto private_data = (dev_priv *) fd->desc->node->private_data;
+    if (!private_data) return -ENOENT;
 
+    devfs::device *device = private_data->dev;
+    if (!device) return -ENOENT;    
+    
     return device->on_close(fd, flags);
 }
 
@@ -117,10 +125,11 @@ ssize_t vfs::devfs::write(node *file, void *buf, size_t len, off_t offset) {
 }
 
 ssize_t vfs::devfs::ioctl(node *file, size_t req, void *buf) {
-    auto device = (devfs::device *) file->private_data;
-    if (!device) {
-        return -ENOENT;
-    }
+    auto private_data = (dev_priv *) file->private_data;
+    if (!private_data) return -ENOENT;
+
+    devfs::device *device = private_data->dev;
+    if (!device) return -ENOENT;
 
     switch (req) {
         case BLKRRPART:
@@ -133,9 +142,17 @@ ssize_t vfs::devfs::ioctl(node *file, size_t req, void *buf) {
 }
 
 void *vfs::devfs::mmap(node *file, void *addr, size_t len, off_t offset) {
-    auto device = (devfs::device *) file->private_data;
-    if (!device) {
-        return nullptr;
+    auto private_data = (dev_priv *) file->private_data;
+    if (!private_data) return nullptr;
+
+    devfs::device *device = private_data->dev;
+    if (!device) return nullptr;
+
+    if (device->is_blockdev) {
+        if (private_data->part >= 0) {
+            auto part = device->blockdev.part_list.data()[private_data->part];
+            return device->mmap(file, addr, len, offset + (part.begin * device->blockdev.block_size));
+        }
     }
 
     return device->mmap(file, addr, len, offset);

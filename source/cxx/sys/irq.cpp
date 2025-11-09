@@ -77,7 +77,6 @@ extern "C" {
                     }
 
                     sched::signal::send_process(nullptr, smp::get_process(), SIGKILL);
-                    
                     sched::swap_task(r);
             }
         }
