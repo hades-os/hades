@@ -11,7 +11,7 @@ namespace pci {
         private:
             pci::device *device;
     
-            frg::vector<::ahci::device *, memory::mm::heap_allocator> devices;
+            frg::vector<::ahci::device *, mm::allocator> devices;
         public:
             struct matcher: vfs::devfs::matcher {
                 vfs::devfs::device *match(vfs::devfs::busdev *bus, void *aux) override;

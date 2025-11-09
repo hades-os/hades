@@ -78,7 +78,7 @@ extern "C" {
     extern void smp64_start(stivale::boot::info::processor *_);
 };
 
-frg::vector<x86::processor *, memory::mm::heap_allocator> x86::cpus{};
+frg::vector<x86::processor *, mm::allocator> x86::cpus{};
 
 void arch::stop_all_cpus() {
     x86::stop_all_cpus();

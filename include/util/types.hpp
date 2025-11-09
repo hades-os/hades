@@ -186,8 +186,8 @@ using bus_addr_t = size_t;
 using bus_size_t = size_t;
 using bus_handle_t = uintptr_t;
 
-template<typename T>
-using unique_ptr = frg::unique_ptr<T, memory::mm::heap_allocator>;
+template<typename T, typename A>
+using unique_ptr = frg::unique_ptr<T, A>;
 
 template <typename T>
 using shared_ptr = smarter::shared_ptr<T>;

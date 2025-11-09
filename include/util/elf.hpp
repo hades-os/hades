@@ -135,7 +135,7 @@ namespace elf {
         void *strtab;
         void *symtab;
 
-        frg::vector<symbol, memory::mm::heap_allocator> symbols;
+        frg::vector<symbol, mm::allocator> symbols;
 
         symbol *find_symbol(uintptr_t addr);
 

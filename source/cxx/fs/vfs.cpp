@@ -24,7 +24,7 @@ frg::hash_map<
     frg::string_view,
     shared_ptr<vfs::filesystem>,
     vfs::path_hasher,
-    memory::mm::heap_allocator
+    mm::allocator
 > mounts{vfs::path_hasher()};
 
 shared_ptr<vfs::filesystem> stored_devfs{};
@@ -535,7 +535,7 @@ ssize_t vfs::ioctl(shared_ptr<fd> fd, size_t req, void *buf) {
 
 ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::timespec *timespec) {
     auto poll_table = poll::create_table();
-    frg::vector<shared_ptr<descriptor>, memory::mm::heap_allocator> desc_list{};
+    frg::vector<shared_ptr<descriptor>, mm::allocator> desc_list{};
     for (size_t i = 0; i < nfds; i++) {
         auto pollfd = &fds[i];
         auto fd = table->fd_list[pollfd->fd];
@@ -702,7 +702,7 @@ shared_ptr<vfs::fd_table> vfs::copy_table(shared_ptr<fd_table> table) {
         desc->queue = poll::create_queue();
 
         new_desc->current_ent = 0;
-        new_desc->dirent_list = frg::vector<dirent *, memory::mm::heap_allocator>();
+        new_desc->dirent_list = frg::vector<dirent *, mm::allocator>();
 
         new_fd->desc = new_desc;
         new_fd->table = new_table;
@@ -800,7 +800,7 @@ shared_ptr<vfs::fd> vfs::make_fd(shared_ptr<vfs::node> node, shared_ptr<vfs::fd_
     desc->queue = poll::create_queue();
 
     desc->current_ent = 0;
-    desc->dirent_list = frg::vector<dirent *, memory::mm::heap_allocator>();
+    desc->dirent_list = frg::vector<dirent *, mm::allocator>();
 
     fd->desc = desc;
     fd->table = table;

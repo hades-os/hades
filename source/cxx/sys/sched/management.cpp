@@ -5,15 +5,15 @@
 #include <util/types.hpp>
 
 static util::spinlock process_lock{};
-static frg::rcu_radixtree<sched::process *, memory::mm::heap_allocator>
+static frg::rcu_radixtree<sched::process *, mm::allocator>
     process_tree{};
 
 static util::spinlock process_group_lock{};
-static frg::rcu_radixtree<sched::process_group *, memory::mm::heap_allocator>
+static frg::rcu_radixtree<sched::process_group *, mm::allocator>
     process_group_tree{};
 
 static util::spinlock session_lock{};
-static frg::rcu_radixtree<sched::session *, memory::mm::heap_allocator>
+static frg::rcu_radixtree<sched::session *, mm::allocator>
     session_tree{};
 
 pid_t sched::add_process(sched::process *proc) {

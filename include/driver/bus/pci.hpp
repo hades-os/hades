@@ -190,7 +190,7 @@ struct pcibus: vfs::devfs::busdev {
     private:
         uint8_t bus;
 
-        frg::vector<pci::device, memory::mm::heap_allocator> devices;
+        frg::vector<pci::device, mm::allocator> devices;
 
         pci::device *get_device(uint8_t clazz, uint8_t subclazz, uint8_t prog_if);
         pci::device *get_device(uint16_t vendor, uint16_t device);

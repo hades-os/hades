@@ -36,9 +36,9 @@ sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *
 sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege) {
     process *proc = frg::construct<process>(memory::mm::heap);
 
-    proc->threads = frg::vector<thread *, memory::mm::heap_allocator>();
-    proc->children = frg::vector<process *, memory::mm::heap_allocator>();
-    proc->zombies = frg::vector<process *, memory::mm::heap_allocator>();
+    proc->threads = frg::vector<thread *, mm::allocator>();
+    proc->children = frg::vector<process *, mm::allocator>();
+    proc->zombies = frg::vector<process *, mm::allocator>();
     proc->fds = vfs::make_table();
 
     proc->main_thread = create_thread(main, rsp, ctx, privilege);
@@ -102,9 +102,9 @@ sched::thread *sched::fork(thread *original, vmm::vmm_ctx *ctx, arch::irq_regs *
 sched::process *sched::fork(process *original, thread *caller, arch::irq_regs *r) {
     process *proc = frg::construct<process>(memory::mm::heap);
 
-    proc->threads = frg::vector<thread *, memory::mm::heap_allocator>();
-    proc->children = frg::vector<process *, memory::mm::heap_allocator>();
-    proc->zombies = frg::vector<process *, memory::mm::heap_allocator>();
+    proc->threads = frg::vector<thread *, mm::allocator>();
+    proc->children = frg::vector<process *, mm::allocator>();
+    proc->zombies = frg::vector<process *, mm::allocator>();
     proc->fds = vfs::copy_table(original->fds);
     proc->cwd = original->cwd;
 

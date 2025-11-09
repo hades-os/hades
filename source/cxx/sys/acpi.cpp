@@ -21,9 +21,9 @@ bool use_x_dsdt = false;
 
 namespace acpi {
     namespace madt {
-        frg::vector<ioapic *, memory::mm::heap_allocator> ioapics{};
-        frg::vector<iso *, memory::mm::heap_allocator> isos{};
-        frg::vector<nmi *, memory::mm::heap_allocator> nmis{};
+        frg::vector<ioapic *, mm::allocator> ioapics{};
+        frg::vector<iso *, mm::allocator> isos{};
+        frg::vector<nmi *, mm::allocator> nmis{};
     };
 
     acpi::sdt *tables[22];

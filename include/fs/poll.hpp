@@ -26,7 +26,7 @@ namespace poll {
 
             shared_ptr<queue> self;
 
-            frg::vector<shared_ptr<table>, memory::mm::heap_allocator> tables;
+            frg::vector<shared_ptr<table>, mm::allocator> tables;
             util::spinlock lock;
         public:
             queue(): tables(), lock() {}
@@ -44,9 +44,9 @@ namespace poll {
  
             shared_ptr<table> self;
 
-            frg::vector<ssize_t, memory::mm::heap_allocator> events;
+            frg::vector<ssize_t, mm::allocator> events;
 
-            frg::vector<shared_ptr<queue>, memory::mm::heap_allocator> queues;
+            frg::vector<shared_ptr<queue>, mm::allocator> queues;
             shared_ptr<queue> latest_queue;
             ssize_t latest_event;
 
@@ -60,7 +60,7 @@ namespace poll {
             ~table();
 
             frg::tuple<shared_ptr<queue>, ssize_t> wait(bool allow_signals, sched::timespec *timeout);
-            frg::vector<ssize_t, memory::mm::heap_allocator> &get_events();
+            frg::vector<ssize_t, mm::allocator> &get_events();
 
             void connect(shared_ptr<queue> queue);
             void disconnect(shared_ptr<queue> queue);      

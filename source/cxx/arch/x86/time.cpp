@@ -10,7 +10,7 @@
 
 sched::timespec sched::clock_rt{};
 sched::timespec sched::clock_mono{};
-frg::vector<sched::timer, memory::mm::heap_allocator> sched::timers{};
+frg::vector<sched::timer, mm::allocator> sched::timers{};
 
 void arch::add_timer(sched::timer timer) {
     sched::timers.push_back(timer);

@@ -16,7 +16,7 @@ namespace sched {
 namespace ipc {
     struct  wire {
         private:
-            frg::vector<sched::thread *, memory::mm::heap_allocator> threads;
+            frg::vector<sched::thread *, mm::allocator> threads;
 
             ssize_t latest_event;
             sched::thread *latest_waker;

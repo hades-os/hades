@@ -69,9 +69,9 @@ namespace acpi {
             uint32_t flags;
         };
 
-        extern frg::vector<ioapic *, memory::mm::heap_allocator> ioapics;
-        extern frg::vector<iso *, memory::mm::heap_allocator> isos;
-        extern frg::vector<nmi *, memory::mm::heap_allocator> nmis;
+        extern frg::vector<ioapic *, mm::allocator> ioapics;
+        extern frg::vector<iso *, mm::allocator> isos;
+        extern frg::vector<nmi *, mm::allocator> nmis;
 
         inline madt::header *_madt{};
         extern void init();

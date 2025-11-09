@@ -81,7 +81,7 @@ namespace vfs {
                     }
                 }
 
-                this->meta = smarter::allocate_shared<statinfo>(memory::mm::heap);
+                this->meta = smarter::allocate_shared<statinfo>(mm::slab());
             }
 
         public:
