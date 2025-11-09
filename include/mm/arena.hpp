@@ -8,12 +8,12 @@
 #include <frg/list.hpp>
 #include <frg/tuple.hpp>
 #include <utility>
+#include "prs/allocator.hpp"
 #include "prs/list.hpp"
 #include "util/lock.hpp"
 
 namespace arena {
-    struct allocator;
-    struct arena {
+    struct arena_resource: public prs::memory_resource<arena_resource> {
         private:
             friend struct allocator;
 
@@ -62,31 +62,19 @@ namespace arena {
 
             util::spinlock lock;
         public:
-            arena();
+            arena_resource():
+                block_list(), lock() {}
 
-            arena(const arena& other):
-            block_list(other.block_list), lock() {}
-            ~arena();
+            arena_resource(const arena_resource& other):
+                block_list(other.block_list), lock() {}
 
-            void *allocate(size_t size, size_t alignment = 0);
-            void deallocate(void *ptr);
-    };
+            ~arena_resource();
 
-    struct allocator: mm::allocator {
-        private:
-            mutable arena arena;
-        public:
-            void *allocate(size_t size, size_t alignment = 8) const override;
-            void *reallocate(void *ptr, size_t size) const override;
+            void *allocate(size_t size, size_t alignment = 0) override;
+            void deallocate(void *ptr) override;
 
-            void deallocate(void *ptr) const override;
-            using mm::allocator::deallocate;
-            using mm::allocator::free;
-
-            allocator(): mm::allocator(), arena() {}
-            allocator(const allocator& other):
-                mm::allocator(),
-                arena(other.arena) {}
+            static arena_resource *create_resource();
+            static void delete_resource(arena_resource *resource);
     };
 };
 
