@@ -31,16 +31,20 @@ tty::ssize_t tty::ptmx::on_open(vfs::fd *fd, tty::ssize_t flags) {
     fd->desc->node = ptm_node;
 
     pts_tty->driver = pts;
+
     pts->slave_no = slave_no;
     pts->tty = pts_tty;
     pts->master = ptm;
     pts->has_flush = true;
+    pts->has_ioctl = true;
 
     vfs::path pts_path("/dev/pts/");
     pts_path += slave_no;
     pts_tty->name = vfs::path("") + (slave_no + 48);
     vfs::devfs::add(pts_tty);
     vfs::insert_node(pts_path, vfs::node::type::CHARDEV);
+
+    ptmx_lock.irq_release();
 
     return 0;
 }
