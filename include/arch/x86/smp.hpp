@@ -62,6 +62,7 @@ namespace x86 {
     constexpr size_t initialStackSize = 16;
 
     enum ipi_events {
+        INIT_TASK,
         START_TASK,
         STOP_TASK,
         KILL_TASK,
@@ -106,6 +107,8 @@ namespace x86 {
         x86::run_tree *run_tree{};
 
         uint64_t last_balance;
+        uint64_t last_average;
+        uint64_t load_average;
 
         processor(size_t processor_id, x86::run_tree *run_tree) : processor_id(processor_id), run_tree(run_tree) { }
     };
@@ -113,6 +116,8 @@ namespace x86 {
     extern frg::vector<x86::processor *, memory::mm::heap_allocator> cpus;
 
     void message_processor(ssize_t processor_id, size_t ipi_event, void *ipi_data);
+    void calc_average_load(x86::processor *cpu);
+    x86::processor *least_loaded_cpu();
 
     x86::processor *get_locals();
 

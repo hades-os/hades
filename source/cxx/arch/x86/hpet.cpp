@@ -30,7 +30,7 @@ void hpet::usleep(size_t ns) {
 constexpr size_t FEMTOS_PER_NANO = 1000000;
 constexpr size_t NANOS_PER_MILLI = 1000000;
 
-constexpr size_t HPET_NANOS = NANOS_PER_MILLI * FEMTOS_PER_NANO;
+constexpr size_t HPET_FEMTOS = NANOS_PER_MILLI * FEMTOS_PER_NANO;
 size_t timer_idx = 0;
 size_t num_timers;
 
@@ -73,13 +73,13 @@ void hpet::init() {
     arch::route_irq(used_route, vector);
 
     uint32_t period = hpet_regs->capabilities >> 32;
-    uint32_t ticks = HPET_NANOS / period;
+    uint32_t ticks = HPET_FEMTOS / period;
 
-    hpet_regs->compars[timer_idx].config_capabilities &= ~(0xF << 9);
-    hpet_regs->compars[timer_idx].config_capabilities |= (used_route << 9) | (1 << 3) | (1 << 6) | (1 << 2);
+    hpet_regs->compars[timer_idx].config_capabilities |= (used_route << 9) | (1 << 3) | (1 << 6);
 
-    hpet_regs->compars[timer_idx].comparator_value = hpet_regs->counter_value + ticks;
+    hpet_regs->compars[timer_idx].comparator_value = 0;
     hpet_regs->compars[timer_idx].comparator_value = ticks;
 
+    hpet_regs->compars[timer_idx].config_capabilities |= (1 << 2);
     hpet_regs->general_config |= (1 << 0);
 }

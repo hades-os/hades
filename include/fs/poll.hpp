@@ -24,7 +24,7 @@ namespace poll {
             friend struct table;
             friend shared_ptr<queue> create_queue();
 
-            shared_ptr<queue> selfPtr;
+            shared_ptr<queue> self;
 
             frg::vector<shared_ptr<table>, memory::mm::heap_allocator> tables;
             util::spinlock lock;
@@ -42,7 +42,7 @@ namespace poll {
             friend struct queue;
             friend shared_ptr<table> create_table();
  
-            shared_ptr<table> selfPtr;
+            shared_ptr<table> self;
 
             frg::vector<ssize_t, memory::mm::heap_allocator> events;
 
@@ -56,7 +56,7 @@ namespace poll {
 
             void arise(ssize_t event, shared_ptr<queue> waker);
         public:
-            table(): selfPtr(), events(), queues(), wire(), lock() {}
+            table(): self(), events(), queues(), wire(), lock() {}
             ~table();
 
             frg::tuple<shared_ptr<queue>, ssize_t> wait(bool allow_signals, sched::timespec *timeout);

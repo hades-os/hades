@@ -48,7 +48,7 @@ ssize_t vfs::rootfs::create(shared_ptr<node> dst, path name, int64_t type, int64
     storage->buf = kmalloc(memory::page_size);
     storage->length = memory::page_size;
 
-    auto new_file = smarter::allocate_shared<vfs::node>(memory::mm::heap, selfPtr, name, dst, flags, type);
+    auto new_file = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, type);
 
     new_file->meta->st_uid = uid;
     new_file->meta->st_gid = gid;
@@ -62,7 +62,7 @@ ssize_t vfs::rootfs::create(shared_ptr<node> dst, path name, int64_t type, int64
 
 ssize_t vfs::rootfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto new_dir = smarter::allocate_shared<vfs::node>(memory::mm::heap, selfPtr, name, dst, flags, node::type::DIRECTORY);
+    auto new_dir = smarter::allocate_shared<vfs::node>(memory::mm::heap, self, name, dst, flags, node::type::DIRECTORY);
 
     new_dir->meta->st_uid = uid;
     new_dir->meta->st_gid = gid;

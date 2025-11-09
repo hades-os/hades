@@ -96,6 +96,17 @@ size_t strlen(const char *s) {
     return len;
 }
 
+size_t strnlen(const char *s, size_t max) {
+    size_t len = 0;
+    char *src = (char *) s;
+    while (*src && len <= max) {
+        len++;
+        src++;
+    }
+
+    return len;
+}
+
 char *strcpy(const char *dst, const char *src) {
     char *source = (char *) src;
     char *dest = (char *) dst;

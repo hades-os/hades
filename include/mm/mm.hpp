@@ -5,39 +5,22 @@
 #include <cstddef>
 #include <mm/common.hpp>
 
-extern void *kmalloc(size_t size);
-extern void kfree(void *ptr);
+namespace mm {
+    struct allocator {
+        void *allocate(size_t size);
+        void *reallocate(void *ptr, size_t size);
 
-inline void *kcalloc(size_t nr_items, size_t size) {
-    return kmalloc(nr_items * size);
-}
-
-inline void kfree_sz(void *ptr, size_t _) {
-    kfree(ptr);
-}
-
-namespace memory {
-    namespace mm {
-        struct heap_allocator {
-            void *allocate(size_t size) {
-                return kmalloc(size);
-            }
-            
-            void deallocate(void *ptr) {
-                kfree(ptr);
-            }
-
-            void deallocate(void *ptr, size_t _) {
-                kfree(ptr);
-            }
-
-            void free(void *ptr) {
-                kfree(ptr);
-            }
-        };
-
-        inline mm::heap_allocator heap{};
+        void deallocate(void *ptr);
     };
-}
+
+    allocator boot();
+    allocator heap();
+    allocator slab(size_t object_size);
+
+    template<typename T>
+    allocator slab() {
+        return slab(sizeof(T));
+    }
+};
 
 #endif
