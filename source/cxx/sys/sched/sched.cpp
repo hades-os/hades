@@ -201,6 +201,7 @@ sched::process *sched::fork(process *original, thread *caller) {
     proc->children = frg::vector<process *, memory::mm::heap_allocator>();
     proc->zombies = frg::vector<process *, memory::mm::heap_allocator>();
     proc->fds = vfs::copy_table(original->fds);
+    proc->cwd = original->cwd;
 
     proc->parent = original;
     proc->ppid = original->ppid;
@@ -291,7 +292,7 @@ bool sched::exec(thread *target, const char *path, char **argv, char **envp) {
     target->reg.cr3 = (uint64_t) memory::vmm::cr3(target->proc->mem_ctx);
     target->reg.rsp = target->ustack;
 
-    target->reg.rip = 0;
+    target->reg.rip = target->proc->env.entry;
     target->reg.cs = 0x1B;
     target->reg.ss = 0x23;
     target->reg.rflags = 0x202;

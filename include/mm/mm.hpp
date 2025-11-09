@@ -52,4 +52,8 @@ inline void kfree(void *ptr) {
     memory::mm::allocator::free(ptr);
 }
 
+inline void kfree_sz(void *ptr, size_t _) {
+    memory::mm::allocator::free(ptr);
+}
+
 #endif

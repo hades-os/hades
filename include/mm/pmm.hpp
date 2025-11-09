@@ -41,7 +41,7 @@ namespace memory {
         void *alloc(size_t nr_pages);
         void *stack(size_t nr_pages);
         void *phys(size_t nr_pages);
-        void free(void *address, size_t nr_pages);
+        void free(void *address);
     };
 };
 

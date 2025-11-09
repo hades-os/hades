@@ -1,6 +1,7 @@
 #include "driver/part.hpp"
 #include "frg/string.hpp"
 #include "frg/tuple.hpp"
+#include "sys/smp.hpp"
 #include "util/log/log.hpp"
 #include <cstddef>
 #include <frg/allocation.hpp>
@@ -10,6 +11,8 @@
 void vfs::devfs::init() {
     vfs::mkdir("/dev", 0, mode::RDWR);
     vfs::mount("/", "/dev", fslist::DEVFS, nullptr, mflags::NOSRC);
+
+    vfs::mkdir("/dev/pts", 0, mode::RDWR);
     kmsg("[VFS] Initial devfs mounted.");
 }
 
@@ -165,45 +168,115 @@ vfs::devfs::device *vfs::devfs::find(vfs::node *node) {
     return find(node->get_name());
 }
 
-vfs::ssize_t vfs::devfs::remove(node *dest) {
-    return 0;
-}
-
 vfs::node *vfs::devfs::lookup(const pathlist &filepath, frg::string_view path, int64_t flags) {
     if (nodenames.contains(path)) {
         return nodenames[path];
     }
 
     auto name_sec = extract_name(filepath[filepath.size() - 1]);
-    auto part_sec = extract_part(filepath[filepath.size() - 1]);
-
-    auto device = find(name_sec.data());
+    auto device = device_map[filepath[filepath.size() - 1]];
     if (!device) {
-        return nullptr;
+        device = device_map[name_sec.data()];
+        if (!device || !device->resolveable) {
+            return nullptr;
+        }
+    }
+    
+    auto part_sec = extract_part(filepath[filepath.size() - 1]);
+    if (device->blockdev) {
+        if (part_sec > (ssize_t) device->block.part_list.size() - 1) {
+            return nullptr;
+        }
     }
 
-    if (part_sec > (ssize_t) device->part_list.size() - 1) {
-        return nullptr;
-    }
-
-    vfs::insert_node(path, node::type::BLOCKDEV);
+    vfs::insert_node(path, device->blockdev ? node::type::BLOCKDEV : node::type::CHARDEV);
     return nodenames[path];
 }
 
-vfs::ssize_t vfs::devfs::read(node *file, void *buf, ssize_t len, ssize_t offset) {
+vfs::ssize_t vfs::devfs::on_open(vfs::fd *fd, ssize_t flags) {
+    auto name_sec = extract_name(fd->desc->node->get_name());
+    auto device = device_map[fd->desc->node->get_name()];
+    if (!device) {
+        device = device_map[name_sec];
+        if (!device) {
+            return -error::NOENT;
+        }
+    }
+
+    return device->on_open(fd, flags);
+}
+
+vfs::ssize_t vfs::devfs::on_close(vfs::fd *fd, ssize_t flags) {
+    auto name_sec = extract_name(fd->desc->node->get_name());
+    auto device = device_map[fd->desc->node->get_name()];
+    if (!device) {
+        device = device_map[name_sec];
+        if (!device) {
+            return -error::NOENT;
+        }
+    }
+
+    return device->on_close(fd, flags);
+}
+
+bool vfs::devfs::request_io(node *file, device::block_zone *zones, size_t num_zones, bool rw, bool all_success) {
     auto name_sec = extract_name(file->get_name());
     auto device = device_map[name_sec];
     if (!device) {
-        return -error::NOENT;
+        return false;
+    }
+
+    auto part_sec = extract_part(file->get_name()); 
+    if (!device->blockdev) {
+        return false;
+    }
+
+    if (part_sec != -1) {
+        auto part = device->block.part_list.data()[part_sec];
+        device->block.request_io(device->block.request_data, zones, num_zones, (part.begin * device->block.block_size), rw);
+        device->block.mail->recv(true, rw ? device::BLOCK_IO_WRITE : device::BLOCK_IO_READ, smp::get_thread());
+
+        size_t success_count = 0;
+        for (auto res_zone = zones; res_zone != nullptr; res_zone = res_zone->next) {
+            if (res_zone->is_success) success_count++;
+        }
+
+        if (all_success && success_count != num_zones) return false;
+        return true;
+    }
+
+    device->block.request_io(device->block.request_data, zones, num_zones, 0, rw);
+    device->block.mail->recv(true, rw ? device::BLOCK_IO_WRITE : device::BLOCK_IO_READ, smp::get_thread());
+
+    size_t success_count = 0;
+    for (auto res_zone = zones; res_zone != nullptr; res_zone = res_zone->next) {
+        if (res_zone->is_success) success_count++;
+    }
+
+    if (all_success && success_count != num_zones) return false;
+    return true;
+}
+
+
+vfs::ssize_t vfs::devfs::read(node *file, void *buf, ssize_t len, ssize_t offset) {
+    auto name_sec = extract_name(file->get_name());
+    auto device = device_map[file->get_name()];
+    if (!device) {
+        device = device_map[name_sec];
+        if (!device) {
+            return -error::NOENT;
+        }
     }
 
     auto part_sec = extract_part(file->get_name());
-    if (part_sec != -1) {
-        auto part = device->part_list.data()[part_sec];
-        if (device->lmode) {
-            return device->read(buf, len, (offset * device->block_size) + (part.begin * device->block_size));        
+    if (device->blockdev) {
+        if (part_sec != -1) {
+            auto part = device->block.part_list.data()[part_sec];
+            if (device->block.lmode) {
+                return device->read(buf, len, (offset * device->block.block_size) + (part.begin * device->block.block_size));        
+            }
+            return device->read(buf, len, offset + (part.begin * device->block.block_size));        
         }
-        return device->read(buf, len, offset + (part.begin * device->block_size));        
     }
 
     return device->read(buf, len, offset);
@@ -211,18 +284,23 @@ vfs::ssize_t vfs::devfs::read(node *file, void *buf, ssize_t len, ssize_t offset
 
 vfs::ssize_t vfs::devfs::write(node *file, void *buf, ssize_t len, ssize_t offset) {
     auto name_sec = extract_name(file->get_name());
-    auto device = device_map[name_sec];    
+    auto device = device_map[file->get_name()];
     if (!device) {
-        return -error::NOENT;
+        device = device_map[name_sec];
+        if (!device) {
+            return -error::NOENT;
+        }
     }
 
     auto part_sec = extract_part(file->get_name());
-    if (part_sec != -1) {
-        auto part = device->part_list.data()[part_sec];
-        if (device->lmode) {
-            return device->write(buf, len, (offset * device->block_size) + (part.begin * device->block_size)); 
+    if (device->blockdev) {
+        if (part_sec != -1) {
+            auto part = device->block.part_list.data()[part_sec];
+            if (device->block.lmode) {
+                return device->write(buf, len, (offset * device->block.block_size) + (part.begin * device->block.block_size));        
+            }
+            return device->write(buf, len, offset + (part.begin * device->block.block_size));        
         }
-        return device->write(buf, len, offset + (part.begin * device->block_size));        
     }
 
     return device->write(buf, len, offset);
@@ -230,21 +308,43 @@ vfs::ssize_t vfs::devfs::write(node *file, void *buf, ssize_t len, ssize_t offse
 
 vfs::ssize_t vfs::devfs::ioctl(node *file, size_t req, void *buf) {
     auto name_sec = extract_name(file->get_name());
-    auto device = device_map[name_sec];    
+    auto device = device_map[file->get_name()];
     if (!device) {
-        return -error::NOENT;
+        device = device_map[name_sec];
+        if (!device) {
+            return -error::NOENT;
+        }
     }
 
     switch (req) {
         case BLKRRPART:
-            device->part_list.clear(); 
+            if (!device->blockdev) return -1;
+            device->block.part_list.clear(); 
             return part::probe(device);
         case BLKLMODE:
-            device->lmode = !device->lmode;
+            if (!device->blockdev) return -1;
+            device->block.lmode = !device->block.lmode;
             return 0;
         default:
             return device->ioctl(req, buf);
     }
+}
+
+void *vfs::devfs::mmap(node *file, void *addr, ssize_t len, ssize_t offset) {
+    auto name_sec = extract_name(file->get_name());
+    auto device = device_map[file->get_name()];
+    if (!device) {
+        device = device_map[name_sec];
+        if (!device) {
+            return nullptr;
+        }
+    }
+
+    return device->mmap(file, addr, len, offset);
+}
+
+vfs::ssize_t vfs::devfs::mkdir(const pathlist& dirpath, int64_t flags) {
+    return 0;
 }
 
 vfs::ssize_t vfs::devfs::lsdir(node *dir, pathlist& names) {

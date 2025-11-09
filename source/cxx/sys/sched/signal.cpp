@@ -422,3 +422,34 @@ int sched::signal::process_signals(process *proc, sched::regs *r) {
     sig_queue->sig_lock.irq_release();
     return 0;
 }
+
+bool sched::signal::is_blocked(process *proc, int sig) {
+    if (!is_valid(sig)) {
+        return true;
+    }
+
+    proc->sig_queue.sig_lock.irq_acquire();
+    if (proc->sig_queue.sigmask & SIGMASK(sig)) {
+        proc->sig_queue.sig_lock.irq_release();
+        return false;        
+    }
+
+    proc->sig_queue.sig_lock.irq_release();
+    return true;
+}
+
+bool sched::signal::is_ignored(process *proc, int sig) {
+    if (!is_valid(sig)) {
+        return true;
+    }
+
+    proc->sig_queue.sig_lock.irq_acquire();
+    sigaction *act = &proc->sigactions[sig - 1];
+    if (act->handler.sa_sigaction == SIG_IGN) {
+        proc->sig_queue.sig_lock.irq_release();
+        return true;        
+    }
+
+    proc->sig_queue.sig_lock.irq_release();
+    return false;
+}

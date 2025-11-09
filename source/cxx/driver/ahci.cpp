@@ -1,3 +1,7 @@
+#include "mm/vmm.hpp"
+#include "sys/irq.hpp"
+#include "sys/sched/mail.hpp"
+#include "sys/smp.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <driver/ahci.hpp>
@@ -54,8 +58,8 @@ void issue_command(volatile ahci::port *port, size_t slot) {
     port->cmd_issue |= (1 << slot);
 }
 
-ahci::ssize_t find_cmdslot(volatile ahci::port *port) {
-    uint32_t slots = (port->sata_active | port->cmd_issue);
+ahci::ssize_t ahci::find_cmdslot(ahci::device *device) {
+    uint32_t slots = device->last_issued_cmdset;
     for (size_t i = 0; i < ahci::MAX_SLOTS; i++) {
         if (!(slots & (1 << i))) {
             return i;
@@ -69,9 +73,9 @@ void free_command(ahci::command_entry *command) {
     kfree(command);
 }
 
-ahci::command_slot get_command(volatile ahci::port *port, volatile ahci::abar *bar, uint64_t fis_size) {
+ahci::command_slot get_command(volatile ahci::port *port, volatile ahci::abar *bar, ahci::device *device, uint64_t fis_size) {
     ahci::command_slot slot = {-1, nullptr};
-    auto slot_idx = find_cmdslot(port);
+    auto slot_idx = find_cmdslot(device);
     if (slot_idx == -1) {
         return slot;
     }
@@ -121,17 +125,16 @@ int wait_command(volatile ahci::port *port, size_t slot) {
     return 0;
 }
 
-
 void reset_engine(volatile ahci::port *port) {
-    port->cmd_issue &= ahci::HBA_PxCMD_ST;
-    while (port->cmd_issue & ahci::HBA_PxCMD_CR) asm volatile("pause");
+    port->cas &= ahci::HBA_PxCMD_ST;
+    while (port->cas & ahci::HBA_PxCMD_CR) asm volatile("pause");
 
     if (port->tfd & (1 << 7) || port->tfd & (1 << 3)) {
         comreset(port);
     }
 
-    port->cmd_issue |= (1 << 0);
-    while (!(port->cmd_issue & ahci::HBA_PxCMD_CR)) asm volatile("pause");
+    port->cas |= (1 << 0);
+    while (!(port->cas & ahci::HBA_PxCMD_CR)) asm volatile("pause");
 }
 
 void stop_command(volatile ahci::port *port) {
@@ -183,6 +186,11 @@ void get_ownership(volatile ahci::abar *bar) {
 }
 
 void ahci::device::setup() {
+    __atomic_store_n(&num_free_commands, ((bar->cap >> 8) & 0xF0), __ATOMIC_RELAXED);
+    for (size_t i = 0; i < num_free_commands; i++) {
+        last_issued_cmdset &= ~(1 << i);        
+    }
+
     stop_command(port);
     uint64_t data_base = (uint64_t) memory::common::removeVirtual(memory::pmm::alloc(1));
     uint64_t fis_base = data_base + (32 * 32);
@@ -213,7 +221,7 @@ void ahci::device::setup() {
 }
 
 void ahci::device::identify_sata() {
-    ahci::command_slot slot = get_command(port, bar, get_fis_size(1));
+    ahci::command_slot slot = get_command(port, bar, this, get_fis_size(1));
     ahci::command_header *header = get_header(port, slot.idx);
 
     if (slot.idx == -1) {
@@ -258,7 +266,7 @@ void ahci::device::identify_sata() {
         free_command(slot.entry);
 
         exists = false;
-        memory::pmm::free(id_mem, 1);
+        memory::pmm::free(id_mem);
         return;
     }
 
@@ -275,32 +283,56 @@ void ahci::device::identify_sata() {
     }
 
     lba48 = (id_mem[167] & (1 << 2)) && (id_mem[173] & (1 << 2));
+
     exists = true;
-    block_size = sector_size;
-    blocks = sectors;
+    block.block_size = sector_size;
+    block.blocks = sectors;
+    block.mail = frg::construct<ipc::mailbox>(memory::mm::heap, nullptr);
+    block.request_data = this;
+    block.request_io = request_io;
+    mail_port = block.mail->make_port();
+
     free_command(slot.entry);
-    memory::pmm::free(id_mem, 1);
+    memory::pmm::free(id_mem);
 
     kmsg("[AHCI] Identify succeeded");
 }
 
+void ahci::request_io(void *request_data, ahci::device::block_zone *zones, size_t num_zones, ahci::ssize_t part_offset, bool rw) {
+    auto device = (ahci::device *) request_data;
+    auto request_id = device->last_request_id++;
 
-ahci::ssize_t ahci::device::read_write(void *buf, uint16_t count, size_t offset, bool rw) {
-    if (!exists) {
-        return -vfs::error::IO;
+    device->lock.irq_acquire();
+    for (auto zone = zones; zone != nullptr; zone = zone->next) {
+        device->requests.push_back({
+            .zone = zone,
+            .request_id = request_id,
+            .part_offset = part_offset,
+            .num_zones = num_zones,
+            .rw = rw
+        });
+
     }
-    
+    device->lock.irq_release();
+}
+
+ahci::command_slot ahci::device::issue_read_write(void *buf, uint16_t count, size_t offset, bool rw) {
+    if (!exists) {
+        return { .idx = -1 };
+    }
+
     uint64_t prdt_count = ((count * sector_size) + 0x400000 - 1) / 0x400000;
-    ahci::command_slot slot = get_command(port, bar, get_fis_size(prdt_count + 1));
+    ahci::command_slot slot = get_command(port, bar, this, get_fis_size(prdt_count + 1));
     ahci::command_header *header = get_header(port, slot.idx);
 
     if (slot.idx == -1) {
         kmsg("[AHCI] No free command slots.");
         free_command(slot.entry);
 
-        return -vfs::error::IO;
+        return slot;
     }
 
+    __atomic_fetch_sub(&num_free_commands, 1, __ATOMIC_RELAXED);
     header->prdt_cnt = prdt_count;
     header->write = rw;
     header->cmd_fis_len = 5;
@@ -320,7 +352,7 @@ ahci::ssize_t ahci::device::read_write(void *buf, uint16_t count, size_t offset,
     if (lba48) {
         fis_area->lba3 = (offset >> 24) & 0xFF;
         fis_area->lba4 = (offset >> 32) & 0xFF;
-        fis_area->lba5 = (offset >> 40) & 0xFF;    
+        fis_area->lba5 = (offset >> 40) & 0xFF;
     }
 
     if (count != 0xFFFF) {
@@ -331,8 +363,7 @@ ahci::ssize_t ahci::device::read_write(void *buf, uint16_t count, size_t offset,
         fis_area->counth = 0;
     }
 
-    char *data = memory::common::removeVirtual((char *) buf);
-    
+    char *data = (char *) buf;
     uint64_t rest = count * sector_size;
     for (uint64_t i = 0; i < prdt_count; i++){
         ahci::prdt_entry *prdt = (ahci::prdt_entry *) &(slot.entry->prdts[i]);
@@ -347,94 +378,147 @@ ahci::ssize_t ahci::device::read_write(void *buf, uint16_t count, size_t offset,
         }
     }
 
-    await_ready(port);
-    issue_command(port, slot.idx);
+    return slot;
+}
 
-    int err = wait_command(port, slot.idx);
-    if (err) {
-        uint8_t error = (uint8_t) (port->tfd >> 8);
-        kmsg("[AHCI] Transfer Error: ", error);
+void ahci::device::handle_finished() {
+    lock.irq_acquire();
 
-        reset_engine(port);
+    while (responses.size() > 0) {
+        auto command = responses.pop();
+        finished_map.contains(command.request_id) 
+            ? finished_map[command.request_id]++
+            : finished_map[command.request_id] = 1;
+        if (finished_map[command.request_id] == command.num_zones) {
+            finished_map.remove(command.request_id);
+            mail_port->post({
+                .what = (int) (command.rw ? BLOCK_IO_WRITE : BLOCK_IO_READ)
+            });
+        }
+    }
 
-        free_command(slot.entry);
+    lock.irq_release();
+}
+
+void ahci::device::handle_commands() {
+    lock.irq_acquire();
+    // handle completed commands first
+    // we post a message when all zones are done
+    for (size_t idx = 0; idx < 32; idx++) {
+        // handle finished command
+        if (!(port->cmd_issue & (1 << idx)) && (last_issued_cmdset & (1 << idx))) {
+            // we had an oopsie
+            auto command = active_commands[idx];
+            last_issued_cmdset &= ~(1 << idx);
+            if (port->tfd & (1 << 0)) {
+                uint8_t error = (uint8_t) (port->tfd >> 8);
+                kmsg("[AHCI] Transfer Error: ", error);
+
+                reset_engine(port);
+                free_command(command.slot.entry);
+                memory::pmm::free(command.tmp);
+
+                responses.push_back(command);
+                __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
+
+                continue;
+            }
+
+            // command successful
+            command.zone->is_success = true;
+            free_command(command.slot.entry);
+
+            uint64_t sector_offset = (command.zone->offset + command.part_offset) % sector_size;
+            memcpy(command.zone->buf, (char *) command.tmp + sector_offset, command.zone->len);
+            
+            memory::pmm::free(command.tmp);
+            responses.push_back(command);
+            __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
+        }
+    }
+
+    // if there are free command slots, enqueue, else, exit
+    while (__atomic_load_n(&num_free_commands, __ATOMIC_RELAXED) > 0 && requests.size() > 0) {
+        auto command_request = requests.pop();
+        auto zone = command_request.zone;
+
+        size_t offset = zone->offset + command_request.part_offset;
+        uint64_t sector_start = offset / sector_size;
+        uint64_t sector_end = ((offset + zone->len) + sector_size - 1) / sector_size;
+        uint64_t sector_count = sector_end - sector_start;
+
+        auto tmp = memory::pmm::alloc(((sector_count * sector_size) / memory::common::page_size) + 1);
+        auto slot = issue_read_write(tmp, sector_count, sector_start, command_request.rw);
+        if (slot.idx == -1) {
+            memory::pmm::free(tmp);
+            requests.push(command_request);
+
+            break;
+        }
+
+        await_ready(port);
+        issue_command(port, slot.idx);
+        last_issued_cmdset |= (1 << slot.idx);
+
+        active_commands[slot.idx] = command_request;
+        active_commands[slot.idx].slot = slot;
+        active_commands[slot.idx].tmp = tmp;
+    }
+    
+
+    lock.irq_release();
+}
+
+ahci::ssize_t ahci::device::read(void *buf, ssize_t count, ssize_t offset) {
+    lock.irq_acquire();
+
+    uint64_t sector_offset = offset % sector_size;
+    uint64_t sector_start = offset / sector_size;
+    uint64_t sector_end = ((offset + count) + sector_size - 1) / sector_size;
+    uint64_t sector_count = sector_end - sector_start;
+
+    if (sector_count > 0xFFFF) {
+        lock.irq_release();
+        return -vfs::error::IO;
+    } else if (sector_count == 0) {
+        lock.irq_release();
         return -vfs::error::IO;
     }
 
+    void *tmp = kmalloc(sector_count * sector_size);
+    auto slot = issue_read_write(tmp, sector_count, sector_start, false);
+    await_ready(port);
 
+    last_issued_cmdset |= (1 << slot.idx);
+
+    issue_command(port, slot.idx);
+    wait_command(port, slot.idx);
+
+    last_issued_cmdset &= ~(1 << slot.idx);
     if (port->tfd & (1 << 0)) {
         uint8_t error = (uint8_t) (port->tfd >> 8);
         kmsg("[AHCI] Transfer Error: ", error);
-        
+
         reset_engine(port);
         free_command(slot.entry);
+        __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
 
+        kfree(tmp);
+        lock.irq_release();
         return -vfs::error::IO;
     }
 
     free_command(slot.entry);
-    return count * sector_size;
-}
-
-ahci::ssize_t ahci::device::read(void *buf, ssize_t count, ssize_t offset) {
-    uint64_t sector_offset = offset % sector_size;
-    uint64_t sector_start = offset / sector_size;
-    uint64_t sector_end = ((offset + count) + sector_size - 1) / sector_size;
-    uint64_t sector_count = sector_end - sector_start;
-
-    if (sector_count > 0xFFFF) {
-        return -vfs::error::IO;
-    } else if (sector_count == 0) {
-        return -vfs::error::IO;
-    }
-    
-    void *tmp = kmalloc(sector_count * sector_size);
-    ssize_t err = 0;
-    if ((err = read_write(tmp, sector_count, sector_start, false)) != count) {
-        kfree(tmp);
-        kmsg("[AHCI] Failed to read ", count, " Bytes from disk ", id, " error code ", err);
-        return -vfs::error::IO;
-    }
-
+    __atomic_fetch_add(&num_free_commands, 1, __ATOMIC_RELAXED);
     memcpy(buf, (char *) tmp + sector_offset, count);
+
     kfree(tmp);
-    return err;
+    lock.irq_release();
+    return count;
 }
 
 ahci::ssize_t ahci::device::write(void *buf, ssize_t count, ssize_t offset) {
-    uint64_t sector_offset = offset % sector_size;
-    uint64_t sector_start = offset / sector_size;
-    uint64_t sector_end = ((offset + count) + sector_size - 1) / sector_size;
-    uint64_t sector_count = sector_end - sector_start;
-
-    if (sector_count > 0xFFFF) {
-        return -vfs::error::INVAL;
-    } else if (!sector_count) {
-        return -vfs::error::INVAL;
-    }
-
-    uint8_t *dst = (uint8_t *) kmalloc(sector_count * sector_size);
-    uint8_t *dst_end = dst + ((sector_count - 1) * sector_size);
-
-    ssize_t err = 0;
-    if ((err = read_write(dst, 1, sector_start, false)) != 0) {
-        kfree(dst);
-        return -vfs::error::IO;;
-    }
-
-    if ((err = read_write(dst_end, 1, sector_end - 1, false)) != 0) {
-        kfree(dst);
-        return -vfs::error::IO;;
-    }
-
-    memcpy(buf, dst + sector_offset, count);
-    if ((err = read_write(dst, sector_count, sector_start, true)) != 0) {
-        kfree(dst);
-        return -vfs::error::IO;
-    }
-
-    kfree(dst);
-    return err;
+    return -1;
 }
 
 ahci::ssize_t ahci::device::ioctl(size_t req, void *buf) {
@@ -444,6 +528,19 @@ ahci::ssize_t ahci::device::ioctl(size_t req, void *buf) {
             return 0;
         default:
             return -vfs::error::INVAL;
+    }
+}
+
+static frg::vector<ahci::device *, memory::mm::heap_allocator> devices{};
+void ahci::ahci_task() {
+    while (true) {
+        for (auto device: devices) {
+            if (device == nullptr) continue;
+            if (device->exists) {
+                device->handle_commands();
+                device->handle_finished();
+            }
+        }
     }
 }
 
@@ -465,15 +562,15 @@ void ahci::init() {
         return;
     }
 
-    volatile ahci::abar *bar = memory::common::offsetVirtual((ahci::abar *) pci_bar.base);
-    kmsg("[AHCI] ABAR Base: ", bar);
+    volatile ahci::abar *ahci_bar = memory::common::offsetVirtual((ahci::abar *) pci_bar.base);
+    kmsg("[AHCI] ABAR Base: ", ahci_bar);
 
-    bar->ghc |= (1 << 31);
+    ahci_bar->ghc |= (1 << 31);
+    get_ownership(ahci_bar);
 
-    get_ownership(bar);
     auto found_devices = false;
     for (size_t i = 0; i < MAX_SLOTS; i++) {
-        switch (port_present(bar, i)) {
+        switch (port_present(ahci_bar, i)) {
             case DEV_PM:
             case DEV_SEMB:
             case DEV_ATAPI:
@@ -482,15 +579,18 @@ void ahci::init() {
             case DEV_ATA: {
                 found_devices = true;
                 kmsg("[AHCI] Found SATA device with port id ", i);
-                
-                auto device = frg::construct<ahci::device>(memory::mm::heap);
-                device->bar = bar;
-                device->id = i;
-                device->port = &bar->ports[i];
-                device->setup();            
-                part::probe(device);
 
+                auto device = frg::construct<ahci::device>(memory::mm::heap);
+                device->blockdev = true;
+                device->bar = ahci_bar;
+                device->id = i;
+                device->port = &ahci_bar->ports[i];              
+                device->setup();
+                devices.push_back(device);
+
+                part::probe(device);
                 vfs::devfs::add(device);
+
                 break;
             }
             default:
@@ -500,5 +600,8 @@ void ahci::init() {
 
     if (!found_devices) {
         kmsg("[AHCI] No AHCI Drives found");
+    } else {
+        auto ahci_thread = sched::create_thread(&ahci_task, (uint64_t) memory::pmm::stack(4), (memory::vmm::vmm_ctx *) memory::vmm::boot(), 0);
+        ahci_thread->start();
     }
 }

@@ -20,11 +20,17 @@ main_sources = files(
 	'source/cxx/fs/rootfs.cpp',
 	'source/cxx/fs/dev.cpp',
 	'source/cxx/fs/fat.cpp',
+    'source/cxx/driver/tty/tty.cpp',
+    'source/cxx/driver/tty/pty.cpp',
+    'source/cxx/driver/tty/disciplines.cpp',
+    'source/cxx/driver/video/vesa.cpp',
+    'source/cxx/driver/video/vt.cpp',
+    'source/cxx/flanterm/flanterm.cpp',
+    'source/cxx/flanterm/backends/fb.cpp',
 	'source/cxx/driver/ahci.cpp',
 	'source/cxx/driver/part.cpp',
     'source/cxx/driver/keyboard.cpp',
-    'source/cxx/util/elf.cpp',
-    'source/cxx/util/ring.cpp'
+    'source/cxx/util/elf.cpp'
 )
 main_includes = include_directories('include')
 nasm_sources = files(

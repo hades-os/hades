@@ -17,6 +17,10 @@
 #include <util/lock.hpp>
 #include <util/elf.hpp>
 
+namespace tty {
+    struct device;
+}
+
 namespace sched {
     using pid_t = int64_t;
     using tid_t = int64_t;
@@ -173,6 +177,7 @@ namespace sched {
             frg::vector<process *, memory::mm::heap_allocator> children;
             frg::vector<process *, memory::mm::heap_allocator> zombies;            
             vfs::fd_table *fds;
+            vfs::node *cwd;
 
             util::lock lock{};
 
@@ -260,6 +265,8 @@ namespace sched {
             pid_t sid;
             pid_t leader_pgid;
             frg::vector<process_group *, memory::mm::heap_allocator> groups;
+
+            tty::device *tty;
     };
 
     inline frg::vector<sched::process *, memory::mm::heap_allocator> processes{};

@@ -84,11 +84,6 @@ static inline uint16_t get_vendor(uint8_t bus, uint8_t slot, uint8_t func) {
     return (uint16_t) read_dword(bus, slot, func, 0);
 }
 
-static inline uint8_t get_header_type(uint8_t bus, uint8_t slot, uint8_t func) {
-    uint8_t header_type = (uint8_t) (read_dword(bus, slot, func, 0xC) >> 16);
-    return header_type & ~(1 << 7);
-}
-
 static inline uint16_t get_device(uint8_t bus, uint8_t slot, uint8_t func) {
     return (uint16_t) (read_dword(bus, slot, func, 0) >> 16);
 }
@@ -111,22 +106,20 @@ static inline uint16_t get_status(uint8_t bus, uint8_t slot, uint8_t func) {
 
 static inline uint8_t get_capability(uint8_t bus, uint8_t slot, uint8_t func, uint8_t capability) {
     uint16_t reg_status = get_status(bus, slot, func);
-    uint8_t reg_cap = read_byte(bus, slot, func, 0x34);
-
     if (!(reg_status & (1 << 4))) {
         return 0;
     }
 
+    uint8_t reg_cap = read_byte(bus, slot, func, 0x34);
     uint16_t cap_word = read_word(bus, slot, func, reg_cap);
 
     uint8_t cap_id = (uint8_t) cap_word;
     uint8_t cap_next = (uint8_t) cap_word >> 8;
 
     cap_next &= 0xFC;
-
     while (cap_next) {
         if (cap_id == capability) {
-            return 1;
+            return cap_next;
         }
 
         cap_word = read_dword(bus, slot, func, cap_next);
@@ -211,7 +204,6 @@ int pci::device::register_msi(uint8_t vector, uint8_t lapic_id) {
 
     uint32_t config_4  = readd(pci::PCI_HAS_CAPS);
     uint8_t  config_34 = readb(pci::PCI_CAPS);
-
     if ((config_4 >> 16) & (1 << 4)) {
         uint8_t cap_off = config_34;
 
@@ -241,8 +233,8 @@ int pci::device::register_msi(uint8_t vector, uint8_t lapic_id) {
         msi_address addr = {.raw = 0};
         addr.raw = readw(off + MSI_ADDR_LOW);
         data.raw = readw(off + MSI_DATA_64);
-        data.vector = vector;
 
+        data.vector = vector;
         data.delv_mode = 0;
         addr.base_addr = 0xFEE;
         addr.dest_id = lapic_id;
@@ -253,8 +245,8 @@ int pci::device::register_msi(uint8_t vector, uint8_t lapic_id) {
         msi_address addr = {.raw = 0};
         addr.raw = readw(off + MSI_ADDR_LOW);
         data.raw = readw(off + MSI_DATA_32);
+        
         data.vector = vector;
-
         data.delv_mode = 0;
         addr.base_addr = 0xFEE;
         addr.dest_id = lapic_id;
@@ -262,7 +254,7 @@ int pci::device::register_msi(uint8_t vector, uint8_t lapic_id) {
         writed(off + MSI_DATA_32, data.raw);
     }
 
-    msi_opts |= 1;
+    msi_opts |= (1 << 16);
     writew(off + MSI_OPT, msi_opts);
 
     return 1;
@@ -510,7 +502,7 @@ static inline pci::device create_device(uint8_t bus, uint8_t slot, uint8_t func)
     );
 }
 
-frg::vector<pci::device, memory::mm::heap_allocator> devices;
+static frg::vector<pci::device, memory::mm::heap_allocator> devices;
 
 static inline void scan_bus(uint8_t bus) {
     for (size_t slot = 0; slot < pci::MAX_DEVICE; slot++) {

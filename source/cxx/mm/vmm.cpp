@@ -71,7 +71,7 @@ namespace memory {
 
                 if (!(--memory::vmm::common::refs[idx])) {
                     memory::vmm::common::refs[idx] = -1;
-                    memory::pmm::free(_virt(ptr), 1);
+                    memory::pmm::free(_virt(ptr));
                 }
             }
 

@@ -1,3 +1,6 @@
+#include "mm/common.hpp"
+#include "sys/sched/mail.hpp"
+#include <sys/sched/sched.hpp>
 #include "util/lock.hpp"
 #include <cstdint>
 #include <frg/allocation.hpp>
@@ -39,7 +42,7 @@ vfs::filesystem *vfs::resolve_fs(frg::string_view path) {
     if (!fs) {
         return mounts["/"];
     }
- 
+
     return fs;
 }
 
@@ -51,7 +54,55 @@ static frg::string_view strip_leading(frg::string_view path) {
     return path;
 }
 
-vfs::node *vfs::resolve(frg::string_view path) {
+vfs::node *vfs::resolve_process(frg::string_view path, sched::process *proc) {
+    return resolve_at(path, proc->cwd);
+}
+
+vfs::node *vfs::resolve_at(frg::string_view path, node *base) {
+    if (path == '/') {
+        return tree_root;
+    }
+
+    auto adjusted_path = strip_leading(path);
+    auto split_path = vfs::split_path(adjusted_path);
+    auto absolute_list = pathlist();
+    auto absolute_path = vfs::path();
+
+    node *current;
+    if (path[0] == '/' || base == nullptr) {
+        current = tree_root;
+    } else {
+        current = base;
+        auto adjusted_base_path = strip_leading(base->get_path());
+        absolute_path += adjusted_base_path;
+    }
+
+    for (auto component: split_path) {
+        if (component == ".") {
+            continue;
+        } else if (component == "..") {
+            if (current->get_parent() == nullptr) {
+                current = tree_root;
+                continue;
+            }
+
+            current = current->get_parent();
+        } else {
+            if (!absolute_list.empty()) {
+                absolute_list.push(vfs::path("/") + current->get_name());
+                absolute_path += vfs::path("/") + current->get_name();
+            } else {
+                absolute_list.push(current->get_name());
+                absolute_path += current->get_name();
+            }
+        }
+    }
+
+    auto adjusted_absolute_path = strip_leading(absolute_path);
+    return resolve_fs(adjusted_absolute_path)->lookup(absolute_list, adjusted_absolute_path, 0);
+}
+
+vfs::node *vfs::resolve_abs(frg::string_view path) {
     if (path == '/') {
         return tree_root;
     }
@@ -62,8 +113,9 @@ vfs::node *vfs::resolve(frg::string_view path) {
     return resolve_fs(adjusted_path)->lookup(split_path, adjusted_path, 0);
 }
 
-vfs::ssize_t vfs::lseek(vfs::fd *fd, size_t off, size_t whence) {    
+vfs::ssize_t vfs::lseek(vfs::fd *fd, size_t off, size_t whence) {
     auto desc = fd->desc;
+    if (!desc->node) return -error::NOSYS;
     if (desc->node->get_type() == node::type::DIRECTORY) {
         return -error::ISDIR;
     }
@@ -85,22 +137,64 @@ vfs::ssize_t vfs::lseek(vfs::fd *fd, size_t off, size_t whence) {
     return 0;
 }
 
-vfs::ssize_t vfs::read(vfs::fd *fd, void *buf, vfs::ssize_t len) {    
+vfs::ssize_t vfs::read(vfs::fd *fd, void *buf, vfs::ssize_t len) {
     auto desc = fd->desc;
+    if (!desc->node) {
+        if (desc->pos > desc->info->st_size) {
+            while (__atomic_load_n(&desc->pipe->data_written, __ATOMIC_RELAXED) == 0);
+            __atomic_clear(&desc->pipe->data_written, __ATOMIC_RELAXED);
+        }
+
+        if (desc->pos + len > desc->info->st_size) {
+            len = desc->info->st_size - desc->pos;
+        }
+
+        memcpy(buf, (char *) desc->pipe->buf + desc->pos, len);
+        desc->pos += len;
+        return len;
+    }
+
     if (desc->node->get_type() == node::type::DIRECTORY) {
         return -error::ISDIR;
     }
 
-    return desc->node->get_fs()->read(desc->node, buf, len, desc->pos);
+    auto res = desc->node->get_fs()->read(desc->node, buf, len, desc->pos);
+    if (res >= 0) desc->pos += res;
+    return res;
 }
 
 vfs::ssize_t vfs::write(vfs::fd *fd, void *buf, ssize_t len) {
     auto desc = fd->desc;
+    if (!desc->node) {
+        if (desc->pos >= memory::common::page_size) {
+            return -error::INVAL;
+        }
+
+        if (desc->pos + len > memory::common::page_size) {
+            len = desc->info->st_size - desc->pos;
+        }
+
+        if (desc->pos + len > desc->info->st_size) {
+            desc->info->st_size = desc->pos + len - desc->info->st_size;
+        }
+
+        memcpy((char *) desc->pipe->buf + desc->pos, buf, len);
+        desc->pos += len;
+
+        if (desc->pos > desc->info->st_size) {
+            desc->pipe->data_written = true;            
+        }
+
+        return len;
+    }
+
     if (desc->node->get_type() == node::type::DIRECTORY) {
         return -error::ISDIR;
     }
 
-    return desc->node->get_fs()->write(desc->node, buf, len, desc->pos);
+    auto res = desc->node->get_fs()->write(desc->node, buf, len, desc->pos);
+    if (res >= 0) desc->pos += res;
+    return res;
 }
 
 vfs::ssize_t vfs::ioctl(vfs::fd *fd, size_t req, void *buf) {
@@ -112,12 +206,12 @@ vfs::node *vfs::get_parent(frg::string_view filepath) {
     if (filepath[0] == '/' && filepath.count('/') == 1) {
         return tree_root;
     }
-    
+
     auto parent_path = filepath;
     if (parent_path.find_last('/') != size_t(-1))
         parent_path = parent_path.sub_string(0, parent_path.find_last('/'));
-        
-    auto parent = resolve(parent_path);
+
+    auto parent = resolve_abs(parent_path);
     if (!parent) {
         return nullptr;
     }
@@ -125,7 +219,7 @@ vfs::node *vfs::get_parent(frg::string_view filepath) {
     return parent;
 }
 
-vfs::ssize_t vfs::insert_node(frg::string_view filepath, int64_t type) {
+vfs::node *vfs::insert_node(frg::string_view filepath, int64_t type) {
     auto parent = get_parent(filepath);
 
     auto name = find_name(filepath);
@@ -134,7 +228,7 @@ vfs::ssize_t vfs::insert_node(frg::string_view filepath, int64_t type) {
     auto node = frg::construct<vfs::node>(memory::mm::heap, fs, name, adjusted_filepath, parent, 0, type);
     fs->nodenames[adjusted_filepath] = node;
 
-    return 0;
+    return node;
 }
 
 vfs::ssize_t vfs::create(frg::string_view filepath, fd_table *table, int64_t type, int64_t flags, int64_t mode) {
@@ -213,9 +307,6 @@ vfs::fd_table *vfs::copy_table(fd_table *table) {
 
         new_desc->ref = 1;
         new_desc->pos = desc->pos;
-        new_desc->flags = desc->flags;
-        new_desc->mode = desc->mode;
-
         new_desc->info = desc->info;
 
         new_fd->lock = util::lock();
@@ -223,6 +314,7 @@ vfs::fd_table *vfs::copy_table(fd_table *table) {
         new_fd->table = new_table;
         new_fd->fd_number = fd_number;
         new_fd->flags = fd->flags;
+        new_fd->mode = fd->mode;
 
         new_table->fd_list[fd->fd_number] = new_fd;
     }
@@ -241,12 +333,49 @@ void vfs::delete_table(fd_table *table) {
     frg::destruct(memory::mm::heap, table);
 }
 
+vfs::fd *vfs::make_fd(vfs::node *node, fd_table *table, int64_t flags, int64_t mode) {
+    auto desc = frg::construct<vfs::descriptor>(memory::mm::heap);
+    auto fd = frg::construct<vfs::fd>(memory::mm::heap);
+
+    desc->lock = util::lock();
+    desc->node = node;
+    desc->pipe = nullptr;
+
+    desc->ref = 1;
+    desc->pos= 0;
+
+    desc->info = nullptr;
+
+    fd->lock = util::lock();
+    fd->desc = desc;
+    fd->table = table;
+    fd->fd_number = table->last_fd++;
+    fd->flags = flags;
+    fd->mode = mode;
+
+    if (node) {
+        auto open_val = node->get_fs()->on_open(fd, flags);
+        if (open_val != -error::NOSYS && open_val < 0) {
+            frg::destruct(memory::mm::heap, desc);
+            frg::destruct(memory::mm::heap, fd);
+    
+            return nullptr;
+        }
+    }
+
+    table->lock.irq_acquire();
+    table->fd_list[fd->fd_number] = fd;
+    table->lock.irq_release();
+
+    return fd;
+}
+
 vfs::fd *vfs::open(frg::string_view filepath, fd_table *table, int64_t flags, int64_t mode) {
     if (!table) {
         return nullptr;
     }
 
-    auto node = follow_links(resolve(filepath));    
+    auto node = follow_links(resolve_abs(filepath));
     if (!node) {
         if (flags & oflags::CREAT && table) {
             auto err = create(filepath, table, vfs::node::type::FILE, flags, mode);
@@ -258,35 +387,68 @@ vfs::fd *vfs::open(frg::string_view filepath, fd_table *table, int64_t flags, in
         }
     }
 
-    auto desc = frg::construct<vfs::descriptor>(memory::mm::heap);
-    auto fd = frg::construct<vfs::fd>(memory::mm::heap);
+    return make_fd(node, table, flags, mode);
+}
 
-    desc->lock = util::lock();
-    desc->node = node;
-    desc->pipe = nullptr;
+vfs::fd_pair vfs::open_pipe(fd_table *table, ssize_t flags) {
+    auto read = make_fd(nullptr, table, flags, mode::RDONLY);
+    auto write = make_fd(nullptr, table, flags, mode::WRONLY);
 
-    desc->ref = 1;
-    desc->pos= 0;
-    desc->flags = flags;
-    desc->mode = 0;
+    auto pipe = frg::construct<vfs::pipe>(memory::mm::heap);
+    pipe->read = read->desc;
+    pipe->write = write->desc;
+    pipe->len = memory::common::page_size;
+    pipe->buf = kmalloc(memory::common::page_size);
+    pipe->data_written = false;
 
-    desc->info = nullptr;
+    auto stat = frg::construct<node::statinfo>(memory::mm::heap);
+    stat->st_size = 0;
 
-    fd->lock = util::lock();
-    fd->desc = desc;
-    fd->table = table;
-    fd->fd_number = table->last_fd++;
-    fd->flags = flags;
+    write->desc->pipe = pipe;
+    write->desc->info = stat;
+    read->desc->pipe = pipe;
+    read->desc->info = stat;
 
-    table->lock.irq_acquire();
-    table->fd_list[fd->fd_number] = fd;
-    table->lock.irq_release();
+    return {read, write};
+}
 
-    return fd;
+vfs::fd *vfs::dup(vfs::fd *fd, ssize_t flags, ssize_t new_num) {
+    if (fd == nullptr) {
+        return nullptr;
+    }
+
+   if (fd->fd_number == new_num) {
+        return fd;
+    }
+
+    fd->desc->ref++;
+    auto new_fd = fd->table->fd_list[new_num];
+    if (new_num >= 0) {
+        close(new_fd);
+    }
+
+    new_fd = frg::construct<vfs::fd>(memory::mm::heap);
+    new_fd->lock = util::lock();
+    new_fd->desc = fd->desc;
+    new_fd->table = fd->table;
+    if (new_num >= 0) {
+        new_fd->fd_number = new_num;
+    } else {
+        new_fd->fd_number = fd->table->last_fd++;
+    }
+
+    new_fd->flags = flags;
+    new_fd->mode = fd->mode;
+
+    fd->table->lock.irq_acquire();
+    fd->table->fd_list[new_fd->fd_number] = new_fd;
+    fd->table->lock.irq_release();
+
+    return new_fd;    
 }
 
 vfs::ssize_t vfs::lstat(frg::string_view filepath, node::statinfo *buf) {
-    auto node = resolve(filepath);
+    auto node = resolve_abs(filepath);
     if (!node) {
         return -error::NOENT;
     }
@@ -299,22 +461,24 @@ vfs::ssize_t vfs::lstat(frg::string_view filepath, node::statinfo *buf) {
 vfs::ssize_t vfs::close(vfs::fd *fd) {
     auto desc = fd->desc;
     desc->ref--;
-    if (desc->ref <= 0) {
-        fd->table->fd_list.remove(fd->fd_number);
-        frg::destruct(memory::mm::heap, fd);
-        return 0;
+
+    if (desc->node) {
+        desc->node->ref_count--;
+        desc->node->get_fs()->on_close(fd, fd->flags);
     }
 
-    desc->node->ref_count--;
     fd->table->fd_list.remove(fd->fd_number);
-    frg::destruct(memory::mm::heap, desc);
     frg::destruct(memory::mm::heap, fd);
+    if (desc->ref <= 0) {
+        if (desc->info) frg::destruct(memory::mm::heap, desc->info);
+        frg::destruct(memory::mm::heap, desc);
+    }
 
     return 0;
 }
 
 vfs::ssize_t vfs::mkdir(frg::string_view dirpath, int64_t flags, int64_t mode) {
-    auto dir = resolve(dirpath);
+    auto dir = resolve_abs(dirpath);
     if (dir) {
         switch (dir->get_type()) {
             case node::type::DIRECTORY:
@@ -340,12 +504,12 @@ vfs::ssize_t vfs::rename(frg::string_view oldpath, frg::string_view newpath, int
         return -error::INVAL;
     }
 
-    auto src = resolve(oldpath);
+    auto src = resolve_abs(oldpath);
     if (!src) {
         return -error::INVAL;
     }
 
-    auto dst = resolve(newpath);
+    auto dst = resolve_abs(newpath);
     if (dst) {
         if (dst->ref_count || src->ref_count) {
             return -error::BUSY;
@@ -370,7 +534,7 @@ vfs::ssize_t vfs::rename(frg::string_view oldpath, frg::string_view newpath, int
             (dst->get_type() == node::type::DIRECTORY && src->get_type() == node::type::FILE)) {
                 return -error::INVAL;
         }
-        
+
         if (dst->get_type() == node::type::SYMLINK && src->get_type() == node::type::SYMLINK) {
             ssize_t err = 0;
             auto master = dst->get_master();
@@ -402,7 +566,7 @@ vfs::ssize_t vfs::rename(frg::string_view oldpath, frg::string_view newpath, int
     if (resolve_fs(newpath) != src->get_fs()) {
         return -error::XDEV;
     }
-    
+
     auto parent = get_parent(newpath);
     src->set_parent(parent);
     src->set_path(newpath);
@@ -411,12 +575,12 @@ vfs::ssize_t vfs::rename(frg::string_view oldpath, frg::string_view newpath, int
 }
 
 vfs::ssize_t vfs::link(frg::string_view from, frg::string_view to, bool is_symlink) {
-    auto src = resolve(from);
-    auto dst = resolve(to);
+    auto src = resolve_abs(from);
+    auto dst = resolve_abs(to);
 
     if (!is_symlink) {
         if (!src) {
-            return -error::INVAL;    
+            return -error::INVAL;
         }
 
         if (resolve_fs(to) != src->get_fs()) {
@@ -447,7 +611,7 @@ vfs::ssize_t vfs::link(frg::string_view from, frg::string_view to, bool is_symli
             return err;
         }
 
-        dst = resolve(to);
+        dst = resolve_abs(to);
         if (src) {
             dst->set_master(src);
         } else {
@@ -459,7 +623,7 @@ vfs::ssize_t vfs::link(frg::string_view from, frg::string_view to, bool is_symli
 }
 
 vfs::ssize_t vfs::unlink(frg::string_view filepath) {
-    auto dst = resolve(filepath);
+    auto dst = resolve_abs(filepath);
     if (!dst) {
         return -error::INVAL;
     }
@@ -498,7 +662,7 @@ vfs::ssize_t vfs::unlink(frg::string_view filepath) {
 }
 
 vfs::ssize_t vfs::in_use(frg::string_view filepath) {
-    auto dst = resolve(filepath);
+    auto dst = resolve_abs(filepath);
     if (!dst) {
         return -error::INVAL;
     }
@@ -511,7 +675,7 @@ vfs::ssize_t vfs::in_use(frg::string_view filepath) {
 }
 
 vfs::ssize_t vfs::rmdir(frg::string_view dirpath) {
-    auto dir = resolve(dirpath);
+    auto dir = resolve_abs(dirpath);
     if (!dir) {
         return -error::NOENT;
     }
@@ -539,7 +703,7 @@ vfs::ssize_t vfs::rmdir(frg::string_view dirpath) {
 
 vfs::pathlist vfs::lsdir(frg::string_view dirpath) {
     pathlist names{};
-    auto dir = resolve(dirpath);
+    auto dir = resolve_abs(dirpath);
     auto fs = resolve_fs(dirpath);
 
     if (!dir || !fs) {
@@ -555,8 +719,8 @@ vfs::pathlist vfs::lsdir(frg::string_view dirpath) {
 }
 
 vfs::ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t fstype, optlist *opts, int64_t flags) {
-    auto *src = resolve(srcpath);
-    auto *dst = resolve(dstpath);
+    auto *src = resolve_abs(srcpath);
+    auto *dst = resolve_abs(dstpath);
 
     switch (flags) {
         case (mflags::NOSRC | mflags::NODST):

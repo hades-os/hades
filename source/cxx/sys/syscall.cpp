@@ -6,17 +6,8 @@
 
 #define LENGTHOF(x) (sizeof(x) / sizeof(x[0]))
 
-void syscall_0(irq::regs *r) {
-
-}
-
-void syscall_1(irq::regs *r) {
-
-}
-
 static syscall::handler syscalls_list[] = {
-    syscall_0,
-    syscall_1
+
 };
 
 void syscall::register_handler(syscall::handler handler, int syscall) {

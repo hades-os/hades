@@ -8,9 +8,10 @@ ROOTDIR=root
 KVM=--enable-kvm -cpu host
 LOG=build/qemu.log
 
+NETFLAGS=-nic tap,ifname=tap0,script=no,downscript=no,model=e1000
 EMU=qemu-system-x86_64
 KVM=--enable-kvm -cpu host
-EFLAGS=--s -S -d int -boot c -m 8G -nic user,model=e1000 -serial file:$(LOG) -monitor stdio -no-reboot -no-shutdown -machine q35 -hda $(IMG)
+EFLAGS=--s -S -d int -boot c -m 8G $(NETFLAGS) -serial file:$(LOG) -monitor stdio -no-reboot -no-shutdown -machine q35 -hda $(IMG)
 
 all: build
 
