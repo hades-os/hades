@@ -4,6 +4,7 @@
 #include "driver/net/types.hpp"
 #include "fs/poll.hpp"
 #include "mm/arena.hpp"
+#include "mm/slab.hpp"
 #include "smarter/smarter.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -30,8 +31,8 @@ namespace vfs {
     class filesystem;
     class manager;
 
-    using path = frg::string<arena::allocator>;
-    using pathlist = frg::vector<frg::string_view, arena::allocator>;
+    using path = frg::string<prs::allocator>;
+    using pathlist = frg::vector<frg::string_view, prs::allocator>;
 
     struct path_hasher {
         unsigned int operator() (frg::string_view path) {
@@ -358,7 +359,7 @@ namespace vfs {
         shared_ptr<void *> data;
         util::spinlock lock;
 
-        arena::allocator allocator;
+        prs::allocator allocator;
 
         socket(weak_ptr<vfs::network> network):
             network(network), fs_node(),
@@ -389,19 +390,19 @@ namespace vfs {
         shared_ptr<node::statinfo> info;
         shared_ptr<poll::producer> producer;
 
-        arena::allocator allocator;
+        prs::allocator allocator;
 
         int current_ent;
-        frg::vector<dirent *, arena::allocator> dirent_list;
+        frg::vector<dirent *, prs::allocator> dirent_list;
 
-        descriptor(): allocator(), dirent_list(allocator) {}
+        descriptor(): allocator(slab::create_resource<dirent>()), dirent_list(allocator) {}
     };
 
     struct pipe {
         shared_ptr<descriptor> read;
         shared_ptr<descriptor> write;
 
-        arena::allocator allocator;
+        prs::allocator allocator;
 
         void *buf;
         size_t len;
@@ -423,14 +424,14 @@ namespace vfs {
 
     struct fd_table {
         util::spinlock lock;
-        arena::allocator allocator;
+        prs::allocator allocator;
         frg::hash_map<
             int, shared_ptr<fd>,
-            frg::hash<int>, arena::allocator
+            frg::hash<int>, prs::allocator
         > fd_list;
         size_t last_fd;
 
-        fd_table(): lock(), allocator(), fd_list(frg::hash<int>(), allocator) {}
+        fd_table(): lock(), allocator(arena::create_resource()), fd_list(frg::hash<int>(), allocator) {}
     };
 
     static size_t zero = 0;

@@ -101,11 +101,13 @@ namespace prs {
                         return copy;
                     }
 
-                    friend bool operator==(const iterator& a, const iterator& b) {
+                    friend bool operator==(const reverse_iterator& a, 
+                            const reverse_iterator& b) {
                         return a.current == b.current;
                     }
 
-                    friend bool operator!=(const iterator& a, const iterator& b) {
+                    friend bool operator!=(const reverse_iterator& a, 
+                            const reverse_iterator& b) {
                         return a.current != b.current;
                     }
             };

@@ -13,7 +13,10 @@
 #include "util/lock.hpp"
 
 namespace arena {
-    struct arena_resource: public prs::memory_resource<arena_resource> {
+    struct arena_resource;
+    static arena_resource *create_resource();
+
+    struct arena_resource: public prs::memory_resource {
         private:
             friend struct allocator;
 
@@ -37,7 +40,8 @@ namespace arena {
                 > free_list;
 
                 page_block(size_t page_count): page_count(page_count), hook(), free_list() {}
-            };
+            };    struct allocator;
+
 
             struct allocation_header {
                 size_t size;
@@ -62,19 +66,18 @@ namespace arena {
 
             util::spinlock lock;
         public:
+            friend arena_resource *create_resource();
+
             arena_resource():
                 block_list(), lock() {}
-
             arena_resource(const arena_resource& other):
                 block_list(other.block_list), lock() {}
 
             ~arena_resource();
 
-            void *allocate(size_t size, size_t alignment = 0) override;
+            void *allocate(size_t size,
+                size_t align = alignof(std::max_align_t)) override;
             void deallocate(void *ptr) override;
-
-            static arena_resource *create_resource();
-            static void delete_resource(arena_resource *resource);
     };
 };
 

@@ -8,10 +8,10 @@
 #include "util/lock.hpp"
 
 frg::tuple<
-    arena::arena::free_header *,
-    arena::arena::free_header *,
+    arena::arena_resource::free_header *,
+    arena::arena_resource::free_header *,
     size_t
-> arena::arena::find_best(size_t size, size_t alignment) {
+> arena::arena_resource::find_best(size_t size, size_t alignment) {
     for (auto page_it = block_list.begin(); page_it != block_list.end(); page_it++) {
         auto page = *page_it;
         size_t smallestDiff = SIZE_MAX;
@@ -36,7 +36,7 @@ frg::tuple<
     return {};
 }
 
-void arena::arena::coalesce(free_header *prev, free_header *free_block) {
+void arena::arena_resource::coalesce(free_header *prev, free_header *free_block) {
     auto block = free_block->block;
     auto& free_list = block->free_list;
 
@@ -53,7 +53,7 @@ void arena::arena::coalesce(free_header *prev, free_header *free_block) {
     }
 }
 
-void arena::arena::create_free_list(size_t pages) {
+void arena::arena_resource::create_free_list(size_t pages) {
     auto addr = pmm::alloc(pages);
     auto block = new(addr) page_block(pages);
 
@@ -67,7 +67,7 @@ void arena::arena::create_free_list(size_t pages) {
     block_list.push_front(block);
 }
 
-void *arena::arena::allocate(size_t size, size_t alignment) {
+void *arena::arena_resource::allocate(size_t size, size_t alignment) {
     util::lock_guard guard{lock};
 
     size_t alloc_header_size = sizeof(allocation_header);
@@ -88,16 +88,18 @@ void *arena::arena::allocate(size_t size, size_t alignment) {
         goto pick_block;
     }
 
+    auto& free_list = chosen->block->free_list;
+
     size_t align_padding = padding - alloc_header_size;
     size_t needed_space = size + padding;
 
     size_t rest = chosen->size - needed_space;
     if (rest > 0) {
         free_header *rem = new ((void *) ((uintptr_t) chosen + needed_space)) free_header(rest, chosen->block);
-        chosen->block->free_list.insert(chosen, rem);
+        free_list.insert(chosen, rem);
     }
 
-    chosen->block->free_list.erase(chosen);
+    free_list.erase(chosen);
 
     uintptr_t header_addr = (uintptr_t) chosen + align_padding;
     uintptr_t data_addr = header_addr + alloc_header_size;
@@ -110,7 +112,7 @@ void *arena::arena::allocate(size_t size, size_t alignment) {
     return (void *) data_addr;
 }
 
-void arena::arena::deallocate(void *ptr) {
+void arena::arena_resource::deallocate(void *ptr) {
     util::lock_guard guard{lock};
 
     uintptr_t current_addr = (uintptr_t) ptr;
@@ -135,42 +137,34 @@ void arena::arena::deallocate(void *ptr) {
     coalesce(prev, freed);
 }
 
-arena::arena::arena(): block_list() {
-    create_free_list(memory::initialArenaSize);
-}
-
-arena::arena::~arena() {
-    auto it = block_list.begin();
-    while (it != block_list.end()) {
+arena::arena_resource::~arena_resource() {
+    for (auto it = block_list.rbegin(); 
+        it != block_list.rend(); ++it) {
         auto page = *it;
-        it = block_list.next(page);
-
         pmm::free((void *) page->addr);
     }
 }
 
-void *arena::allocator::allocate(size_t size, size_t alignment) const {
-    return arena.allocate(size, alignment);
-}
+arena::arena_resource *arena::create_resource() {
+    auto base = pmm::alloc(memory::initialArenaSize);
+    auto addr = (uintptr_t) base;
+    auto resource = new (base) arena_resource();
 
-void *arena::allocator::reallocate(void *ptr, size_t size) const {
-    if (!ptr)
-        return arena.allocate(size, 8);
+    auto block = new((void *) (addr + sizeof(arena_resource))) 
+        arena_resource::page_block(memory::initialArenaSize);
 
-    uintptr_t current_addr = (uintptr_t) ptr;
-    uintptr_t header_addr = current_addr - sizeof(arena::allocation_header);
-    arena::allocation_header *header = (arena::allocation_header *) header_addr;
+    block->addr = (uintptr_t) addr;
+    block->page_count = memory::initialArenaSize;
 
-    void *res = arena.allocate(size, 8);
-    memcpy(res, ptr, header->size);
-    arena.deallocate(ptr);
+    auto free_block_addr = (void *) (addr + sizeof(arena_resource::page_block) + sizeof(arena_resource));
+    auto free_block_size = (memory::initialArenaSize * memory::page_size) - 
+        (sizeof(arena_resource::free_header) + sizeof(arena_resource::page_block) + sizeof(arena_resource));
 
-    return res;
-}
+    auto free_block = new (free_block_addr) 
+        arena_resource::free_header(free_block_size, block);
 
-void arena::allocator::deallocate(void *ptr) const {
-    if (!ptr)
-        return;
+    block->free_list.push_front(free_block);
+    resource->block_list.push_front(block);
 
-    arena.deallocate(ptr);
+    return resource;
 }
