@@ -1,8 +1,6 @@
 #include "driver/part.hpp"
 #include "frg/string.hpp"
-#include "frg/tuple.hpp"
 #include "mm/mm.hpp"
-#include "sys/smp.hpp"
 #include "util/log/log.hpp"
 #include "util/log/panic.hpp"
 #include <cstddef>
@@ -20,7 +18,7 @@ void vfs::devfs::init() {
 
 void vfs::devfs::add(frg::string_view path, device *dev) {
     // TODO: device addition
-    node *device_node = vfs::make_node(vfs::device_fs()->root, path, dev->blockdev ? node::type::BLOCKDEV : node::type::CHARDEV);
+    node *device_node = vfs::make_node(vfs::device_fs()->root, path, dev->is_blockdev ? node::type::BLOCKDEV : node::type::CHARDEV);
     if (!device_node) {
         panic("[DEVFS]: Unable to make device: ", path.data());
     }
@@ -58,40 +56,49 @@ vfs::ssize_t vfs::devfs::on_close(vfs::fd *fd, ssize_t flags) {
     return device->on_close(fd, flags);
 }
 
-bool vfs::devfs::request_io(node *file, device::block_zone *zones, size_t num_zones, bool rw, bool all_success) {
+bool vfs::devfs::request_io(node *file, device::io_request *req, bool rw, bool all_success) {
     auto private_data = (dev_priv *) file->private_data;
     if (!private_data) return false;
 
     devfs::device *device = private_data->dev;
     if (!device || !device->resolveable) return false;
 
-    if (!device->blockdev) {
+    if (!device->is_blockdev) {
         return false;
     }
 
     if (private_data->part >= 0) {
-        auto part = device->block.part_list.data()[private_data->part];
-        device->block.request_io(device->block.request_data, zones, num_zones, (part.begin * device->block.block_size), rw);
-        device->block.mail->recv(true, rw ? device::BLOCK_IO_WRITE : device::BLOCK_IO_READ, smp::get_thread());
+        auto part = device->blockdev.part_list.data()[private_data->part];
 
+        device->blockdev.request_io(device->blockdev.extra_data, req, (part.begin * device->blockdev.block_size), rw);
         size_t success_count = 0;
-        for (auto res_zone = zones; res_zone != nullptr; res_zone = res_zone->next) {
-            if (res_zone->is_success) success_count++;
+        for (size_t i = 0; i < req->len; i++) {
+            auto zone = req->blocks[i];
+            if (zone->is_success) success_count++;
+            frg::destruct(memory::mm::heap, zone);
         }
 
-        if (all_success && success_count != num_zones) return false;
+        bool succeeded = success_count == req->len;
+        kfree(req->blocks);
+        frg::destruct(memory::mm::heap, req);
+
+        if (all_success && !succeeded) return false;
         return true;
     }
 
-    device->block.request_io(device->block.request_data, zones, num_zones, 0, rw);
-    device->block.mail->recv(true, rw ? device::BLOCK_IO_WRITE : device::BLOCK_IO_READ, smp::get_thread());
-
+    device->blockdev.request_io(device->blockdev.extra_data, req, 0, rw);
     size_t success_count = 0;
-    for (auto res_zone = zones; res_zone != nullptr; res_zone = res_zone->next) {
-        if (res_zone->is_success) success_count++;
+    for (size_t i = 0; i < req->len; i++) {
+        auto zone = req->blocks[i];
+        if (zone->is_success) success_count++;
+        frg::destruct(memory::mm::heap, zone);
     }
 
-    if (all_success && success_count != num_zones) return false;
+    bool succeeded = success_count == req->len;
+    kfree(req->blocks);
+    frg::destruct(memory::mm::heap, req);
+
+    if (all_success && !succeeded) return false;
     return true;
 }
 
@@ -103,10 +110,10 @@ vfs::ssize_t vfs::devfs::read(node *file, void *buf, size_t len, size_t offset) 
     devfs::device *device = private_data->dev;
     if (!device) return -error::NOENT;
 
-    if (device->blockdev) {
+    if (device->is_blockdev) {
         if (private_data->part >= 0) {
-            auto part = device->block.part_list.data()[private_data->part];
-            return device->read(buf, len, offset + (part.begin * device->block.block_size));
+            auto part = device->blockdev.part_list.data()[private_data->part];
+            return device->read(buf, len, offset + (part.begin * device->blockdev.block_size));
         }
     }
 
@@ -120,10 +127,10 @@ vfs::ssize_t vfs::devfs::write(node *file, void *buf, size_t len, size_t offset)
     devfs::device *device = private_data->dev;
     if (!device) return -error::NOENT;
 
-    if (device->blockdev) {
+    if (device->is_blockdev) {
         if (private_data->part >= 0) {
-            auto part = device->block.part_list.data()[private_data->part];
-            return device->write(buf, len, offset + (part.begin * device->block.block_size));
+            auto part = device->blockdev.part_list.data()[private_data->part];
+            return device->write(buf, len, offset + (part.begin * device->blockdev.block_size));
         }
     }
 
@@ -138,8 +145,8 @@ vfs::ssize_t vfs::devfs::ioctl(node *file, size_t req, void *buf) {
 
     switch (req) {
         case BLKRRPART:
-            if (!device->blockdev) return -1;
-            device->block.part_list.clear();
+            if (!device->is_blockdev) return -1;
+            device->blockdev.part_list.clear();
             return part::probe(device);
         default:
             return device->ioctl(req, buf);

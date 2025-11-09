@@ -12,7 +12,7 @@ size_t last_ptm = 0;
 
 void tty::ptmx::init() {
     ptmx *device = frg::construct<ptmx>(memory::mm::heap);
-    device->blockdev = false;
+    device->is_blockdev = false;
     device->major = ptmx_major;
     device->minor = ptmx_minor;
 

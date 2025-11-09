@@ -78,11 +78,11 @@ namespace vfs {
             struct [[gnu::packed]] fatEntry {
                 char name[11];
                 uint8_t attr;
-                uint8_t NTrsvd;
-                uint8_t mkTimeTs;
-                uint16_t mkTime;
-                uint16_t mkDate;
-                uint16_t accessDate;
+                uint8_t rsv;
+                uint8_t create_time_ts;
+                uint16_t create_time;
+                uint16_t create_date;
+                uint16_t access_date;
                 uint16_t clus_hi;
                 uint16_t modTime;
                 uint16_t modDate;

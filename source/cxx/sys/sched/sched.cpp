@@ -1,6 +1,6 @@
 #include "fs/vfs.hpp"
 #include "mm/common.hpp"
-#include "sys/sched/mail.hpp"
+#include "sys/sched/wait.hpp"
 #include "sys/sched/signal.hpp"
 #include "util/elf.hpp"
 #include "util/string.hpp"
@@ -144,7 +144,7 @@ sched::process *sched::create_process(char *name, void (*main)(),
     proc->sig_lock = util::lock();
     proc->block_signals = false;
     proc->sig_queue = signal::queue{};
-    proc->sig_queue.mail = frg::construct<ipc::mailbox>(memory::mm::heap, proc);
+    proc->sig_queue.waitq = frg::construct<ipc::queue>(memory::mm::heap);
     proc->sig_queue.active = true;
     // default sigactions
     for (size_t i = 0; i < SIGNAL_MAX; i++) {
@@ -152,8 +152,8 @@ sched::process *sched::create_process(char *name, void (*main)(),
         sa->handler.sa_sigaction = (void (*)(int, signal::siginfo *, void *)) SIG_DFL;
     }
 
-    proc->mail = frg::construct<ipc::mailbox>(memory::mm::heap, proc);
-    proc->parent_port = nullptr;
+    proc->waitq = frg::construct<ipc::queue>(memory::mm::heap);;
+    proc->notify_status = frg::construct<ipc::trigger>(memory::mm::heap);;
     proc->privilege = privilege;
 
     proc->status = {
@@ -207,7 +207,7 @@ sched::process *sched::fork(process *original, thread *caller) {
     proc->ppid = original->ppid;
     proc->sig_lock = util::lock();
     proc->sig_queue = signal::queue{};
-    proc->sig_queue.mail = frg::construct<ipc::mailbox>(memory::mm::heap, proc);
+    proc->sig_queue.waitq = frg::construct<ipc::queue>(memory::mm::heap);
     proc->sig_queue.active = true;
     proc->sig_queue.sigmask = original->sig_queue.sigmask;
     memcpy(&proc->sigactions, &original->sigactions, SIGNAL_MAX * sizeof(signal::sigaction));
@@ -235,8 +235,9 @@ sched::process *sched::fork(process *original, thread *caller) {
     proc->effective_uid = original->effective_uid;
     proc->saved_gid = original->saved_gid;
 
-    proc->mail = frg::construct<ipc::mailbox>(memory::mm::heap, proc);
-    proc->parent_port = original->mail->make_port();
+    proc->waitq = frg::construct<ipc::queue>(memory::mm::heap);
+    proc->notify_status = frg::construct<ipc::trigger>(memory::mm::heap);
+    proc->notify_status->add(original->waitq);
 
     original->children.push_back(proc);
 
@@ -533,8 +534,8 @@ void sched::process::kill() {
         auto child = children[i];
         if (child == nullptr) continue;
         
-        frg::destruct(memory::mm::heap, child->parent_port);
-        child->parent_port = parent->mail->make_port();
+        child->notify_status->clear();
+        child->notify_status->add(parent->waitq);
 
         child->parent = parent;
         child->ppid = parent->ppid;
@@ -547,8 +548,8 @@ void sched::process::kill() {
         auto zombie = zombies[i];
         if (zombie == nullptr) continue;
 
-        frg::destruct(memory::mm::heap, zombie->parent_port);
-        zombie->parent_port = parent->mail->make_port();
+        zombie->notify_status->clear();
+        zombie->notify_status->add(parent->waitq);
 
         zombie->parent = parent;
         zombie->ppid = parent->ppid;
@@ -560,17 +561,8 @@ void sched::process::kill() {
     parent->children[parent->find_child(this)] = nullptr;
     parent->zombies.push_back(this);
 
-    status.val = TERMINATED;
-    parent_port->post({
-        .who = {
-            .task = main_thread,
-            .proc = this,
-            .pid = this->pid,
-            .tid = main_thread->tid
-        },
-
-        .what = messages::KILLED
-    });
+    status.val = TERMINATED | STATUS_CHANGED;
+    notify_status->arise(main_thread);
 
     sched_lock.irq_release();
 }
@@ -583,18 +575,9 @@ void sched::process::suspend() {
         task->stop();
     }
 
-    status.val = STOPPED;
+    status.val = STOPPED | STATUS_CHANGED;
     signal::send_process(nullptr, parent, SIGCHLD);
-    parent_port->post({
-        .who = {
-            .task = main_thread,
-            .proc = this,
-            .pid = this->pid,
-            .tid = main_thread->tid
-        },
-
-        .what = messages::SUSPEND
-    });
+    notify_status->arise(main_thread);
 }
 
 void sched::process::cont() {
@@ -605,18 +588,9 @@ void sched::process::cont() {
         task->cont();
     }
 
-    status.val = RUNNING;
+    status.val = RUNNING | STATUS_CHANGED;
     signal::send_process(nullptr, parent, SIGCHLD);
-    parent_port->post({
-        .who = {
-            .task = main_thread,
-            .proc = this,
-            .pid = this->pid,
-            .tid = main_thread->tid
-        },
-
-        .what = messages::STARTED
-    });
+    notify_status->arise(main_thread);
 }
 
 int64_t sched::thread::start() {
@@ -728,8 +702,9 @@ void reap_process(sched::process *zombie) {
     sched::processes[zombie->pid] = nullptr;
 
     frg::destruct(memory::mm::heap, task);
-    frg::destruct(memory::mm::heap, zombie->mail);
-    frg::destruct(memory::mm::heap, zombie->sig_queue.mail);
+    frg::destruct(memory::mm::heap, zombie->waitq);
+    frg::destruct(memory::mm::heap, zombie->notify_status);
+    frg::destruct(memory::mm::heap, zombie->sig_queue.waitq);
     frg::destruct(memory::mm::heap, zombie);    
 
     sched::sched_lock.irq_release();
@@ -776,21 +751,24 @@ frg::tuple<uint32_t, sched::pid_t> sched::process::waitpid(sched::pid_t pid, thr
 
     do_wait:
         while (true) {
-            auto msg = mail->recv(true, -1, waiter);
-            if (msg == nullptr) {
+            auto thread = waitq->block(waiter);
+            if (thread == nullptr) {
                 goto finish;
             }
-
-            if (pid < -1 && msg->who.proc->group->pgid != pid) {
+            
+            if (thread->proc->status.val & STATUS_CHANGED) {
+                thread->proc->status.val &= ~STATUS_CHANGED;
+            }
+            
+            if (pid < -1 && thread->proc->group->pgid != pid) {
                 continue;
-            } else if (pid == 0 && msg->who.proc->group->pgid != group->pgid) {
+            } else if (pid == 0 && thread->proc->group->pgid != group->pgid) {
                 continue;
-            } else if (pid > 0 && msg->who.pid != pid){
+            } else if (pid > 0 && thread->pid != pid){
                 continue;
             }
 
-            proc = msg->who.proc;
-            frg::destruct(memory::mm::heap, msg);
+            proc = thread->proc;
             break;
         }
 

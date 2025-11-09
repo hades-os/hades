@@ -5,7 +5,7 @@
 #include "lai/core.h"
 #include "lai/helpers/sci.h"
 #include "mm/common.hpp"
-#include "sys/sched/mail.hpp"
+#include "sys/sched/wait.hpp"
 #include "sys/sched/signal.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -75,7 +75,6 @@ static void show_splash(vfs::fd_table *table) {
     vfs::read(splash_fd, buffer, info->st_size);
 
     video::vesa::display_bmp(buffer, info->st_size);
-
     run_init();
 }
 

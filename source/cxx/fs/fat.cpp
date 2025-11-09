@@ -20,7 +20,7 @@ static bool is_dir(uint8_t attrs) {
 
 static bool is_bad(uint32_t entry) {
     switch (entry) {
-        case 0x0FF7:
+        case 0xFF7:
         case 0xFFF7:
         case 0x0FFFFFF7:
             return true;
@@ -30,6 +30,7 @@ static bool is_bad(uint32_t entry) {
 }
 
 bool vfs::fatfs::is_eof(uint32_t entry) {
+    if (entry == 0) return true;
     switch (this->type) {
         case FAT12:
             if (entry >= 0x0FF8) return true;
@@ -47,6 +48,7 @@ bool vfs::fatfs::is_eof(uint32_t entry) {
 
 uint32_t vfs::fatfs::rw_entry(size_t cluster, bool rw, size_t val) {
     uint32_t entry = -1;
+
     size_t fatEntOffset = -1;
     size_t fatSz = this->superblock->secPerFAT != 0 ? this->superblock->secPerFAT : this->superblock->ebr.nEBR.secPerFAT;
     switch (this->type) {
@@ -109,6 +111,10 @@ uint32_t vfs::fatfs::rw_entry(size_t cluster, bool rw, size_t val) {
     return entry;
 }
 
+size_t cluster_to_lba(size_t firstClusterLBA, size_t cluster, size_t secPerClus) {
+    return ((cluster - 2) * secPerClus) + firstClusterLBA;
+}
+
 vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t offset, size_t len, bool read_all, bool rw) {
     if (rw) {
         if (len <= 0) return {};
@@ -162,40 +168,33 @@ vfs::fatfs::rw_result vfs::fatfs::rw_clusters(size_t begin, void *buf, size_t of
 
         size_t fatSz = this->superblock->secPerFAT != 0 ? this->superblock->secPerFAT : this->superblock->ebr.nEBR.secPerFAT;
 
-        size_t sec_offset = superblock->rsvdSec + (superblock->n_fat * fatSz) + (((superblock->n_root * 32) + (superblock->bytesPerSec - 1)) / superblock->bytesPerSec);
-        auto clus_it = cluster_chain.begin();
-        devfs::device::block_zone *head = nullptr;
-        devfs::device::block_zone *current_zone = nullptr;
-        size_t zone_count = 0;
-        for (size_t buf_offset = 0; (read_all ? true : buf_offset < (size_t) len) && clus_it != cluster_chain.end(); buf_offset = buf_offset + clus_size) {
-            auto block_zone = frg::construct<devfs::device::block_zone>(memory::mm::heap);
-            auto clus = *clus_it;
+        size_t firstClusterLBA = superblock->rsvdSec + (superblock->n_fat * fatSz);
+        auto req = frg::construct<devfs::device::io_request>(memory::mm::heap);
 
-            block_zone->buf = clus_buf + buf_offset;
-            block_zone->len = clus_size;
-            block_zone->offset = (sec_offset + ((clus - 2) * superblock->secPerClus)) * superblock->bytesPerSec;
-            block_zone->is_success = false;
-            block_zone->next = nullptr;
-            if (head == nullptr) {
-                head = block_zone;
-                current_zone = block_zone;
-            } else {
-                current_zone->next = block_zone;
-                current_zone = block_zone;
-            }
-
-            clus_it++;
-            zone_count++;
+        if (read_all) {
+            req->len = cluster_chain.size();
+        } else {
+            req->len = (len / clus_size) + (len % clus_size != 0);
+            while (req->len > cluster_chain.size()) req->len--;
         }
 
-        bool read_blocks = devfs->request_io(this->source, head, zone_count, false, true);
-        current_zone = head;
-        while (current_zone != nullptr) {
-            auto next = current_zone->next;
-            frg::destruct(memory::mm::heap, current_zone);
-            current_zone = next;
-        }
+        req->blocks = (devfs::device::io_request::block **) kmalloc(req->len * sizeof(devfs::device::io_request::block *));
+        auto clusters = cluster_chain.begin();
+        for (size_t i = 0; i < req->len; i++) {
+            auto clus = *clusters;
+            auto zone = frg::construct<devfs::device::io_request::block>(memory::mm::heap);
 
+            zone->buf = clus_buf + (i * clus_size);
+            zone->len = clus_size;
+            zone->offset = cluster_to_lba(firstClusterLBA, clus, superblock->secPerClus) * superblock->bytesPerSec;
+            zone->is_success = false;
+            zone->req = req;
+            req->blocks[i] = zone;
+
+            clusters++;
+        }
+        
+        bool read_blocks = devfs->request_io(this->source, req, false, true);
         if (!read_blocks) {            
             kfree(clus_buf);
             return {};
@@ -262,6 +261,7 @@ void vfs::fatfs::init_fs(node *root, node *source) {
 
     this->last_free = -1;
     this->root->inum = this->superblock->ebr.nEBR.rootClus;
+    this->root->meta->st_ino = this->root->inum; 
     kmsg("[FAT32]: Initialized");
 }
 
@@ -323,7 +323,7 @@ char *fat_stitch_name(const char *name) {
 vfs::ssize_t vfs::fatfs::lsdir(node *dir) {
     auto res = rw_clusters(dir->inum, nullptr, 0, 0, true);
 
-    fatEntry *ents = (fatEntry *) res.get<0>();;
+    fatEntry *ents = (fatEntry *) res.get<0>();
     size_t numEnts = res.get<1>() / sizeof(fatEntry);
 
     for (size_t j = 0; j < numEnts; j++) {
@@ -334,8 +334,7 @@ vfs::ssize_t vfs::fatfs::lsdir(node *dir) {
         if ((ent.attr & 0x0F) == 0x0F) continue;
 
         uint8_t attrs = ent.attr & 0x3F;
-        uint32_t clus = ent.clus_lo;
-        if (this->type == FAT32) clus |= (ent.clus_hi << 16);
+        uint32_t clus = ent.clus_lo | (ent.clus_hi << 16);
 
         auto name = fat_stitch_name(ent.name);
         auto new_node = frg::construct<vfs::node>(memory::mm::heap, this, name, dir, 0, is_dir(attrs) ? node::type::DIRECTORY :  node::type::FILE, clus);
@@ -346,15 +345,18 @@ vfs::ssize_t vfs::fatfs::lsdir(node *dir) {
         if (!is_dir(attrs)) {
             new_node->stat()->st_size = ent.size;
         }
+
+        kfree(ents);
     }
 
+    kfree(ents);
     return 0;
 }
 
 vfs::node *vfs::fatfs::lookup(node *parent, frg::string_view name) {
     auto res = rw_clusters(parent->inum, nullptr, 0, 0, true);
 
-    fatEntry *ents = (fatEntry *) res.get<0>();;
+    fatEntry *ents = (fatEntry *) res.get<0>();
     size_t numEnts = res.get<1>() / sizeof(fatEntry);
 
     node *new_node = nullptr;
@@ -368,8 +370,7 @@ vfs::node *vfs::fatfs::lookup(node *parent, frg::string_view name) {
         uint8_t attrs = ent.attr & 0x3F;
         if (fat_name_matches(ent.name, name.data(), name.size())) {
             // not yet there
-            uint32_t clus = ent.clus_lo;
-            if (this->type == FAT32) clus |= (ent.clus_hi << 16);
+            uint32_t clus = ent.clus_lo | (ent.clus_hi << 16);
             new_node = frg::construct<vfs::node>(memory::mm::heap, this, name, parent, 0, is_dir(attrs) ? node::type::DIRECTORY :  node::type::FILE, clus);
             parent->children.push_back(new_node);
 
@@ -378,10 +379,12 @@ vfs::node *vfs::fatfs::lookup(node *parent, frg::string_view name) {
                 new_node->stat()->st_size = ent.size;
             }
 
+            kfree(ents);
             return new_node;
         }
     }
 
+    kfree(ents);
     return nullptr;
 }
 

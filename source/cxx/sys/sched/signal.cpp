@@ -5,6 +5,7 @@
 #include "mm/vmm.hpp"
 #include "sys/irq.hpp"
 #include "sys/sched/regs.hpp"
+#include "sys/sched/wait.hpp"
 #include "sys/smp.hpp"
 #include "util/io.hpp"
 #include "util/log/log.hpp"
@@ -91,7 +92,7 @@ int sched::signal::do_sigprocmask(process *proc, int how, sigset_t *set, sigset_
 
 int sched::signal::wait_signal(thread *task, queue *sig_queue, sigset_t sigmask, sched::timespec *time) {
     if (time) {
-        sig_queue->mail->set_timer(time);
+        sig_queue->waitq->set_timer(time);
     }
 
     sig_queue->sig_lock.irq_acquire();
@@ -101,7 +102,8 @@ int sched::signal::wait_signal(thread *task, queue *sig_queue, sigset_t sigmask,
             sig_queue->sigdelivered &= ~SIGMASK(i);
 
             if (signal->notify_queue == nullptr) {
-                signal->notify_queue = sig_queue->mail->make_port();
+                signal->notify_queue = frg::construct<ipc::trigger>(memory::mm::heap);
+                signal->notify_queue->add(sig_queue->waitq);
             }
         }
     }
@@ -115,7 +117,7 @@ int sched::signal::wait_signal(thread *task, queue *sig_queue, sigset_t sigmask,
             }
         }
 
-        auto msg = sig_queue->mail->recv(true, -1, task);
+        auto msg = sig_queue->waitq->block(smp::get_thread());
         if (msg == nullptr) {
             return -1;
         }
@@ -182,7 +184,8 @@ bool sched::signal::send_process(process *sender, process *target, int sig) {
     signal->ref = 1;
     signal->signum = sig;
     signal->info = frg::construct<siginfo>(memory::mm::heap);
-    signal->notify_queue = sig_queue->mail->make_port();
+    signal->notify_queue = frg::construct<ipc::trigger>(memory::mm::heap);
+    signal->notify_queue->add(sig_queue->waitq);
     sig_queue->sigpending |= SIGMASK(sig);
     sig_queue->sig_lock.irq_release();
     target->sig_lock.irq_release();
@@ -215,7 +218,8 @@ void sigreturn_default(sched::process *proc, sched::thread *task, bool block_sig
 
     auto signal = &sig_queue->queue[task->sig_context.signum - 1];
     sig_queue->sigdelivered |= SIGMASK(task->sig_context.signum);
-    signal->notify_queue->post({});
+    signal->notify_queue->arise(smp::get_thread());
+    frg::destruct(memory::mm::heap, signal->notify_queue);
 
     sig_queue->sig_lock.irq_release();
 

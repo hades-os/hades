@@ -1,7 +1,6 @@
 #include "fs/dev.hpp"
 #include "fs/vfs.hpp"
 #include "mm/mm.hpp"
-#include "sys/sched/mail.hpp"
 #include "sys/smp.hpp"
 
 #include <cstddef>

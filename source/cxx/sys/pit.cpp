@@ -1,3 +1,4 @@
+#include "mm/mm.hpp"
 #include <cstddef>
 #include <util/io.hpp>
 #include <sys/pit.hpp>
@@ -18,12 +19,15 @@ void tick_handler(irq::regs *r) {
         auto timer = pit::timers[i];
         if (timer == nullptr) continue;
 
-        timer->time = timer->time - interval;
-        if (timer->time.tv_nsec == 0 && timer->time.tv_sec == 0) {
-            timer->timer_port()->post({
-                .what = pit::TIMER_MSG
-            });
-            
+        timer->spec = timer->spec - interval;
+        if (timer->spec.tv_nsec == 0 && timer->spec.tv_sec == 0) {
+            for (size_t j = 0; j < timer->triggers.size(); j++) {
+                auto trigger = timer->triggers[i];
+                trigger->arise(smp::get_thread());
+                frg::destruct(memory::mm::heap, trigger);
+            }
+
+            timer->triggers.~vector();
             pit::timers[i] = nullptr;
         }
     }

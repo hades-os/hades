@@ -6,7 +6,7 @@ main_sources = files(
 	'source/cxx/sys/smp.cpp',
 	'source/cxx/sys/irq.cpp',
 	'source/cxx/sys/sched/sched.cpp',
-    'source/cxx/sys/sched/mail.cpp',
+    'source/cxx/sys/sched/wait.cpp',
     'source/cxx/sys/sched/signal.cpp',
     'source/cxx/sys/pit.cpp',
 	'source/cxx/sys/runtime.cpp',
@@ -74,7 +74,7 @@ flags_c = [
 ]
 
 flags_cpp = [
-    '-std=gnu++20',
+    '-std=gnu++2b',
 	'-fno-rtti',
 	'-fno-exceptions',
 	'-fno-use-cxa-atexit',

@@ -1,8 +1,14 @@
 #ifndef TIME_HPP
 #define TIME_HPP
 
+#include "frg/vector.hpp"
+#include "mm/mm.hpp"
 #include <cstddef>
 #include <cstdint>
+
+namespace ipc {
+    struct trigger;
+};
 
 namespace sched {    
     constexpr long TIMER_HZ = 1000000000;
@@ -45,6 +51,11 @@ namespace sched {
             }
 
             timespec ms(int ms);
+    };
+
+    struct timer {
+        timespec spec;
+        frg::vector<ipc::trigger *, memory::mm::heap_allocator> triggers;
     };
 
     inline timespec clock_rt{};

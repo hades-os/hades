@@ -1,5 +1,5 @@
 #include "mm/common.hpp"
-#include "sys/sched/mail.hpp"
+#include "sys/sched/wait.hpp"
 #include <sys/sched/sched.hpp>
 #include "util/lock.hpp"
 #include <cstdint>
