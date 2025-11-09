@@ -3,7 +3,7 @@
 
 #include <initializer_list>
 
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <frg/hash.hpp>
 #include <frg/macros.hpp>
 #include <frg/tuple.hpp>
@@ -237,7 +237,7 @@ hash_map<Key, Value, Hash, Allocator>::~hash_map() {
 		chain *item = _table[i];
 		while(item != nullptr) {
 			chain *next = item->next;
-			frg::destruct(_allocator, item);
+			prs::destruct(_allocator, item);
 			item = next;
 		}
 	}
@@ -252,7 +252,7 @@ void hash_map<Key, Value, Hash, Allocator>::insert(const Key &key, const Value &
 	FRG_ASSERT(_capacity > 0);
 	unsigned int bucket = ((unsigned int)_hasher(key)) % _capacity;
 	
-	auto item = frg::construct<chain>(_allocator, key, value);
+	auto item = prs::construct<chain>(_allocator, key, value);
 	item->next = _table[bucket];
 	_table[bucket] = item;
 	_size++;
@@ -265,7 +265,7 @@ void hash_map<Key, Value, Hash, Allocator>::insert(const Key &key, Value &&value
 	FRG_ASSERT(_capacity > 0);
 	unsigned int bucket = ((unsigned int)_hasher(key)) % _capacity;
 	
-	auto item = frg::construct<chain>(_allocator, key, std::move(value));
+	auto item = prs::construct<chain>(_allocator, key, std::move(value));
 	item->next = _table[bucket];
 	_table[bucket] = item;
 	_size++;
@@ -277,7 +277,7 @@ Value &hash_map<Key, Value, Hash, Allocator>::operator[](const Key &key) {
 	if (_size == 0) {
 		rehash();
 		unsigned int bucket = ((unsigned int)_hasher(key)) % _capacity;
-		auto item = frg::construct<chain>(_allocator, key, Value{});
+		auto item = prs::construct<chain>(_allocator, key, Value{});
 		item->next = _table[bucket];
 		_table[bucket] = item;
 		_size++;
@@ -292,7 +292,7 @@ Value &hash_map<Key, Value, Hash, Allocator>::operator[](const Key &key) {
 	if (_size >= _capacity)
 		rehash();
 
-	auto item = frg::construct<chain>(_allocator, key, Value{});
+	auto item = prs::construct<chain>(_allocator, key, Value{});
 	item->next = _table[bucket];
 	_table[bucket] = item;
 	_size++;
@@ -332,7 +332,7 @@ optional<Value> hash_map<Key, Value, Hash, Allocator>::remove(const Key &key) {
 			}else{
 				previous->next = item->next;
 			}
-			frg::destruct(_allocator, item);
+			prs::destruct(_allocator, item);
 			_size--;
 
 			return value;

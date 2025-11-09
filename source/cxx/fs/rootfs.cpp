@@ -2,16 +2,16 @@
 #include "smarter/smarter.hpp"
 #include "util/types.hpp"
 #include <cstddef>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <fs/vfs.hpp>
 #include <fs/rootfs.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
 #include <util/string.hpp>
 
-weak_ptr<vfs::node> vfs::rootfs::lookup(shared_ptr<node> parent, frg::string_view name) {
-    if (parent->find_child(name)) {
-        return parent->find_child(name);
+weak_ptr<vfs::node> vfs::rootfs::lookup(shared_ptr<node> parent, prs::string_view name) {
+    if (parent->child_by_name(name)) {
+        return parent->child_by_name(name);
     } else {
         return {};
     }
@@ -45,31 +45,31 @@ ssize_t vfs::rootfs::read(shared_ptr<node> file, void *buf, size_t len, off_t of
 
 ssize_t vfs::rootfs::create(shared_ptr<node> dst, path name, int64_t type, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto storage = prs::allocate_shared<rootfs::storage>(mm::slab<rootfs::storage>());
+    auto storage = prs::allocate_shared<rootfs::storage>(prs::allocator{slab::create_resource()});
     storage->buf = allocator.allocate(memory::page_size);
     storage->length = memory::page_size;
 
-    auto new_file = prs::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, type);
+    auto new_file = prs::allocate_shared<vfs::node>(prs::allocator{slab::create_resource()}, self, name, dst, flags, type);
 
     new_file->meta->st_uid = uid;
     new_file->meta->st_gid = gid;
     new_file->meta->st_mode = mode | S_IFREG;
 
     new_file->as_data(storage);
-    dst->children.push_back(new_file);
+    dst->child_add(new_file);
 
     return 0;
 }
 
-ssize_t vfs::rootfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
+ssize_t vfs::rootfs::mkdir(shared_ptr<node> dst, prs::string_view name, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto new_dir = prs::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, node::type::DIRECTORY);
+    auto new_dir = prs::allocate_shared<vfs::node>(prs::allocator{slab::create_resource()}, self, name, dst, flags, node::type::DIRECTORY);
 
     new_dir->meta->st_uid = uid;
     new_dir->meta->st_gid = gid;
     new_dir->meta->st_mode = mode | S_IFDIR;
 
-    dst->children.push_back(new_dir);
+    dst->child_add(new_dir);
 
     return 0;
 }

@@ -3,12 +3,10 @@
 
 #include "arch/x86/types.hpp"
 #include "frg/intrusive.hpp"
-#include "frg/list.hpp"
 #include "sys/sched/time.hpp"
 #include "util/types.hpp"
 #include <cstddef>
 #include <cstdint>
-#include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <mm/vmm.hpp>
 #include <mm/pmm.hpp>
@@ -112,7 +110,7 @@ namespace x86 {
         processor(size_t processor_id, x86::run_tree *run_tree) : processor_id(processor_id), run_tree(run_tree) { }
     };
 
-    extern frg::vector<x86::processor *, prs::allocator> cpus;
+    extern prs::vector<x86::processor *, prs::allocator> cpus;
 
     void message_processor(ssize_t processor_id, size_t ipi_event, void *ipi_data);
     void calc_average_load(x86::processor *cpu);

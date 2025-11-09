@@ -1,21 +1,20 @@
 #include "arch/x86/smp.hpp"
 #include "arch/x86/types.hpp"
-#include "frg/rcu_radixtree.hpp"
-#include "frg/variant.hpp"
 #include "ipc/evtable.hpp"
 #include "mm/slab.hpp"
+#include "prs/construct.hpp"
 #include "util/types.hpp"
 #include <arch/types.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <driver/tty/tty.hpp>
 #include <fs/vfs.hpp>
-#include <frg/allocation.hpp>
-#include <frg/vector.hpp>
+#include <prs/construct.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
 #include <mm/vmm.hpp>
 #include <sys/sched/sched.hpp>
+#include <sys/namespace.hpp>
 #include <sys/sched/signal.hpp>
 #include <util/io.hpp>
 #include <util/log/log.hpp>
@@ -28,18 +27,18 @@ void sched::init() {
 }
 
 sched::thread *sched::create_thread(void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege, bool assign_tid) {
-    return frg::construct<thread>(mm::slab<thread>(),(uintptr_t) pmm::stack(x86::initialStackSize), rsp,
+    return prs::construct<thread>(slab::create_resource(),(uintptr_t) pmm::stack(x86::initialStackSize), rsp,
         (uintptr_t) pmm::stack(x86::initialStackSize), ctx,
         main, rsp, privilege,
         assign_tid);
 }
 
-sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege) {
-    process *proc = frg::construct<process>(mm::slab<process>());
+sched::process *ns::pid::create_process(char *name, void (*main)(), uint64_t rsp, vmm::vmm_ctx *ctx, uint8_t privilege) {
+    sched::process *proc = prs::construct<sched::process>(slab::create_resource());
 
     proc->fds = vfs::make_table();
 
-    proc->main_thread = create_thread(main, rsp, ctx, privilege);
+    proc->main_thread = sched::create_thread(main, rsp, ctx, privilege);
     proc->main_thread->proc = proc;
     proc->main_thread->pid = proc->pid;
     proc->threads.push_back(proc->main_thread);
@@ -48,7 +47,6 @@ sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, 
     proc->pid = pid;
     proc->main_thread->pid = pid;
 
-    proc->env = process_env{};
     proc->env.proc = proc;
     proc->mem_ctx = ctx;
     proc->parent = nullptr;
@@ -58,8 +56,8 @@ sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, 
     proc->trampoline = 0;
     // default sigactions
     for (size_t i = 0; i < SIGNAL_MAX; i++) {
-        signal::sigaction *sa = &proc->sigactions[i];
-        sa->handler.sa_sigaction = (void (*)(int, signal::siginfo *, void *)) SIG_DFL;
+        sched::signal::sigaction *sa = &proc->sigactions[i];
+        sa->handler.sa_sigaction = (void (*)(int, sched::signal::siginfo *, void *)) SIG_DFL;
     }
 
     proc->real_uid = 0;
@@ -73,32 +71,32 @@ sched::process *sched::create_process(char *name, void (*main)(), uint64_t rsp, 
     proc->umask = 022;
 
     proc->privilege = privilege;
-    proc->status = WCONTINUED_CONSTRUCT;
+    proc->status = sched::WCONTINUED_CONSTRUCT;
 
     return proc;
 }
 
-sched::process_group *sched::create_process_group(process *leader) {
-    auto group = frg::construct<sched::process_group>(mm::slab<process_group>(), leader);
+sched::process_group *ns::pid::create_process_group(sched::process *leader) {
+    auto group = prs::construct<sched::process_group>(slab::create_resource(), leader);
     add_process_group(group);
 
     return group;
 }
 
-sched::session *sched::create_session(process *leader, process_group *group) {
-    auto sess = frg::construct<sched::session>(mm::slab<session>(), leader, group);
+sched::session *ns::pid::create_session(sched::process *leader, sched::process_group *group) {
+    auto sess = prs::construct<sched::session>(slab::create_resource(), leader, group);
     add_session(sess);
 
     return sess;
 }
 
 sched::thread *sched::fork(thread *original, vmm::vmm_ctx *ctx, arch::irq_regs *r) {
-    return frg::construct<thread>(mm::slab<thread>(), original, ctx, r,
+    return prs::construct<thread>(slab::create_resource(), original, ctx, r,
         (uintptr_t) pmm::stack(x86::initialStackSize), (uintptr_t) pmm::stack(x86::initialStackSize));
 }
 
 sched::process *sched::fork(process *original, thread *caller, arch::irq_regs *r) {
-    process *proc = frg::construct<process>(mm::slab<process>());
+    process *proc = prs::construct<sched::process>(slab::create_resource());
 
     proc->fds = vfs::copy_table(original->fds);
     proc->cwd = original->cwd;
@@ -108,6 +106,7 @@ sched::process *sched::fork(process *original, thread *caller, arch::irq_regs *r
     proc->trampoline = original->trampoline;
     memcpy(&proc->sigactions, &original->sigactions, SIGNAL_MAX * sizeof(signal::sigaction));
 
+    proc->env.file = original->env.file;
     proc->env = original->env;
     proc->env.proc = proc;
     proc->mem_ctx = original->mem_ctx->fork();
@@ -116,7 +115,7 @@ sched::process *sched::fork(process *original, thread *caller, arch::irq_regs *r
     proc->main_thread->proc = proc;
     proc->threads.push_back(proc->main_thread);
 
-    pid_t pid = add_process(proc);
+    pid_t pid = original->ns->pid_ns->add_process(proc);
     proc->pid = pid;
     proc->main_thread->pid = pid;
 
@@ -177,7 +176,7 @@ void sched::process::kill(int exit_code) {
         };
 
         arch::kill_thread(task);
-        frg::destruct(mm::slab<sched::thread>(), task);
+        prs::destruct(slab::create_resource(), task);
     }
 
     arch::cleanup_vmm_ctx(this);
@@ -188,14 +187,14 @@ void sched::process::kill(int exit_code) {
         auto child = children[i];
         child->parent = parent;
         child->ppid = parent->pid;
-        parent->children.push(child);
+        parent->children.push_back(child);
     }
 
     for (size_t i = 0; i < zombies.size(); i++) {
         auto zombie = zombies[i];
         zombie->parent = parent;
         zombie->ppid = parent->pid;
-        parent->zombies.push(zombie);
+        parent->zombies.push_back(zombie);
     }
 
     parent->children.erase(this);
@@ -206,9 +205,9 @@ void sched::process::kill(int exit_code) {
         if (group->leader_pid == this->pid) {
             if (group->process_count == 0) {
                 group->sess->remove_group(group);
-                remove_process_group(group->pgid);
+                ns->pid_ns->remove_process_group(group->pgid);
     
-                frg::destruct(mm::slab<process_group>(), group);
+                prs::destruct(slab::create_resource(), group);
             } else {
                 bool is_orphan = true;
                 for (size_t i = 0; i < group->procs.size(); i++) {
@@ -251,8 +250,8 @@ void sched::process::kill(int exit_code) {
     
             sess->groups.clear();
     
-            remove_session(sess->sid);
-            frg::destruct(mm::slab<session>(), sess);
+            ns->pid_ns->remove_session(sess->sid);
+            prs::destruct(slab::create_resource(), sess);
         }
     }
 
@@ -310,15 +309,15 @@ void sched::process::add_thread(thread *task) {
 
     task->proc = this;
     task->pid = this->pid;
-    this->threads.push(task);
+    this->threads.push_back(task);
 }
 
 void reap_process(sched::process *zombie) {
     auto task = zombie->main_thread;
-    sched::remove_process(zombie->pid);
+    zombie->ns->pid_ns->remove_process(zombie->pid);
 
-    frg::destruct(mm::slab<sched::thread>(), task);
-    frg::destruct(mm::slab<sched::process>(), zombie);
+    prs::destruct(slab::create_resource(), task);
+    prs::destruct(slab::create_resource(), zombie);
 }
 
 frg::tuple<int, pid_t> sched::process::waitpid(pid_t pid, thread *waiter, int options) {

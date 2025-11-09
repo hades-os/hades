@@ -8,7 +8,7 @@
 #include <driver/part.hpp>
 #include <fs/dev.hpp>
 #include <fs/vfs.hpp>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <mm/common.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>

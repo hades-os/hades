@@ -37,7 +37,7 @@ size_t part::probe(vfs::devfs::blockdev *dev) {
                 continue;
             }
 
-            dev->part_list.push({part.lba_end - part.lba_start, part.lba_start});
+            dev->part_list.push_back({part.lba_end - part.lba_start, part.lba_start});
             auto private_data = prs::allocate_shared<vfs::devfs::dev_priv>(dev->allocator);
             private_data->dev = dev;
             private_data->part = dev->part_list.size() - 1;
@@ -46,7 +46,7 @@ size_t part::probe(vfs::devfs::blockdev *dev) {
             auto part_node = prs::allocate_shared<vfs::node>(dev->allocator, dev->file->fs, dev->file->name + (dev->part_list.size() + 48), parent, 0, vfs::node::type::BLOCKDEV);
             part_node->as_data(private_data);
 
-            parent->children.push_back(part_node);
+            parent->child_add(part_node);
         }
 
         dev->allocator.deallocate(mbr_header);
@@ -69,7 +69,7 @@ size_t part::probe(vfs::devfs::blockdev *dev) {
                 continue;
             }
 
-            dev->part_list.push({part.len, part.lba_start});
+            dev->part_list.push_back({part.len, part.lba_start});
             auto private_data = prs::allocate_shared<vfs::devfs::dev_priv>(dev->allocator);
             private_data->dev = dev;
             private_data->part = dev->part_list.size() - 1;
@@ -78,7 +78,7 @@ size_t part::probe(vfs::devfs::blockdev *dev) {
             auto part_node = prs::allocate_shared<vfs::node>(dev->allocator, dev->file->fs, dev->file->name + (dev->part_list.size() + 48), parent, 0, vfs::node::type::BLOCKDEV);
             part_node->as_data(private_data);
             
-            parent->children.push_back(part_node);
+            parent->child_add(part_node);
         }
     }
 

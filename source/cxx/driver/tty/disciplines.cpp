@@ -90,7 +90,7 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
 
             if (line_queue->items == 0) {
                 canon.pop(&line_queue);
-                frg::destruct(allocator, line_queue);
+                prs::destruct(allocator, line_queue);
             }
 
             auto copied = arch::copy_to_user(buf, chars, count);
@@ -105,7 +105,7 @@ ssize_t tty::device::read_canon(void *buf, size_t len) {
 
         char c, special;
         size_t items = 0;
-        line_queue = frg::construct<util::ring<char>>(allocator, max_canon_lines);
+        line_queue = prs::construct<util::ring<char>>(allocator, max_canon_lines);
         canon.push(line_queue);
 
         while (true) {

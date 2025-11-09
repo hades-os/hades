@@ -10,7 +10,6 @@
 #include <stddef.h>
 #include <mm/pmm.hpp>
 #include <util/lock.hpp>
-#include <frg/vector.hpp>
 #include <frg/tuple.hpp>
 #include <arch/vmm.hpp>
 #include <arch/x86/types.hpp>

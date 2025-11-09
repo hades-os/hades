@@ -4,10 +4,10 @@
 #include <cstddef>
 #include <driver/net/types.hpp>
 #include "frg/hash_map.hpp"
-#include "frg/string.hpp"
 #include "fs/vfs.hpp"
 #include "ipc/wire.hpp"
 #include "mm/arena.hpp"
+#include "prs/string.hpp"
 
 namespace net {
     struct sockaddr_un {
@@ -15,7 +15,6 @@ namespace net {
         char sun_path[108];
     };
     
-    // Evaluate to actual length of the `sockaddr_un' structure.
     inline size_t SUN_LEN(sockaddr_un *p) {
         return offsetof(struct sockaddr_un, sun_path) + strlen(p->sun_path);
     }
@@ -23,7 +22,7 @@ namespace net {
     class unix: vfs::network {
         private:
             frg::hash_map<
-                frg::string_view,
+                prs::string_view,
                 weak_ptr<vfs::socket>,
                 vfs::path_hasher,
                 prs::allocator

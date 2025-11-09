@@ -1,7 +1,6 @@
 #include "arch/x86/smp.hpp"
 #include "arch/x86/types.hpp"
 #include "frg/intrusive.hpp"
-#include "frg/list.hpp"
 #include "ipc/evtable.hpp"
 #include "mm/common.hpp"
 #include "mm/slab.hpp"
@@ -16,7 +15,6 @@
 #include <util/log/panic.hpp>
 #include <cstddef>
 #include <fs/cache.hpp>
-#include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
 
@@ -105,7 +103,7 @@ ssize_t cache::holder::request_page(void *buffer, size_t offset, size_t buffer_l
         return false;
     }
 
-    shared_ptr<holder::request> req = prs::allocate_shared<holder::request>(mm::slab<holder::request>());
+    shared_ptr<holder::request> req = prs::allocate_shared<holder::request>(prs::allocator{slab::create_resource()});
 
     req->offset = offset;
     req->page_offset = page_offset;
@@ -121,7 +119,7 @@ ssize_t cache::holder::request_page(void *buffer, size_t offset, size_t buffer_l
         [&](size_t id) {
         req->link_id = id;
 
-        requests.push(req);
+        requests.push_back(req);
         req->rw ? pending_writes++ : pending_reads++;
     });
 
@@ -155,7 +153,7 @@ ssize_t cache::holder::request_io(void *buffer, size_t offset, size_t len, bool 
 }
 
 cache::holder *cache::create_cache(vfs::devfs::blockdev *backing_device) {
-    auto cache = frg::construct<cache::holder>(mm::slab<cache::holder>(), backing_device);
+    auto cache = prs::construct<cache::holder>(prs::allocator{slab::create_resource()}, backing_device);
     return *caches.push_back(cache);
 }
 
@@ -174,7 +172,7 @@ void cache::sync_worker() {
             holder->link.recv({ evtable::BLOCK_READ, evtable::BLOCK_WRITE },
                 true, &timeout);
 
-            auto request = holder->requests.pop();
+            auto request = holder->requests.pop_back();
 
             if (request->rw) {
                 auto [res, page] = holder->read_page(request->offset);

@@ -52,6 +52,7 @@ namespace tty {
 
         bool has_connect, has_ioctl, has_disconnect, has_flush;
         driver(): has_connect(false), has_ioctl(false), has_disconnect(false), has_flush(false) {}
+        virtual ~driver() {}
     };
 
     void echo_char(device *tty, char c);
@@ -132,7 +133,7 @@ namespace tty {
             chardev(bus, major, minor, aux) {}
     };
 
-    void set_active(frg::string_view path, shared_ptr<vfs::fd_table> table);
+    void set_active(prs::string_view path, shared_ptr<vfs::fd_table> table);
 };
 
 #endif

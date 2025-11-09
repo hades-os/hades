@@ -523,7 +523,7 @@ void pcibus::attach(ssize_t major, void *aux) {
         case dtable::majors::PCI: {
             auto info = (pci::attach_args *) aux;
 
-            pcibus *secondary_bus = frg::construct<pcibus>(mm::slab<pcibus>(), this,
+            pcibus *secondary_bus = prs::construct<pcibus>(prs::allocator{slab::create_resource()}, this,
                 pci::get_secondary_bus(info->bus, info->slot, info->func));
 
             bus_devices.push_back(secondary_bus);
@@ -605,7 +605,7 @@ void pcibus::enumerate() {
 }
 
 shared_ptr<vfs::devfs::bus_dma> pcibus::get_dma(size_t size) {
-    return prs::allocate_shared<pci_dma>(mm::slab<pci_dma>(),
+    return prs::allocate_shared<pci_dma>(prs::allocator{slab::create_resource()},
         size);
 }
 

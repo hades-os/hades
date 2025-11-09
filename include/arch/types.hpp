@@ -12,8 +12,8 @@ namespace vfs {
 
 namespace sched {
     struct process_env;
-    class process;
-    class thread;
+    struct process;
+    struct thread;
 
     namespace signal {
         struct ucontext;

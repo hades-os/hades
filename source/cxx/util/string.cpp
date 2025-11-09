@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <cstdint>
 #include <util/string.hpp>
 
 void *memset(void *dst, int val, size_t length) {
@@ -27,6 +28,29 @@ void *memcpy(void *dst, const void *src, size_t length) {
     }
 
     return (void *) dst;
+}
+
+void *memmove(void *dst, const void *src, size_t length) {
+    char *dstptr = (char *) dst;
+    char *srcptr = (char *) src;
+
+    if (dstptr == srcptr)
+        return dstptr;
+
+    if ((uintptr_t) srcptr - (uintptr_t) dstptr <= -2 * length)
+        return memcpy(dst, src, length);
+
+    if (dstptr < srcptr) {
+        for (; length; length--)
+            *dstptr++ = *srcptr++;
+    } else {
+        while(length) {
+            length--;
+            dstptr[length] = srcptr[length];
+        }
+    }
+
+    return dstptr;
 }
 
 int memcmp(const void *a, const void *b, size_t length) {

@@ -1,6 +1,5 @@
 #include "driver/dtable.hpp"
 #include "driver/part.hpp"
-#include "frg/string.hpp"
 #include "fs/cache.hpp"
 #include "fs/poll.hpp"
 #include "mm/common.hpp"
@@ -12,7 +11,7 @@
 #include "util/misc.hpp"
 #include "util/types.hpp"
 #include <cstddef>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <fs/vfs.hpp>
 #include <fs/dev.hpp>
 
@@ -22,7 +21,7 @@ vfs::devfs::rootbus *vfs::devfs::mainbus = nullptr;
 void vfs::devfs::rootbus::attach(ssize_t major, void *aux) {
     switch(major) {
         case dtable::majors::PCI: {
-            pcibus *pci_bus = frg::construct<pcibus>(mm::slab<pcibus>(), this, 0);
+            pcibus *pci_bus = prs::construct<pcibus>(prs::allocator{slab::create_resource()}, this, 0);
 
             bus_devices.push_back(pci_bus);
             pci_bus->minor = bus_devices.size() - 1;
@@ -49,15 +48,15 @@ void vfs::devfs::rootbus::enumerate() {
 }
 
 void vfs::devfs::init() {
-    vfs::mkdir(nullptr, "/dev", 0, DEFAULT_MODE, 0, 0);
-    vfs::mount("/", "/dev", fslist::DEVFS, mflags::NOSRC);
+    vfs::mkdir(root_ns, nullptr, "/dev", 0, DEFAULT_MODE, 0, 0);
+    vfs::mount(root_ns, "/", "/dev", fslist::DEVFS, mflags::NOSRC);
 
-    vfs::mkdir(nullptr, "/dev/pts", 0, DEFAULT_MODE, 0, 0);
+    vfs::mkdir(root_ns, nullptr, "/dev/pts", 0, DEFAULT_MODE, 0, 0);
     kmsg(logger, "Initial devfs mounted.");
 }
 
 void vfs::devfs::probe() {
-    mainbus = frg::construct<rootbus>(mm::slab<rootbus>());
+    mainbus = prs::construct<rootbus>(prs::allocator{slab::create_resource()});
     mainbus->enumerate();
 }
 
@@ -69,12 +68,12 @@ void vfs::devfs::append_device(device *dev, ssize_t major) {
     if (device_map.contains(major)) {
         if (matcher->single && device_map[major].list.size() >= 1) return;
 
-        device_map[major].list.push(dev);
+        device_map[major].list.push_back(dev);
         idx = device_map[major].last_index++;
         dev->minor = idx;
     } else {
         device_map[major] = device_list{};
-        device_map[major].list.push(dev);
+        device_map[major].list.push_back(dev);
 
         idx = device_map[major].last_index++;
         dev->minor = idx;
@@ -102,12 +101,12 @@ void vfs::devfs::append_device(device *dev, ssize_t major) {
                 }    
             }
         
-            auto device_node = vfs::make_recursive(vfs::device_fs()->root, device_path, dev->cls == device_class::BLOCKDEV ? node::type::BLOCKDEV : node::type::CHARDEV, DEFAULT_MODE);
+            auto device_node = vfs::make_recursive(device_path, vfs::device_fs()->root, dev->cls == device_class::BLOCKDEV ? node::type::BLOCKDEV : node::type::CHARDEV, DEFAULT_MODE);
             if (!device_node) {
                 panic("[DEVFS]: Unable to make device: %s", device_path.data());
             }
         
-            auto private_data = prs::allocate_shared<dev_priv>(mm::slab<dev_priv>());
+            auto private_data = prs::allocate_shared<dev_priv>(prs::allocator{slab::create_resource()});
             private_data->dev = dev;
             private_data->part = -1;
             device_node->as_data(private_data);
@@ -149,8 +148,8 @@ void vfs::devfs::remove_device(device *dev, ssize_t major) {
     }
 }
 
-weak_ptr<vfs::node> vfs::devfs::lookup(shared_ptr<node> parent, frg::string_view name) {
-    auto node = parent->find_child(name);
+weak_ptr<vfs::node> vfs::devfs::lookup(shared_ptr<node> parent, prs::string_view name) {
+    auto node = parent->child_by_name(name);
     if (!node) return {};
 
     auto private_data = node->data_as<dev_priv>();
@@ -281,15 +280,15 @@ ssize_t vfs::devfs::poll(shared_ptr<descriptor> file) {
     return device->poll(file->producer);
 }
 
-ssize_t vfs::devfs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
+ssize_t vfs::devfs::mkdir(shared_ptr<node> dst, prs::string_view name, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
-    auto new_dir = prs::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, node::type::DIRECTORY);
+    auto new_dir = prs::allocate_shared<vfs::node>(prs::allocator{slab::create_resource()}, self, name, dst, flags, node::type::DIRECTORY);
 
     new_dir->meta->st_uid = uid;
     new_dir->meta->st_gid = gid;
     new_dir->meta->st_mode = S_IFDIR | mode;
 
-    dst->children.push_back(new_dir);
+    dst->child_add(new_dir);
     return 0;
 }
 

@@ -5,14 +5,14 @@
 #include "mm/common.hpp"
 #include <sys/sched/sched.hpp>
 #include "mm/slab.hpp"
+#include "prs/allocator.hpp"
 #include "smarter/smarter.hpp"
 #include "util/lock.hpp"
 #include "util/types.hpp"
 #include <cstdint>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <mm/mm.hpp>
 #include <cstddef>
-#include <frg/string.hpp>
 #include <fs/dev.hpp>
 #include <fs/rootfs.hpp>
 #include <fs/vfs.hpp>
@@ -20,27 +20,38 @@
 #include <util/log/log.hpp>
 #include <util/string.hpp>
 #include <utility>
+#include <sys/namespace.hpp>
 
-shared_ptr<vfs::node> vfs::tree_root{};
+shared_ptr<ns::mount> vfs::root_ns;
 shared_ptr<vfs::filesystem> stored_devfs{};
 
 static log::subsystem logger = log::make_subsystem("VFS");
 void vfs::init() {
-    mount("/", "/", fslist::ROOTFS, mflags::NOSRC);
+    mount(root_ns, "/", "/", fslist::ROOTFS, mflags::NOSRC);
     kmsg(logger, "Initialized");
 }
 
-static frg::string_view strip_leading(frg::string_view path) {
+static prs::string_view strip_leading(prs::string_view path) {
     if (path[0] == '/' && path != '/') {
-        return path.sub_string(1);
+        return path.substring(1);
     }
 
     return path;
 }
 
-weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node> base, size_t& symlinks_traversed) {
+static prs::string_view find_name(prs::string_view path) {
+    auto pos = path.find_last('/');
+    if (pos == size_t(-1)) {
+        return path;
+    }
+
+    return path.substring(pos + 1);
+}
+
+weak_ptr<vfs::filesystem> ns::mount::resolve_fs(prs::string_view path, 
+    shared_ptr<vfs::node> base, size_t& symlinks_traversed) {
     if (path == '/') {
-        return tree_root->fs;
+        return this->resolve_root;
     }
 
     if (path == '.') {
@@ -59,14 +70,19 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
         return {};
     }
 
-
     auto name = find_name(path);
     auto adjusted_path = strip_leading(path);
-    shared_ptr<node> current;
+    shared_ptr<vfs::node> current;
     if (path[0] == '/' || base) {
-        current = tree_root;
+        current = resolve_root;
     } else {
         current = base;
+    }
+
+    if (!base->fs.expired()) {
+        auto fs = base->fs.lock();
+        if (!(fs->ns->child_of(self)))
+            return {};
     }
 
     auto view = adjusted_path;
@@ -74,17 +90,19 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
     while ((next_slash = view.find_first('/')) != -1) {
         auto pos = next_slash == -1 ? view.size() : next_slash;
 
-        if (auto c = view.sub_string(0, pos); c.size()) {
+        if (auto c = view.substring(0, pos); c.size()) {
             if (c == "..") {
-                if (current->parent.expired()) {
+                auto parent = current->parent.lock();
+                if (current->parent.expired()
+                    || parent == resolve_root) {
                     return {};
                 }
 
-                current = current->parent.lock();
+                current = parent;
             } else if (c == '/') {
                 pos++;
             } else if (c != '.') {
-                shared_ptr<node> next = current->find_child(c);
+                shared_ptr<vfs::node> next = current->child_by_name(c);
                 if (!next) {
                     auto fs = current->fs.lock();
                     if (fs) {
@@ -100,10 +118,10 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
                 }
 
                 switch (next->type) {
-                    case node::type::DIRECTORY:
+                    case vfs::node::type::DIRECTORY:
                         current = next;
                         break;
-                    case node::type::SYMLINK: {
+                    case vfs::node::type::SYMLINK: {
                         if (!next->meta || next->meta->st_size == 0) {
                             return {};
                         }
@@ -135,20 +153,22 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
             }
         }
 
-        view = view.sub_string(pos + 1);
+        view = view.substring(pos + 1);
     }
 
-    shared_ptr<node> next{};
+    shared_ptr<vfs::node> next{};
     if (name == "..") {
-        if (current->parent.expired()) {
+        auto parent = current->parent.lock();
+        if (current->parent.expired()
+            || parent == resolve_root) {
             return {};
         }
 
-        next = current->parent.lock();
+        current = parent;
     } else if (name == '/') {
         next = current;
     } else {
-        shared_ptr<node> next = current->find_child(name);
+        shared_ptr<vfs::node> next = current->child_by_name(name);
         if (!next) {
             auto fs = current->fs.lock();
             if (fs) {
@@ -165,7 +185,7 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
     }
 
     switch (next->type) {
-        case node::type::SYMLINK: {
+        case vfs::node::type::SYMLINK: {
             if (!next->meta || next->meta->st_size == 0) {
                 return {};
             }
@@ -194,9 +214,10 @@ weak_ptr<vfs::filesystem> vfs::resolve_fs(frg::string_view path, shared_ptr<node
     }
 }
 
-shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::node> base, bool follow_symlink, size_t& symlinks_traversed) {
+shared_ptr<vfs::node> ns::mount::resolve_at(prs::string_view path, shared_ptr<vfs::node> base, 
+    bool follow_symlink, size_t& symlinks_traversed) {
     if (path == '/') {
-        return tree_root;
+        return resolve_root;
     }
 
     if (path == '.') {
@@ -209,11 +230,17 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
 
     auto name = find_name(path);
     auto adjusted_path = strip_leading(path);
-    shared_ptr<node> current;
+    shared_ptr<vfs::node> current;
     if (path[0] == '/' || !base) {
-        current = tree_root;
+        current = resolve_root;
     } else {
         current = base;
+    }
+
+    if (!base->fs.expired()) {
+        auto fs = base->fs.lock();
+        if (!(fs->ns->child_of(self)))
+            return {};
     }
 
     auto view = adjusted_path;
@@ -221,17 +248,19 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
     while ((next_slash = view.find_first('/')) != -1) {
         auto pos = next_slash == -1 ? view.size() : next_slash;
 
-        if (auto c = view.sub_string(0, pos); c.size()) {
+        if (auto c = view.substring(0, pos); c.size()) {
             if (c == "..") {
-                if (current->parent.expired()) {
+                auto parent = current->parent.lock();
+                if (current->parent.expired()
+                    || parent == resolve_root) {
                     return {};
                 }
 
-                current = current->parent.lock();
+                current = parent;
             } else if (c == '/') {
                 pos++;
             } else if (c != '.') {
-                shared_ptr<node> next = current->find_child(c);
+                shared_ptr<vfs::node> next = current->child_by_name(c);
                 if (!next) {
                     auto fs = current->fs.lock();
                     if (fs) {
@@ -247,10 +276,10 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
                 }
 
                 switch (next->type) {
-                    case node::type::DIRECTORY:
+                    case vfs::node::type::DIRECTORY:
                         current = next;
                         break;
-                    case node::type::SYMLINK: {
+                    case vfs::node::type::SYMLINK: {
                         if (!next->meta || next->meta->st_size == 0) {
                             return {};
                         }
@@ -270,7 +299,14 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
                         }
 
                         next = resolve_at(next->link_target, current, symlinks_traversed);
-                        if (!next) return {};
+
+                        fs = next->fs.lock();
+                        if (!next) {
+                            return {};
+                        } else if (fs) {
+                            if (!(fs->ns->child_of(self)))
+                                return {};
+                        }
 
                         symlinks_traversed++;
                         break;
@@ -282,20 +318,22 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
             }
         }
 
-        view = view.sub_string(pos + 1);
+        view = view.substring(pos + 1);
     }
 
-    shared_ptr<node> next{};
+    shared_ptr<vfs::node> next{};
     if (name == "..") {
-        if (current->parent.expired()) {
+        auto parent = current->parent.lock();
+        if (current->parent.expired()
+            || parent == resolve_root) {
             return {};
         }
 
-        next = current->parent.lock();
+        current = parent;
     } else if (name == '/') {
         next = current;
     } else {
-        next = current->find_child(name);
+        next = current->child_by_name(name);
         if (!next) {
             auto fs = current->fs.lock();
             if (fs) {
@@ -312,9 +350,9 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
     }
 
     switch (next->type) {
-        case node::type::DIRECTORY:
+        case vfs::node::type::DIRECTORY:
             return next;
-        case node::type::SYMLINK: {
+        case vfs::node::type::SYMLINK: {
             if (!follow_symlink) {
                 return next;
             }
@@ -338,7 +376,13 @@ shared_ptr<vfs::node> vfs::resolve_at(frg::string_view path, shared_ptr<vfs::nod
             }
 
             next = resolve_at(next->link_target, current, symlinks_traversed);
-            if (!next) return {};
+            fs = next->fs.lock();
+            if (!next) {
+                return {};
+            } else if (fs) {
+                if (!(fs->ns->child_of(self)))
+                    return {};
+            }
             return next;
         }
 
@@ -531,9 +575,10 @@ ssize_t vfs::ioctl(shared_ptr<fd> fd, size_t req, void *buf) {
 
 ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::timespec *timespec) {
     auto poll_table = poll::create_table();
-    frg::vector<shared_ptr<descriptor>, prs::allocator> desc_list{
+    prs::vector<shared_ptr<descriptor>, prs::allocator> desc_list{
         arena::create_resource()
     };
+
     for (size_t i = 0; i < nfds; i++) {
         auto pollfd = &fds[i];
         auto fd = table->fd_list[pollfd->fd];
@@ -544,7 +589,7 @@ ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::t
         }
 
         auto desc = fd->desc;
-        desc_list.push(desc);
+        desc_list.push_back(desc);
         poll_table->connect(desc->producer);
     }
 
@@ -600,10 +645,11 @@ ssize_t vfs::poll(pollfd *fds, nfds_t nfds, shared_ptr<fd_table> table, sched::t
     return 0;
 }
 
-vfs::path vfs::get_abspath(shared_ptr<node> node) {
+vfs::path ns::mount::resolve_abspath(shared_ptr<vfs::node> node) {
     shared_ptr<vfs::node> current = node;
     vfs::path path{};
-    while (current) {
+    while (current
+        && current != resolve_root) {
         path += '/';
         path += current->name;
 
@@ -613,14 +659,14 @@ vfs::path vfs::get_abspath(shared_ptr<node> node) {
     return path;
 }
 
-weak_ptr<vfs::node> vfs::get_parent(shared_ptr<node> base, frg::string_view filepath) {
+weak_ptr<vfs::node> ns::mount::resolve_parent(shared_ptr<vfs::node> base, prs::string_view filepath) {
     if (filepath[0] == '/' && filepath.count('/') == 1) {
-        return tree_root;
+        return resolve_root;
     }
 
     auto parent_path = filepath;
     if (parent_path.find_last('/') != size_t(-1))
-        parent_path = parent_path.sub_string(0, parent_path.find_last('/'));
+        parent_path = parent_path.substring(0, parent_path.find_last('/'));
 
     auto parent = resolve_at(parent_path, base);
     if (!parent) {
@@ -630,9 +676,12 @@ weak_ptr<vfs::node> vfs::get_parent(shared_ptr<node> base, frg::string_view file
     return parent;
 }
 
-ssize_t vfs::create(shared_ptr<node> base, frg::string_view filepath, shared_ptr<fd_table> table, int64_t type, int64_t flags, mode_t mode,
-    uid_t uid, gid_t gid) {
-    auto res = get_parent(base, filepath);
+ssize_t vfs::create(shared_ptr<ns::mount> ns,
+        shared_ptr<node> base, prs::string_view filepath, 
+        shared_ptr<fd_table> table, 
+        int64_t type, int64_t flags, mode_t mode,
+        uid_t uid, gid_t gid) {
+    auto res = ns->resolve_parent(base, filepath);
     if (res.expired()) {
         return -ENOENT;
     }
@@ -671,7 +720,7 @@ ssize_t vfs::create(shared_ptr<node> base, frg::string_view filepath, shared_ptr
 }
 
 shared_ptr<vfs::fd_table> vfs::make_table() {
-    auto table = prs::allocate_shared<fd_table>(mm::slab<fd_table>());
+    auto table = prs::allocate_shared<fd_table>(prs::allocator{slab::create_resource()});
     table->last_fd = 0;
 
     return table;
@@ -685,8 +734,8 @@ shared_ptr<vfs::fd_table> vfs::copy_table(shared_ptr<fd_table> table) {
         if (!fd) continue;
         auto desc = fd->desc;
 
-        auto new_desc = prs::allocate_shared<descriptor>(mm::slab<descriptor>());
-        auto new_fd = prs::allocate_shared<vfs::fd>(mm::slab<vfs::fd>());
+        auto new_desc = prs::allocate_shared<descriptor>(prs::allocator{slab::create_resource()});
+        auto new_fd = prs::allocate_shared<vfs::fd>(prs::allocator{slab::create_resource()});
 
         new_desc->node = desc->node;
         new_desc->pipe = desc->pipe;
@@ -740,39 +789,40 @@ mode_t vfs::type2mode(int64_t type) {
     return mode_type;
 }
 
-shared_ptr<vfs::node>  vfs::make_recursive(shared_ptr<node> base, frg::string_view path, int64_t type, mode_t mode) {
-    frg::string_view view = path;
+shared_ptr<vfs::node>  vfs::make_recursive(prs::string_view path, 
+        shared_ptr<vfs::node> base, int64_t type, mode_t mode) {
+    prs::string_view view = path;
     ssize_t next_slash;
 
     shared_ptr<node> current_node = base;
     while ((next_slash = view.find_first('/')) != -1) {
         auto pos = next_slash == -1 ? view.size() : next_slash;
 
-        if (auto c = view.sub_string(0, pos); c.size()) {
-            if (auto child = current_node->find_child(c.data())) {
+        if (auto c = view.substring(0, pos); c.size()) {
+            if (auto child = current_node->child_by_name(c.data())) {
                 if (child->type != node::type::DIRECTORY) return nullptr;
                 current_node = child;
             } else {
-                shared_ptr<node> next = prs::allocate_shared<node>(mm::slab<node>(), base->fs, c.data(), current_node, 0, node::type::DIRECTORY);
+                shared_ptr<node> next = prs::allocate_shared<node>(prs::allocator{slab::create_resource()}, base->fs, c.data(), current_node, 0, node::type::DIRECTORY);
 
                 next->meta->st_uid = current_node->meta->st_uid;
                 next->meta->st_gid = current_node->meta->st_gid;
                 next->meta->st_mode = current_node->meta->st_mode;
 
-                current_node->children.push_back(next);
+                current_node->child_add(next);
                 current_node = next;
             }
         }
 
-        view = view.sub_string(pos + 1);
+        view = view.substring(pos + 1);
     }
 
-    shared_ptr<node> next = prs::allocate_shared<node>(mm::slab<node>(), base->fs, view.data() + view.find_last('/') + 1, current_node, 0, type);
+    shared_ptr<node> next = prs::allocate_shared<node>(prs::allocator{slab::create_resource()}, base->fs, view.data() + view.find_last('/') + 1, current_node, 0, type);
     next->meta->st_uid = current_node->meta->st_uid;
     next->meta->st_gid = current_node->meta->st_gid;
     next->meta->st_mode = (current_node->meta->st_mode & (~S_IFDIR)) | type2mode(type) | mode;
 
-    current_node->children.push_back(next);
+    current_node->child_add(next);
     return next;
 }
 
@@ -781,8 +831,8 @@ shared_ptr<vfs::filesystem> vfs::device_fs() {
 }
 
 shared_ptr<vfs::fd> vfs::make_fd(shared_ptr<vfs::node> node, shared_ptr<vfs::fd_table> table, int64_t flags, mode_t mode) {
-    auto desc = prs::allocate_shared<vfs::descriptor>(mm::slab<vfs::descriptor>());
-    auto fd = prs::allocate_shared<vfs::fd>(mm::slab<vfs::fd>());
+    auto desc = prs::allocate_shared<vfs::descriptor>(prs::allocator{slab::create_resource()});
+    auto fd = prs::allocate_shared<vfs::fd>(prs::allocator{slab::create_resource()});
 
     desc->node = node;
     desc->pipe = nullptr;
@@ -816,16 +866,18 @@ shared_ptr<vfs::fd> vfs::make_fd(shared_ptr<vfs::node> node, shared_ptr<vfs::fd_
     return fd;
 }
 
-shared_ptr<vfs::fd> vfs::open(shared_ptr<node> base, frg::string_view filepath, shared_ptr<fd_table> table, int64_t flags, mode_t mode,
-    uid_t uid, gid_t gid) {
+shared_ptr<vfs::fd> vfs::open(shared_ptr<ns::mount> ns,
+        shared_ptr<node> base, prs::string_view filepath, 
+        shared_ptr<fd_table> table, int64_t flags, mode_t mode,
+        uid_t uid, gid_t gid) {
     if (!table) {
         return {};
     }
 
-    auto node = resolve_at(filepath, base);
+    auto node = ns->resolve_at(filepath, base);
     if (!node) {
         if (flags & O_CREAT && table) {
-            auto err = create(base, filepath, table, vfs::node::type::FILE, flags, mode, uid, gid);
+            auto err = create(ns, base, filepath, table, vfs::node::type::FILE, flags, mode, uid, gid);
             if (err <= 0) {
                 return {};
             }
@@ -841,14 +893,13 @@ vfs::fd_pair vfs::open_pipe(shared_ptr<fd_table> table, ssize_t flags) {
     auto read = make_fd(nullptr, table, flags, O_RDONLY);
     auto write = make_fd(nullptr, table, flags, O_WRONLY);
 
-    auto pipe = prs::allocate_shared<vfs::pipe>(mm::slab<vfs::pipe>());
-    pipe->read = read->desc;
-    pipe->write = write->desc;
+    auto pipe = prs::allocate_shared<vfs::pipe>(prs::allocator{slab::create_resource()}, 
+        read->desc, write->desc, arena::create_resource());
     pipe->len = memory::page_size;
     pipe->buf = pipe->allocator.allocate(memory::page_size);
     pipe->data_written = false;
 
-    auto stat = prs::allocate_shared<node::statinfo>(mm::slab<node::statinfo>());
+    auto stat = prs::allocate_shared<vfs::statinfo>(prs::allocator{slab::create_resource()});
     stat->st_size = 0;
     stat->st_mode = S_IFIFO | S_IWUSR | S_IRUSR;
 
@@ -881,7 +932,7 @@ shared_ptr<vfs::fd> vfs::dup(shared_ptr<vfs::fd> fd, bool cloexec, ssize_t new_n
             close(new_fd);
         }
 
-        new_fd = prs::allocate_shared<vfs::fd>(mm::slab<vfs::fd>());
+        new_fd = prs::allocate_shared<vfs::fd>(prs::allocator{slab::create_resource()});
         new_fd->desc = fd->desc;
         new_fd->table = fd->table;
         if (new_num >= 0) {
@@ -902,13 +953,15 @@ shared_ptr<vfs::fd> vfs::dup(shared_ptr<vfs::fd> fd, bool cloexec, ssize_t new_n
     return {};
 }
 
-ssize_t vfs::stat(shared_ptr<node> dir, frg::string_view filepath, node::statinfo *buf, int64_t flags) {
-    auto node = resolve_at(filepath, dir, !(flags & AT_SYMLINK_NOFOLLOW));
+ssize_t vfs::stat(shared_ptr<ns::mount> ns,
+        shared_ptr<node> base, prs::string_view filepath, 
+        statinfo *buf, int64_t flags) {
+    auto node = ns->resolve_at(filepath, base, !(flags & AT_SYMLINK_NOFOLLOW));
     if (!node) {
         return -ENOENT;
     }
 
-    memcpy(buf, node->meta.get(), sizeof(node::statinfo));
+    memcpy(buf, node->meta.get(), sizeof(vfs::statinfo));
     return 0;
 }
 
@@ -945,9 +998,11 @@ ssize_t vfs::close(shared_ptr<fd> fd) {
     return -EBADF;
 }
 
-ssize_t vfs::mkdir(shared_ptr<node> base, frg::string_view dirpath, int64_t flags, mode_t mode,
-    uid_t uid, gid_t gid) {
-    auto dst = resolve_at(dirpath, base);
+ssize_t vfs::mkdir(shared_ptr<ns::mount> ns,
+        shared_ptr<node> base, prs::string_view dirpath, 
+        int64_t flags, mode_t mode,
+        uid_t uid, gid_t gid) {
+    auto dst = ns->resolve_at(dirpath, base);
     if (dst) {
         switch (base->type) {
             case node::type::DIRECTORY:
@@ -957,7 +1012,7 @@ ssize_t vfs::mkdir(shared_ptr<node> base, frg::string_view dirpath, int64_t flag
         }
     }
 
-    auto res = get_parent(base, dirpath);
+    auto res = ns->resolve_parent(base, dirpath);
     if (res.expired()) {
         return -ENOTDIR;
     }
@@ -971,21 +1026,24 @@ ssize_t vfs::mkdir(shared_ptr<node> base, frg::string_view dirpath, int64_t flag
     return -EBADF;
 }
 
-ssize_t vfs::rename(shared_ptr<node> old_base, frg::string_view oldpath, shared_ptr<node> new_base, frg::string_view newpath, int64_t flags) {
-    auto oldview = frg::string_view(oldpath);
-    auto newview = frg::string_view(newpath);
+ssize_t vfs::rename(shared_ptr<ns::mount> ns,
+        shared_ptr<node> old_base, 
+        prs::string_view oldpath, shared_ptr<node> new_base, 
+        prs::string_view newpath, int64_t flags) {
+    auto oldview = prs::string_view(oldpath);
+    auto newview = prs::string_view(newpath);
     auto name = find_name(newpath);
 
-    if (newview.size() > oldview.size() && newview.sub_string(0, oldview.size()) == oldview) {
+    if (newview.size() > oldview.size() && newview.substring(0, oldview.size()) == oldview) {
         return -EINVAL;
     }
 
-    auto src = resolve_at(oldpath, old_base);
+    auto src = ns->resolve_at(oldpath, old_base);
     if (!src) {
         return -EINVAL;
     }
 
-    auto dst = resolve_at(newpath, new_base);
+    auto dst = ns->resolve_at(newpath, new_base);
     if (dst) {
         if (dst->fs.expired() || src->fs.expired()) {
             return -EBADF;
@@ -1007,7 +1065,7 @@ ssize_t vfs::rename(shared_ptr<node> old_base, frg::string_view oldpath, shared_
         }
 
         if (dst->type == node::type::DIRECTORY && src->type == node::type::DIRECTORY) {
-            if (dst->children.size()) {
+            if (dst->child_count()) {
                 return -ENOTEMPTY;
             }
         }
@@ -1015,7 +1073,7 @@ ssize_t vfs::rename(shared_ptr<node> old_base, frg::string_view oldpath, shared_
         if (dst->type != src->type) {
                 return -EINVAL;
         }
-    } else if (resolve_fs(newpath, new_base).lock() != src->fs.lock()) {
+    } else if (ns->resolve_fs(newpath, new_base).lock() != src->fs.lock()) {
         return -EXDEV;
     }
 
@@ -1029,18 +1087,20 @@ ssize_t vfs::rename(shared_ptr<node> old_base, frg::string_view oldpath, shared_
 }
 
 // TODO: adding a symlink
-ssize_t vfs::link(shared_ptr<node> from_base, frg::string_view from, shared_ptr<node> to_base, frg::string_view to, bool is_symlink) {
+ssize_t vfs::link(shared_ptr<ns::mount> ns,
+        shared_ptr<node> from_base, prs::string_view from, 
+        shared_ptr<node> to_base, prs::string_view to, bool is_symlink) {
     if (from == to) {
         return -EINVAL;
     }
 
-    auto src = resolve_at(from, from_base);
+    auto src = ns->resolve_at(from, from_base);
 
-    auto dst = resolve_at(to, to_base);
+    auto dst = ns->resolve_at(to, to_base);
     auto dst_name = find_name(to);
-    auto dst_parent = get_parent(to_base, to);
+    auto dst_parent = ns->resolve_parent(to_base, to);
 
-    auto dst_res = resolve_fs(to, to_base);
+    auto dst_res = ns->resolve_fs(to, to_base);
     if (dst || dst_res.expired()) {
         return -EINVAL;
     }
@@ -1055,19 +1115,20 @@ ssize_t vfs::link(shared_ptr<node> from_base, frg::string_view from, shared_ptr<
         return -EINVAL;
     }
 
-    auto link_dst = prs::allocate_shared<node>(mm::slab<node>(), src->fs, dst_name, dst_parent, 0, src->type, src->inum);
+    auto link_dst = prs::allocate_shared<node>(prs::allocator{slab::create_resource()}, src->fs, dst_name, dst_parent, 0, src->type, src->inum);
     auto err = dst_fs->link(src, link_dst, dst_name, false);
     if (err < 0) {
         return err;
     }
 
     auto parent = dst_parent.lock();
-    parent->children.push_back(link_dst);
+    parent->child_add(link_dst);
     return 0;
 }
 
-ssize_t vfs::unlink(shared_ptr<node> base, frg::string_view filepath) {
-    auto node = resolve_at(filepath, base);
+ssize_t vfs::unlink(shared_ptr<ns::mount> ns,
+        shared_ptr<node> base, prs::string_view filepath) {
+    auto node = ns->resolve_at(filepath, base);
     if (!node || node->type == node::type::DIRECTORY) {
         return -EINVAL;
     }
@@ -1087,7 +1148,7 @@ ssize_t vfs::unlink(shared_ptr<node> base, frg::string_view filepath) {
     }
 
     auto parent = node->parent.lock();
-    parent->children.erase(node);
+    parent->child_remove(node);
 
     node->delete_on_close = true;
     if (node.use_count() == 1) {
@@ -1097,9 +1158,10 @@ ssize_t vfs::unlink(shared_ptr<node> base, frg::string_view filepath) {
     return 0;
 }
 
-ssize_t vfs::rmdir(shared_ptr<node> base, frg::string_view dirpath) {
-    auto dst = resolve_at(dirpath, base);
-    if (!dst || dst->type != node::type::DIRECTORY || dst->children.size() > 0) {
+ssize_t vfs::rmdir(shared_ptr<ns::mount> ns,
+        shared_ptr<node> base, prs::string_view dirpath) {
+    auto dst = ns->resolve_at(dirpath, base);
+    if (!dst || dst->type != node::type::DIRECTORY || dst->child_count() > 0) {
         return -EINVAL;
     }
 
@@ -1116,8 +1178,9 @@ ssize_t vfs::rmdir(shared_ptr<node> base, frg::string_view dirpath) {
     return 0;
 }
 
-vfs::pathlist vfs::readdir(shared_ptr<node> base, frg::string_view dirpath) {
-    auto dst = resolve_at(dirpath, base);
+vfs::pathlist vfs::readdir(shared_ptr<ns::mount> ns,
+        shared_ptr<node> base, prs::string_view dirpath) {
+    auto dst = ns->resolve_at(dirpath, base);
     if (!dst || dst->type != node::type::DIRECTORY) {
         return {};
     }
@@ -1133,18 +1196,24 @@ vfs::pathlist vfs::readdir(shared_ptr<node> base, frg::string_view dirpath) {
         return {};
     }
 
-    auto paths = pathlist();
-    for (auto child: dst->children) {
-        if (!child) continue;
-        paths.push(child->name);
+    auto paths = vfs::pathlist{slab::create_resource()};
+
+    shared_ptr<vfs::node> current = dst->lc;
+    while (current) {
+        if (!current) continue;
+        paths.push_back(current->name);
+
+        current = current->rs;
     }
 
     return paths;
 }
 
-ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t fstype, int64_t flags) {
-    auto src = resolve_at(srcpath, nullptr);
-    auto dst = resolve_at(dstpath, nullptr);
+ssize_t vfs::mount(shared_ptr<ns::mount> ns,
+        prs::string_view srcpath, prs::string_view dstpath, 
+        ssize_t fstype, int64_t flags) {
+    auto src = ns->resolve_at(srcpath, nullptr);
+    auto dst = ns->resolve_at(dstpath, nullptr);
 
     switch (flags) {
         case (mflags::NOSRC | mflags::NODST):
@@ -1152,17 +1221,17 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
         case mflags::NOSRC: {
             switch (fstype) {
                 case fslist::ROOTFS: {
-                    if (tree_root) {
+                    if (ns->has_root()) {
                         return -ENOTEMPTY;
                     }
 
                     // weak_ptr<filesystem> fs, path name, weak_ptr<node> parent, ssize_t flags, ssize_t type
-                    auto root = prs::allocate_shared<node>(mm::slab<node>(), nullptr, "/", nullptr, 0, node::type::DIRECTORY);
-                    auto fs = prs::allocate_shared<rootfs>(mm::slab<rootfs>(), root);
+                    auto root = prs::allocate_shared<node>(prs::allocator{slab::create_resource()}, nullptr, "/", nullptr, 0, node::type::DIRECTORY);
+                    auto fs = prs::allocate_shared<rootfs>(prs::allocator{slab::create_resource()}, root);
 
                     fs->self = fs;
                     root->fs = fs;
-                    tree_root = root;
+                    ns->set_root(root);
                     break;
                 }
 
@@ -1175,11 +1244,11 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                         return -EINVAL;
                     }
 
-                    if (dst->children.size() > 0) {
+                    if (dst->child_count() > 0) {
                         return -EINVAL;
                     }
 
-                    auto fs = prs::allocate_shared<devfs>(mm::slab<devfs>(), dst);
+                    auto fs = prs::allocate_shared<devfs>(prs::allocator{slab::create_resource()}, ns, dst);
 
                     fs->self = fs;
                     dst->fs = fs;
@@ -1209,7 +1278,7 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
                         return -EINVAL;
                     }
 
-                    auto fs = prs::allocate_shared<ext2fs>(mm::slab<ext2fs>(), dst, src);
+                    auto fs = prs::allocate_shared<ext2fs>(prs::allocator{slab::create_resource()}, ns, dst, src);
                     fs->self = fs;
                     if (!fs->load()) {
                         return -EINVAL;
@@ -1231,7 +1300,8 @@ ssize_t vfs::mount(frg::string_view srcpath, frg::string_view dstpath, ssize_t f
 }
 
 // TODO: fix umount
-ssize_t vfs::umount(shared_ptr<node> dst) {
+ssize_t vfs::umount(shared_ptr<ns::mount> ns,
+    shared_ptr<node> dst) {
     if (!dst || dst->fs.expired()) {
         return -EINVAL;
     }

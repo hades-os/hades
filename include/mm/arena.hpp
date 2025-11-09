@@ -5,9 +5,7 @@
 #include <cstdint>
 #include <mm/mm.hpp>
 #include <frg/intrusive.hpp>
-#include <frg/list.hpp>
 #include <frg/tuple.hpp>
-#include <utility>
 #include "prs/allocator.hpp"
 #include "prs/list.hpp"
 #include "util/lock.hpp"
@@ -18,8 +16,6 @@ namespace arena {
 
     struct arena_resource: public prs::memory_resource {
         private:
-            friend struct allocator;
-
             struct page_block;
             struct free_header {
                 size_t size;
@@ -40,8 +36,7 @@ namespace arena {
                 > free_list;
 
                 page_block(size_t page_count): page_count(page_count), hook(), free_list() {}
-            };    struct allocator;
-
+            };
 
             struct allocation_header {
                 size_t size;
@@ -73,7 +68,7 @@ namespace arena {
             arena_resource(const arena_resource& other):
                 block_list(other.block_list), lock() {}
 
-            ~arena_resource();
+            ~arena_resource() override;
 
             void *allocate(size_t size,
                 size_t align = alignof(std::max_align_t)) override;

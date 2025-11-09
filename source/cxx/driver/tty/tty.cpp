@@ -21,7 +21,7 @@ size_t self_major = 5;
 size_t self_minor = 0;
 
 void tty::self::init() {
-    auto self = frg::construct<tty::self>(mm::slab<tty::self>(), vfs::devfs::mainbus, dtable::majors::SELF_TTY, -1, nullptr);
+    auto self = prs::construct<tty::self>(prs::allocator{slab::create_resource()}, vfs::devfs::mainbus, dtable::majors::SELF_TTY, -1, nullptr);
     vfs::devfs::append_device(self, dtable::majors::SELF_TTY);
 }
 
@@ -252,12 +252,12 @@ ssize_t tty::device::ioctl(size_t req, void *buf) {
 }
 
 ssize_t tty::device::poll(shared_ptr<poll::producer> producer) {
-    outputs.push(producer);
+    outputs.push_back(producer);
     return POLLOUT;
 }
 
-void tty::set_active(frg::string_view path, shared_ptr<vfs::fd_table> table) {
-    auto fd = vfs::open(nullptr, path, table, O_NOCTTY, O_RDONLY, 0, 0);
+void tty::set_active(prs::string_view path, shared_ptr<vfs::fd_table> table) {
+    auto fd = vfs::open(vfs::root_ns, nullptr, path, table, O_NOCTTY, O_RDONLY, 0, 0);
     if (!fd) return;
 
     auto private_data = fd->desc->node->data_as<vfs::devfs::dev_priv>();

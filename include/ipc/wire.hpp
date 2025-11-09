@@ -5,20 +5,20 @@
 #include "mm/mm.hpp"
 #include "mm/slab.hpp"
 #include "prs/allocator.hpp"
+#include "prs/vector.hpp"
 #include <cstddef>
 #include <util/lock.hpp>
-#include <frg/vector.hpp>
 #include <frg/tuple.hpp>
 #include <sys/sched/time.hpp>
 
 namespace sched {
-    class thread;
+    struct thread;
 };
 
 namespace ipc {
     struct  wire {
         private:
-            frg::vector<sched::thread *, prs::allocator> threads;
+            prs::vector<sched::thread *, prs::allocator> threads;
 
             ssize_t latest_event;
             sched::thread *latest_waker;

@@ -24,7 +24,7 @@ namespace net {
             prs::allocator allocator;
 
             frg::hash_map<uint32_t, uint8_t *, frg::hash<uint32_t>, prs::allocator> arp_table;
-            frg::vector<net::route, prs::allocator> ipv4_routing_table;
+            prs::vector<net::route, prs::allocator> ipv4_routing_table;
 
             frg::hash_map<uint32_t, ipc::wire, 
                 frg::hash<uint32_t>,  prs::allocator> pending_arps;
@@ -51,6 +51,8 @@ namespace net {
                 allocator(arena::create_resource()),
                 arp_table(frg::hash<uint32_t>(), allocator), 
                 ipv4_routing_table(allocator), pending_arps(frg::hash<uint32_t>(), allocator) {}
+
+            virtual ~device() {}
     };
 }
 

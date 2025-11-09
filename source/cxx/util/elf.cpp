@@ -207,8 +207,10 @@ void elf::file::load() {
             pages = pages + 1;
         }
 
-        vmm::map_flags flags = vmm::map_flags::READ | vmm::map_flags::USER | vmm::map_flags::FILL_NOW;
+        vmm::map_flags flags = vmm::map_flags::USER | vmm::map_flags::FILL_NOW;
+        if (phdr->p_flags & ELF_PF_W || ELF_PF_X || ELF_PF_R) flags |= vmm::map_flags::READ;
         if (phdr->p_flags & ELF_PF_W) flags |= vmm::map_flags::WRITE;
+        if (phdr->p_flags & ELF_PF_X) flags |= vmm::map_flags::EXEC;
 
         ctx->map((void *)(base - misalign), pages * memory::page_size, flags, true);
 

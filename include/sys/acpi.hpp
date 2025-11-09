@@ -3,10 +3,10 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <util/stivale.hpp>
 #include "mm/arena.hpp"
+#include "prs/vector.hpp"
 
 namespace acpi {
     struct [[gnu::packed]] sdt {
@@ -70,9 +70,9 @@ namespace acpi {
             uint32_t flags;
         };
 
-        extern frg::vector<ioapic *, prs::allocator> ioapics;
-        extern frg::vector<iso *, prs::allocator> isos;
-        extern frg::vector<nmi *, prs::allocator> nmis;
+        extern prs::vector<ioapic *, prs::allocator> ioapics;
+        extern prs::vector<iso *, prs::allocator> isos;
+        extern prs::vector<nmi *, prs::allocator> nmis;
 
         inline madt::header *_madt{};
         extern void init();

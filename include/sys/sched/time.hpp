@@ -1,7 +1,6 @@
 #ifndef TIME_HPP
 #define TIME_HPP
 
-#include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <cstddef>
 #include <util/types.hpp>
@@ -11,7 +10,7 @@ namespace ipc {
 }
 
 namespace sched {    
-    class thread;
+    struct thread;
 
     constexpr long NANOS_PER_MILLI = 1000000000;
     constexpr long MILLIS_PER_SEC = 1000;

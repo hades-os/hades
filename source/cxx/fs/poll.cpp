@@ -15,13 +15,13 @@ void poll::producer::arise(ssize_t event) {
     util::lock_guard guard{lock};
 
     for (auto table: tables) {
-        table->arise(event, self);
+        table->arise(event, self.lock());
     }
 }
 
 poll::producer::~producer() {
     for (auto table: tables) {
-        table->disconnect(self);
+        table->disconnect(self.lock());
     }
 }
 
@@ -52,7 +52,7 @@ frg::tuple<
         latest_producer = shared_ptr<poll::producer>{};
         latest_event = -1;
 
-        events.pop();
+        events.pop_back();
         return {return_producer, return_event};
     }
 
@@ -74,7 +74,7 @@ frg::tuple<
     latest_producer = shared_ptr<poll::producer>{};
     latest_event = -1;
 
-    events.pop();
+    events.pop_back();
     return {return_producer, return_event};
 } 
 
@@ -82,8 +82,8 @@ void poll::table::connect(shared_ptr<producer> producer) {
     util::lock_guard guard{lock};
     util::lock_guard producer_guard{producer->lock};
     
-    producers.push(producer);
-    producer->tables.push(self);
+    producers.push_back(producer);
+    producer->tables.push_back(self.lock());
 }
 
 void poll::table::disconnect(shared_ptr<producer> producer) {
@@ -91,7 +91,7 @@ void poll::table::disconnect(shared_ptr<producer> producer) {
     util::lock_guard producer_guard{producer->lock};
 
     producers.erase(producer);
-    producer->tables.erase(self);
+    producer->tables.erase(self.lock());
 }
 
 poll::table::~table() {
@@ -101,14 +101,14 @@ poll::table::~table() {
 }
 
 shared_ptr<poll::table> poll::create_table() {
-    auto table = prs::allocate_shared<poll::table>(mm::slab<poll::table>());
+    auto table = prs::allocate_shared<poll::table>(prs::allocator{slab::create_resource()});
     table->self = table;
 
     return table;
 }
 
 shared_ptr<poll::producer> poll::create_producer(weak_ptr<vfs::descriptor> desc) {
-    auto producer = prs::allocate_shared<poll::producer>(mm::slab<poll::producer>(), desc);
+    auto producer = prs::allocate_shared<poll::producer>(prs::allocator{slab::create_resource()}, desc);
     producer->self = producer;
 
     return producer;

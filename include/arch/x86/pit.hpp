@@ -2,7 +2,6 @@
 #define PIT_HPP
 
 #include <cstddef>
-#include <frg/vector.hpp>
 #include <mm/mm.hpp>
 
 namespace pit {

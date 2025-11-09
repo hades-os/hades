@@ -3,7 +3,6 @@
 
 #include <util/types.hpp>
 #include <fs/vfs.hpp>
-#include <frg/vector.hpp>
 #include <mm/mm.hpp>
 #include <mm/vmm.hpp>
 #include <cstddef>
@@ -136,12 +135,14 @@ namespace elf {
         void *strtab;
         void *symtab;
 
-        prs::allocator allocator;
         prs::vector<symbol, prs::allocator> symbols;
         symbol *find_symbol(uintptr_t addr);
 
         file(prs::allocator allocator):
-            allocator(allocator), symbols(allocator) {}
+            symbols(allocator) {}
+        
+        file(const file& other):
+            symbols(other.symbols) {}
 
         bool init(shared_ptr<vfs::fd> fd);
         void load();

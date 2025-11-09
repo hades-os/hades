@@ -68,7 +68,7 @@ void get_ownership(volatile ahci::abar *bar) {
 
 vfs::devfs::device 
     *pci::ahcibus::matcher::match(vfs::devfs::busdev *bus, void *aux) {
-    return frg::construct<ahcibus>(mm::slab<ahcibus>(), bus, (pci::device *) aux);
+    return prs::construct<ahcibus>(prs::allocator{slab::create_resource()}, bus, (pci::device *) aux);
 }
 
 void pci::ahcibus::matcher::attach(vfs::devfs::busdev *bus, vfs:: devfs::device *dev, void *aux) {
@@ -78,7 +78,7 @@ void pci::ahcibus::matcher::attach(vfs::devfs::busdev *bus, vfs:: devfs::device 
 void pci::ahcibus::attach(ssize_t major, void *aux) {
     switch(major) {
         case dtable::majors::AHCI: {
-            auto device = frg::construct<::ahci::device>(mm::slab<::ahci::device>(), this, dtable::majors::AHCI, -1, aux);
+            auto device = prs::construct<::ahci::device>(prs::allocator{slab::create_resource()}, this, dtable::majors::AHCI, -1, aux);
 
             devices.push_back(device);
             bus_devices.push_back(device);
@@ -120,8 +120,8 @@ void pci::ahcibus::enumerate() {
 
                 ::ahci::setup_args args{
                     // bus_addr_t addr, bus_size_t size, bool linear
-                    .bar = frg::construct<pci_space>(mm::slab<pci_space>(), pci_bar.base, pci_bar.size, pci_bar.is_mmio),
-                    .port = frg::construct<pci_space>(mm::slab<pci_space>(), (bus_addr_t) memory::remove_virt(&ahci_bar->ports[i]), sizeof(::ahci::port), true),
+                    .bar = prs::construct<pci_space>(prs::allocator{slab::create_resource()}, pci_bar.base, pci_bar.size, pci_bar.is_mmio),
+                    .port = prs::construct<pci_space>(prs::allocator{slab::create_resource()}, (bus_addr_t) memory::remove_virt(&ahci_bar->ports[i]), sizeof(::ahci::port), true),
                 };
 
                 attach(dtable::majors::AHCI, &args);

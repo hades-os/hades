@@ -40,9 +40,9 @@ ssize_t vt::driver::ioctl(tty::device *tty, size_t req, void *buf) {
             is_enabled = (uintptr_t) buf;
             if (is_enabled) {
                 if (!fb_save) {
-                    fb_save = frg::construct<fb::fb_info>(allocator);
-                    fb_save->var = frg::construct<fb::fb_var_screeninfo>(allocator);
-                    fb_save->fix = frg::construct<fb::fb_fix_screeninfo>(allocator);
+                    fb_save = prs::construct<fb::fb_info>(allocator);
+                    fb_save->var = prs::construct<fb::fb_var_screeninfo>(allocator);
+                    fb_save->fix = prs::construct<fb::fb_fix_screeninfo>(allocator);
 
                     *fb_save->var = *fb->var;
                     *fb_save->fix = *fb->fix;
@@ -99,14 +99,14 @@ ssize_t vt::driver::ioctl(tty::device *tty, size_t req, void *buf) {
 }
 
 void vt::init(stivale::boot::tags::framebuffer info) {
-    vt::driver *driver = frg::construct<vt::driver>(mm::slab<vt::driver>());
+    vt::driver *driver = prs::construct<vt::driver>(prs::allocator{slab::create_resource()});
 
     driver->has_flush = true;
     driver->has_ioctl = true;
 
-    driver->fb = frg::construct<fb::fb_info>(driver->allocator);
-    driver->fb->fix = frg::construct<fb::fb_fix_screeninfo>(driver->allocator);
-    driver->fb->var = frg::construct<fb::fb_var_screeninfo>(driver->allocator);
+    driver->fb = prs::construct<fb::fb_info>(driver->allocator);
+    driver->fb->fix = prs::construct<fb::fb_fix_screeninfo>(driver->allocator);
+    driver->fb->var = prs::construct<fb::fb_var_screeninfo>(driver->allocator);
 
     driver->fb->fix->smem_start = (uint64_t) info.addr + memory::x86::virtualBase;
     driver->fb->fix->line_length = info.pitch;
@@ -130,7 +130,7 @@ void vt::init(stivale::boot::tags::framebuffer info) {
     );
 
     for (size_t i = 0; i < vt_ttys; i++) {
-        auto tty = frg::construct<tty::device>(mm::slab<tty::device>(), vfs::devfs::mainbus, dtable::majors::VT, -1, driver);
+        auto tty = prs::construct<tty::device>(prs::allocator{slab::create_resource()}, vfs::devfs::mainbus, dtable::majors::VT, -1, driver);
         vfs::devfs::append_device(tty, dtable::majors::VT);
     }
 }

@@ -1,4 +1,3 @@
-#include "frg/string.hpp"
 #include "frg/tuple.hpp"
 #include "fs/vfs.hpp"
 #include "mm/mm.hpp"
@@ -57,7 +56,7 @@ bool vfs::ext2fs::load() {
     root->meta->st_nlink = 1;
 
     auto [_, head] = read_dirents(&inode);
-    root->as_data(prs::allocate_shared<data>(mm::slab<data>(), head));
+    root->as_data(prs::allocate_shared<data>(prs::allocator{slab::create_resource()}, head));
 
     kmsg(logger,
         "ext2fs: inode count: %u, block count: %u, blocks per group: %u, block size: %u, bgd count: %u",
@@ -71,7 +70,7 @@ bool vfs::ext2fs::load() {
     return true;
 }
 
-weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_view name) {
+weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, prs::string_view name) {
     ext2fs::inode dir_inode;
     if (read_inode_entry(&dir_inode, parent->inum) == -1) {
         return {};
@@ -82,7 +81,7 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
         auto [res, head] = read_dirents(&dir_inode);
         if (res < 0) return {};
 
-        private_data = prs::allocate_shared<data>(mm::slab<data>(), head);
+        private_data = prs::allocate_shared<data>(prs::allocator{slab::create_resource()}, head);
     }
 
     auto file = private_data->head;
@@ -139,8 +138,8 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
         }
 
         auto inode_index = file->dent.inode_index;
-        auto node = prs::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, parent, 0, node_type, inode_index);
-        auto meta = prs::allocate_shared<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
+        auto node = prs::allocate_shared<vfs::node>(prs::allocator{slab::create_resource()}, self, name, parent, 0, node_type, inode_index);
+        auto meta = prs::allocate_shared<vfs::statinfo>(prs::allocator{slab::create_resource()});
 
         node->meta = meta;
 
@@ -153,7 +152,7 @@ weak_ptr<vfs::node> vfs::ext2fs::lookup(shared_ptr<node> parent, frg::string_vie
         meta->st_ino = file->dent.inode_index;
         meta->st_nlink = 1;
 
-        parent->children.push_back(node);
+        parent->child_add(node);
 
        return node;
     }
@@ -172,7 +171,7 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
         auto [res, head] = read_dirents(&dir_inode);
         if (res < 0) return {};
 
-        private_data = prs::allocate_shared<data>(mm::slab<data>(), head);
+        private_data = prs::allocate_shared<data>(prs::allocator{slab::create_resource()}, head);
     }
 
     auto file = private_data->head;
@@ -226,11 +225,11 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
         // filesystem *fs, path name, node *parent, ssize_t flags, ssize_t type, ssize_t inum = -1
 
         auto inode_index = file->dent.inode_index;
-        auto node = prs::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, file->name, dir, 0, node_type, inode_index);
-        auto meta = prs::allocate_shared<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
+        auto node = prs::allocate_shared<vfs::node>(prs::allocator{slab::create_resource()}, self, file->name, dir, 0, node_type, inode_index);
+        auto meta = prs::allocate_shared<vfs::statinfo>(prs::allocator{slab::create_resource()});
 
         node->meta = meta;
-        node->as_data(prs::allocate_shared<data>(mm::slab<data>(), file));
+        node->as_data(prs::allocate_shared<data>(prs::allocator{slab::create_resource()}, file));
 
         meta->st_uid = inode.uid;
         meta->st_gid = inode.gid;
@@ -241,7 +240,7 @@ ssize_t vfs::ext2fs::readdir(shared_ptr<node> dir) {
         meta->st_ino = file->dent.inode_index;
         meta->st_nlink = 1;
 
-        dir->children.push_back(node);
+        dir->child_add(node);
 
        file = file->next;
     }
@@ -368,8 +367,8 @@ ssize_t vfs::ext2fs::create(shared_ptr<node> dst, path name, int64_t type, int64
         return -1;
     }
 
-    auto node = prs::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, type, inum);
-    auto meta = prs::allocate_shared<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
+    auto node = prs::allocate_shared<vfs::node>(prs::allocator{slab::create_resource()}, self, name, dst, flags, type, inum);
+    auto meta = prs::allocate_shared<vfs::statinfo>(prs::allocator{slab::create_resource()});
 
     meta->st_ino = inum;
     meta->st_uid = parent_inode.uid;
@@ -381,12 +380,12 @@ ssize_t vfs::ext2fs::create(shared_ptr<node> dst, path name, int64_t type, int64
 
     node->meta = meta;
 
-    dst->children.push_back(node);
+    dst->child_add(node);
 
     return 0;
 }
 
-ssize_t vfs::ext2fs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t flags, mode_t mode,
+ssize_t vfs::ext2fs::mkdir(shared_ptr<node> dst, prs::string_view name, int64_t flags, mode_t mode,
     uid_t uid, gid_t gid) {
     ext2fs::inode parent_inode;
     if (read_inode_entry(&parent_inode, dst->inum) == -1) {
@@ -411,8 +410,8 @@ ssize_t vfs::ext2fs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t 
         return -1;
     }
 
-    auto node = prs::allocate_shared<vfs::node>(mm::slab<vfs::node>(), self, name, dst, flags, node::type::DIRECTORY, inum);
-    auto meta = prs::allocate_shared<vfs::node::statinfo>(mm::slab<vfs::node::statinfo>());
+    auto node = prs::allocate_shared<vfs::node>(prs::allocator{slab::create_resource()}, self, name, dst, flags, node::type::DIRECTORY, inum);
+    auto meta = prs::allocate_shared<vfs::statinfo>(prs::allocator{slab::create_resource()});
 
     meta->st_ino = inum;
     meta->st_uid = parent_inode.uid;
@@ -424,7 +423,7 @@ ssize_t vfs::ext2fs::mkdir(shared_ptr<node> dst, frg::string_view name, int64_t 
 
     node->meta = meta;
 
-    dst->children.push_back(node);
+    dst->child_add(node);
 
     return 0;
 }
@@ -522,7 +521,7 @@ frg::tuple<
 
     for (size_t headway = 0; headway < read_inode_size(inode);) {
         ext2fs::dirent *dirent = (ext2fs::dirent *) ((char *) buffer + headway);
-        auto ent = prs::allocate_shared<data::ent>(mm::slab<data::ent>());
+        auto ent = prs::allocate_shared<data::ent>(prs::allocator{slab::create_resource()});
 
         char *name = (char *) ent->allocator.allocate(dirent->name_length + 1);
         memcpy(name, (char *) dirent + sizeof(ext2fs::dirent), dirent->name_length);

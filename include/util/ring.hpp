@@ -32,7 +32,8 @@ namespace util {
 }
 
 template <typename T>
-util::ring<T>::ring(size_t size) {
+util::ring<T>::ring(size_t size):
+        allocator(arena::create_resource()) {
     this->data = (T *) allocator.allocate(sizeof(T) * size);
     this->size = size;
     this->head = -1;

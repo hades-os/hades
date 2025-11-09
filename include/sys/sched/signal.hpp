@@ -73,8 +73,8 @@ constexpr size_t SIGMASK(size_t sig) {
 // #define SIGMASK(SIG) (1ull << ((SIG) - 1))
 
 namespace sched {
-    class process;
-    class process_group;
+    struct process;
+    struct process_group;
 
     namespace signal {
         union sigval {

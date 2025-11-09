@@ -6,7 +6,6 @@
 #include <mm/mm.hpp>
 #include <cstddef>
 #include <cstdint>
-#include <frg/vector.hpp>
 #include <fs/dev.hpp>
 #include <util/lock.hpp>
 

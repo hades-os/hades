@@ -13,8 +13,8 @@ namespace vfs {
 
 namespace sched {
     struct process_env;
-    class process;
-    class thread;
+    struct process;
+    struct thread;
 }
 
 namespace vmm {
@@ -34,7 +34,7 @@ namespace vmm {
         PRIVATE = (1ULL << 52),
         DIRTY = (1ULL << 53),
 
-        EXEC = (1ULL << 63)
+        NX = (1ULL << 63)
     };
 
     inline constexpr page_flags

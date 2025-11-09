@@ -1,10 +1,10 @@
 #ifndef IP_HPP
 #define IP_HPP
 
-#include <frg/string.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <driver/net/types.hpp>
+#include "prs/string.hpp"
 
 namespace net {
     using in_addr_t = uint32_t;
@@ -217,7 +217,7 @@ namespace net {
     inline uint32_t ipv4_pton(const char* ip_str) {
         uint32_t ipv4 = 0;
 
-        frg::string_view view(ip_str);
+        prs::string_view view(ip_str);
         size_t dot_idx = 0;
         for (uint32_t i = 0; i < 4; i++) {
             uint32_t part = ipv4_part_parse(view.data());
@@ -228,7 +228,7 @@ namespace net {
             ipv4 += part << (8 * (4 - (i + 1)));
 
             dot_idx = view.find_first('.');
-            view = view.sub_string(dot_idx + 1);
+            view = view.substring(dot_idx + 1);
         }
 
         return ipv4;

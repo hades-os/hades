@@ -11,7 +11,7 @@
 
 sched::timespec sched::clock_rt{};
 sched::timespec sched::clock_mono{};
-static frg::vector<sched::timer, prs::allocator> timers{
+static prs::vector<sched::timer, prs::allocator> timers{
     arena::create_resource()
 };
 

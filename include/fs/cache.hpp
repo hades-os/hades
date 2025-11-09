@@ -6,8 +6,6 @@
 #include <fs/dev.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include <frg/tuple.hpp>
-#include <frg/list.hpp>
-#include <frg/vector.hpp>
 #include <ipc/link.hpp>
 #include <mm/mm.hpp>
 #include <util/types.hpp>
@@ -55,7 +53,7 @@ namespace cache {
 
             bool syncing;
 
-            frg::vector<shared_ptr<request>, prs::allocator> requests;
+            prs::vector<shared_ptr<request>, prs::allocator> requests;
         public:
             ssize_t request_io(void *buffer, size_t offset, size_t len, bool rw);
 

@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <util/string.hpp>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
 #include <mm/vmm.hpp>
@@ -25,7 +25,7 @@ vmm::vmm_ctx::~vmm_ctx() {
     while (mapping) {
         auto next = mappings.successor(mapping);
         delete_mapping(mapping);
-        frg::destruct(allocator, mapping);
+        prs::destruct(allocator, mapping);
         mapping = next;
     }
 }
@@ -83,7 +83,7 @@ bool vmm::vmm_ctx::hole_aggregator::check_invariant(hole_tree &tree, hole *node)
 
 static log::subsystem logger = log::make_subsystem("VM");
 void vmm::vmm_ctx::setup_hole() {
-    this->holes.insert(frg::construct<hole>(allocator,(void *) 0x1000, (1ULL << get_user_bits()) - 0x1000, (void *) this));
+    this->holes.insert(prs::construct<hole>(allocator,(void *) 0x1000, (1ULL << get_user_bits()) - 0x1000, (void *) this));
 }
 
 void *vmm::vmm_ctx::create_hole(void *addr, uint64_t len) {
@@ -158,30 +158,30 @@ uint8_t vmm::vmm_ctx::delete_hole(void *addr, uint64_t len) {
     }
 
     if (pre && (char *) pre->addr + pre->len == addr && succ && (char *) addr + len == succ->addr) {
-        hole *cur = frg::construct<hole>(allocator, pre->addr, pre->len + len + succ->len, (void *) this);
+        hole *cur = prs::construct<hole>(allocator, pre->addr, pre->len + len + succ->len, (void *) this);
 
         this->holes.remove(pre);
         this->holes.remove(succ);
         this->holes.insert(cur);
 
-        frg::destruct(allocator, pre);
-        frg::destruct(allocator, succ);
+        prs::destruct(allocator, pre);
+        prs::destruct(allocator, succ);
     } else if (pre && (char *) pre->addr + pre->len == addr) {
-        hole *cur = frg::construct<hole>(allocator, pre->addr, pre->len + len, (void *) this);
+        hole *cur = prs::construct<hole>(allocator, pre->addr, pre->len + len, (void *) this);
 
         this->holes.remove(pre);
         this->holes.insert(cur);
 
-        frg::destruct(allocator, pre);
+        prs::destruct(allocator, pre);
     } else if (succ && (char *) addr + len == succ->addr) {
-        hole *cur = frg::construct<hole>(allocator, addr, succ->len + len, (void *) this);
+        hole *cur = prs::construct<hole>(allocator, addr, succ->len + len, (void *) this);
 
         this->holes.remove(succ);
         this->holes.insert(cur);
 
-        frg::destruct(allocator, succ);
+        prs::destruct(allocator, succ);
     } else {
-        hole *cur = frg::construct<hole>(allocator, addr, len, (void *) this);
+        hole *cur = prs::construct<hole>(allocator, addr, len, (void *) this);
 
         this->holes.insert(cur);
     }
@@ -192,16 +192,16 @@ void vmm::vmm_ctx::split_hole(hole *node, uint64_t offset, size_t len) {
     this->holes.remove(node);
 
     if (offset) {
-        hole *pred = frg::construct<hole>(allocator, node->addr, offset, (void *) this);
+        hole *pred = prs::construct<hole>(allocator, node->addr, offset, (void *) this);
         this->holes.insert(pred);
     }
 
     if ((offset + len) < node->len) {
-        hole *sucs = frg::construct<hole>(allocator, (char *) node->addr + offset + len, node->len - (offset + len), (void *) this);
+        hole *sucs = prs::construct<hole>(allocator, (char *) node->addr + offset + len, node->len - (offset + len), (void *) this);
         this->holes.insert(sucs);
     }
 
-    frg::destruct(allocator, node);
+    prs::destruct(allocator, node);
 }
 
 vmm::vmm_ctx::mapping::mapping_perms vmm::vmm_ctx::flags_to_perms(vmm::map_flags flags) {
@@ -245,7 +245,7 @@ void *vmm::vmm_ctx::create_mapping(void *addr, uint64_t len, map_flags flags, bo
         map_single_4k((char *) dst + (memory::page_size * i), phys, mapped_flags, page_map);
     }
 
-    mapping *node = frg::construct<mapping>(allocator, dst, len, page_map);
+    mapping *node = prs::construct<mapping>(allocator, dst, len, page_map);
     if (fill_now) node->free_pages = true;
     node->perms = flags_to_perms(flags);
 
@@ -336,12 +336,12 @@ frg::tuple<vmm::vmm_ctx::mapping *, vmm::vmm_ctx::mapping *>vmm::vmm_ctx::split_
 
         if (at > it->addr && at < ((char *) it->addr + it->len)) {
             uint64_t leftSize = ((char *) at - (char *) it->addr);
-            auto left = frg::construct<mapping>(allocator, it->addr, leftSize, page_map);
+            auto left = prs::construct<mapping>(allocator, it->addr, leftSize, page_map);
 
             left->free_pages = it->free_pages;
             left->perms = it->perms;
 
-            auto right = frg::construct<mapping>(allocator, at, it->len - leftSize, page_map);
+            auto right = prs::construct<mapping>(allocator, at, it->len - leftSize, page_map);
 
             right->free_pages = it->free_pages;
             right->perms = it->perms;
@@ -350,7 +350,7 @@ frg::tuple<vmm::vmm_ctx::mapping *, vmm::vmm_ctx::mapping *>vmm::vmm_ctx::split_
             mappings.insert(left);
             mappings.insert(right);
 
-            frg::destruct(allocator, it);
+            prs::destruct(allocator, it);
 
             if (start == it) {
                 if (addr < at) {
@@ -378,7 +378,7 @@ void vmm::vmm_ctx::delete_mappings(void *addr, uint64_t len, mapping *start, map
             delete_hole(mapping->addr, mapping->len);
             unmap_pages(mapping->addr, mapping->len, mapping->free_pages);
             mappings.remove(mapping);
-            frg::destruct(allocator, mapping);
+            prs::destruct(allocator, mapping);
         }
     }
 }
@@ -425,7 +425,7 @@ void vmm::vmm_ctx::modify(void *virt, uint64_t len, map_flags flags) {
 vmm::vmm_ctx *vmm::vmm_ctx::fork() {
     util::lock_guard guard{lock};
 
-    auto new_ctx = frg::construct<vmm_ctx>(allocator);
+    auto new_ctx = prs::construct<vmm_ctx>(allocator);
 
     new_ctx->page_map = new_pagemap();
     new_ctx->setup_hole();
@@ -433,7 +433,7 @@ vmm::vmm_ctx *vmm::vmm_ctx::fork() {
     
     mapping *current = mappings.first();
     while (current) {
-        mapping *node = frg::construct<mapping>(allocator, current->addr, current->len, page_map);
+        mapping *node = prs::construct<mapping>(allocator, current->addr, current->len, page_map);
 
         new_ctx->create_hole(current->addr, current->len);
         node->perms = current->perms;

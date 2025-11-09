@@ -2,7 +2,7 @@
 #include <arch/x86/types.hpp>
 #include <cstddef>
 #include <cstdint>
-#include <frg/allocation.hpp>
+#include <prs/construct.hpp>
 #include <mm/common.hpp>
 #include <mm/mm.hpp>
 #include <mm/pmm.hpp>
@@ -20,7 +20,7 @@ util::spinlock vmm_lock{};
 static log::subsystem logger = log::make_subsystem("VM");
 // API Functions
 void vmm::init() {
-    auto allocator = mm::slab<int64_t>();
+    auto allocator = prs::allocator{slab::create_resource()};
 
     refs_len = pmm::nr_pages * sizeof(int64_t);
     refs = (int64_t *) allocator.allocate(refs_len);
@@ -28,7 +28,7 @@ void vmm::init() {
         refs[i] = -1;
     }
 
-    boot = frg::construct<vmm_ctx>(allocator);
+    boot = prs::construct<vmm_ctx>(allocator);
     boot->page_map = new_pagemap();
     boot->setup_hole();
 
@@ -42,13 +42,13 @@ void vmm::init() {
         for (size_t i = 0; i < limit_4g / memory::page_large; i++) {
             void *phys = (void *) (i * memory::page_large);
             void *addr = (void *) (memory::x86::virtualBase + (i * memory::page_large));
-            map_single_2m(addr, phys, page_flags::PRESENT | page_flags::WRITE, boot->page_map);
+            map_single_2m(addr, phys, page_flags::PRESENT | page_flags::WRITE | page_flags::NX, boot->page_map);
         }
     } else {
         for (size_t i = 0; i < ((pmm::nr_pages) * memory::page_size) / memory::page_large; i++) {
             void *phys = (void *) (i * memory::page_large);
             void *addr = (void *) (memory::x86::virtualBase + (i * memory::page_large));
-            map_single_2m(addr, phys, page_flags::PRESENT | page_flags::WRITE, boot->page_map);
+            map_single_2m(addr, phys, page_flags::PRESENT | page_flags::WRITE | page_flags::NX, boot->page_map);
         }
     }
 
@@ -57,7 +57,7 @@ void vmm::init() {
 }
 
 vmm::vmm_ctx *vmm::create() {
-    auto new_ctx = frg::construct<vmm_ctx>(mm::slab<vmm_ctx>());
+    auto new_ctx = prs::construct<vmm_ctx>(prs::allocator{slab::create_resource()});
 
     new_ctx->page_map = new_pagemap();
     new_ctx->setup_hole();
@@ -70,5 +70,5 @@ void vmm::destroy(vmm_ctx *ctx) {
     boot->swap_in();
     ctx->~vmm_ctx();
  
-    frg::destruct(mm::slab<vmm_ctx>(), ctx);
+    prs::destruct(prs::allocator{slab::create_resource()}, ctx);
 }
